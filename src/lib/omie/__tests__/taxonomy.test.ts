@@ -1,0 +1,66 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { Category, classifyFault, normalize, parseRetryAfter } from "../taxonomy";
+
+describe("classifyFault", () => {
+  it("lista vazia → EMPTY", () => {
+    expect(classifyFault("ERROR: Não existem registros para a página [1]!")).toBe(Category.EMPTY);
+  });
+
+  it("não cadastrado por código → NOT_FOUND", () => {
+    expect(classifyFault("ERROR: Pedido não cadastrado para o Código [25953530] !")).toBe(
+      Category.NOT_FOUND,
+    );
+  });
+
+  it("não cadastrado por código de integração → NOT_FOUND", () => {
+    const fault = "ERROR: Pedido de compra não cadastrado para o Código de Integração [INT001] !";
+    expect(classifyFault(fault)).toBe(Category.NOT_FOUND);
+  });
+
+  it("resposta quebrada do app server → TRANSIENT", () => {
+    expect(classifyFault("SOAP-ERROR: Broken response from Application Server (BG)")).toBe(
+      Category.TRANSIENT,
+    );
+  });
+
+  it("consumo redundante → REDUNDANT (antes de BLOCKED)", () => {
+    const fault = "Consumo redundante detectado. Aguarde 60 segundos para tentar novamente (REDUNDANT).";
+    expect(classifyFault(fault)).toBe(Category.REDUNDANT);
+  });
+
+  it("consumo indevido → BLOCKED", () => {
+    expect(
+      classifyFault("API bloqueada por consumo indevido. Tente novamente em 1200 segundos."),
+    ).toBe(Category.BLOCKED);
+  });
+
+  it("já cadastrado → DUPLICATE", () => {
+    expect(classifyFault("ERROR: Cliente já cadastrado para o CNPJ informado.")).toBe(
+      Category.DUPLICATE,
+    );
+  });
+
+  it("desconhecido → ERROR e loga WARNING", () => {
+    const logger = { warn: vi.fn() };
+    expect(classifyFault("ERROR: Algo totalmente novo aconteceu", logger)).toBe(Category.ERROR);
+    expect(logger.warn).toHaveBeenCalledOnce();
+  });
+});
+
+describe("parseRetryAfter", () => {
+  it("extrai os segundos de espera", () => {
+    expect(parseRetryAfter("Aguarde 60 segundos para tentar novamente (REDUNDANT).")).toBe(60);
+    expect(parseRetryAfter("Tente novamente em 1200 segundos.")).toBe(1200);
+  });
+
+  it("retorna null sem número", () => {
+    expect(parseRetryAfter("erro sem número")).toBeNull();
+  });
+});
+
+describe("normalize", () => {
+  it("remove acentos e caixa", () => {
+    expect(normalize("ERROR: Não EXISTEM")).toBe("error: nao existem");
+  });
+});

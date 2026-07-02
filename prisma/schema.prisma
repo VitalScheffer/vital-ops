@@ -1,0 +1,234 @@
+// vital-ops — schema Prisma (fonte: docs/REQUISITOS.md §4)
+// Identificadores de domínio seguem o brief (contrato compartilhado com o frontend).
+// Rode `npx prisma generate` após editar. `npx prisma migrate dev` cria o dev.db (SQLite).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Papéis e status
+//
+// SQLite não tem enum: os campos abaixo são String. Os valores válidos são os
+// mesmos dos antigos enums e a validação vive no zod dos contratos
+// (src/lib/contracts). Role: ADMIN | GESTOR | FUNCIONARIO.
+// ImportStatus: RASCUNHO | ENVIANDO | CONCLUIDO | FALHA.
+// ProdutoItemStatus: NOVO | DUPLICADO | ERRO | ENVIADO | FALHA.
+// EstruturaStatus: PENDENTE | ENVIADO | FALHA.
+// RequisicaoStatus: PENDENTE | CONFIRMADA | RECUSADA.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Fundação: usuários, setores, auditoria
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  role         String   @default("FUNCIONARIO")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  setores        UserSetor[]
+  auditLogs      AuditLog[]     @relation("AuditActor")
+  imports        ProdutoImport[]
+  requisicoesFeitas    Requisicao[] @relation("Solicitante")
+  requisicoesGeridas   Requisicao[] @relation("Gestor")
+
+  @@index([role])
+}
+
+model Setor {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  createdAt DateTime @default(now())
+
+  membros     UserSetor[]
+  requisicoes Requisicao[]
+}
+
+// Membership N:N entre User e Setor.
+model UserSetor {
+  userId  String
+  setorId String
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setor Setor @relation(fields: [setorId], references: [id], onDelete: Cascade)
+
+  @@id([userId, setorId])
+  @@index([setorId])
+}
+
+// Auditoria em TUDO (REQUISITOS §5). IP real vem de x-forwarded-for na Vercel.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorEmail String
+  action     String
+  entity     String
+  entityId   String?
+  summary    String
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  omieTarget String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// Permissões configuráveis por papel × módulo (item 3 da sessão de UI/RBAC).
+// Chave composta role+module. Módulos válidos: "products" | "users" | "audit"
+// (validados em src/lib/permissions.ts, não aqui — SQLite não tem enum).
+// ADMIN é sempre tratado como true em código (src/lib/permissions.ts), mesmo
+// que exista uma linha aqui — trava de segurança, não fica só no seed.
+model RolePermission {
+  role    String
+  module  String
+  enabled Boolean @default(true)
+
+  @@id([role, module])
+}
+
+// ---------------------------------------------------------------------------
+// Módulo Produtos (Fase 2)
+// ---------------------------------------------------------------------------
+
+model ProdutoImport {
+  id             String   @id @default(cuid())
+  autorId        String
+  arquivoNome    String
+  status         String   @default("RASCUNHO")
+  totalProdutos  Int      @default(0)
+  totalEstrutura Int      @default(0)
+  criadoEm       DateTime @default(now())
+
+  autor     User            @relation(fields: [autorId], references: [id], onDelete: Cascade)
+  produtos  ProdutoItem[]
+  estrutura EstruturaItem[]
+
+  @@index([autorId])
+  @@index([status])
+}
+
+model ProdutoItem {
+  id                String   @id @default(cuid())
+  importId          String
+  codigo            String
+  descricao         String
+  familia           String?
+  ncm               String
+  unidade           String
+  tipo              String
+  localEstoque      String?
+  controleLote      Boolean  @default(true)
+  status            String   @default("NOVO")
+  motivoErro        String?
+  omieCodigoProduto String?
+  enviadoEm         DateTime?
+
+  import ProdutoImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([codigo])
+}
+
+model EstruturaItem {
+  id          String   @id @default(cuid())
+  importId    String
+  numeroPai   String
+  numeroFilho String
+  codigoPai   String
+  codigoFilho String
+  quantidade  Decimal
+  status      String   @default("PENDENTE")
+  motivoErro  String?
+
+  import ProdutoImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+}
+
+// ---------------------------------------------------------------------------
+// Módulo Requisições de fábrica (Fase 3)
+// ---------------------------------------------------------------------------
+
+model Requisicao {
+  id            String   @id @default(cuid())
+  numero        String   @unique
+  solicitanteId String
+  sku           String
+  nome          String
+  quantidade    Decimal
+  setorId       String
+  status        String   @default("PENDENTE")
+  gestorId      String?
+  confirmadaEm  DateTime?
+  criadoEm      DateTime @default(now())
+
+  solicitante User  @relation("Solicitante", fields: [solicitanteId], references: [id])
+  gestor      User? @relation("Gestor", fields: [gestorId], references: [id], onDelete: SetNull)
+  setor       Setor @relation(fields: [setorId], references: [id])
+
+  movimentos MovimentoEstoque[]
+
+  @@index([solicitanteId])
+  @@index([setorId])
+  @@index([status])
+}
+
+model MovimentoEstoque {
+  id           String   @id @default(cuid())
+  requisicaoId String
+  tipo         String
+  quantidade   Decimal
+  omieRef      String?
+  criadoEm     DateTime @default(now())
+
+  requisicao Requisicao @relation(fields: [requisicaoId], references: [id], onDelete: Cascade)
+
+  @@index([requisicaoId])
+}
+
+// ---------------------------------------------------------------------------
+// Cliente Omie — durabilidade importa (REQUISITOS §6, portado do nextstep)
+// ---------------------------------------------------------------------------
+
+// Cache de chamadas por (path, call, payload canônico). TTL >= 60s. Guarda
+// só respostas ok/vazio (nunca erro). Invalidar = expirar (expiraEm = agora).
+model OmieCache {
+  chave     String   @id
+  path      String
+  call      String
+  param     Json
+  categoria String
+  resposta  Json
+  criadoEm  DateTime @default(now())
+  expiraEm  DateTime
+
+  @@index([path])
+  @@index([expiraEm])
+}
+
+// Estado compartilhado do circuit breaker — registro único (id = 1).
+// `estado` (CLOSED/SOFT/HARD) é observabilidade; a decisão real usa os timestamps.
+model OmieBreaker {
+  id           Int       @id @default(1)
+  estado       String    @default("CLOSED")
+  faults       Int       @default(0)
+  cooldownUntil DateTime?
+  blockedUntil DateTime?
+  atualizadoEm DateTime  @updatedAt
+}

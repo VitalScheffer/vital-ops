@@ -1,26 +1,183 @@
 @import "tailwindcss";
 
+/* Identidade visual da Vital Scheffer (petróleo/teal/turquesa/água), adaptada
+   para o Tailwind v4 deste projeto. Tema claro por padrão (profissional e
+   limpo); modo escuro via preferência do sistema. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --radius: 0.75rem;
+
+  /* Primitivas de marca */
+  --vs-petroleo: #0a5560;
+  --vs-teal: #0e7c86;
+  --vs-turquesa: #13b6a8;
+  --vs-agua: #5fd0c4;
+  --vs-tinta: #13262b;
+
+  /* Superfícies / texto — claro (padrão) */
+  --background: #eaf3f3;
+  --foreground: #13262b;
+  --card: #ffffff;
+  --card-foreground: #13262b;
+  --muted: #f1f5f5;
+  --muted-foreground: #5b6b72;
+  --border: rgba(19, 38, 43, 0.14);
+  --field-bg: #ffffff;
+
+  --primary: var(--vs-petroleo);
+  --primary-foreground: #ffffff;
+  --accent: var(--vs-turquesa);
+
+  /* Estado semântico — claro */
+  --success: #0f8f74;
+  --success-dim: color-mix(in srgb, var(--success) 12%, transparent);
+  --warning: #c77f17;
+  --warning-dim: color-mix(in srgb, var(--warning) 14%, transparent);
+  --danger: #c4453f;
+  --danger-dim: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --background: #0c1418;
+    --foreground: #e6edf0;
+    --card: #111c22;
+    --card-foreground: #e6edf0;
+    --muted: #16242b;
+    --muted-foreground: #8b9aa1;
+    --border: rgba(255, 255, 255, 0.1);
+    --field-bg: rgba(0, 0, 0, 0.2);
+
+    --primary: var(--vs-turquesa);
+    --primary-foreground: #04262b;
+    --accent: var(--vs-turquesa);
+
+    --success: var(--vs-turquesa);
+    --success-dim: rgba(19, 182, 168, 0.14);
+    --warning: #e0a83a;
+    --warning-dim: rgba(224, 168, 58, 0.14);
+    --danger: #e06a6a;
+    --danger-dim: rgba(224, 106, 106, 0.14);
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-field: var(--field-bg);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-success-dim: var(--success-dim);
+  --color-warning: var(--warning);
+  --color-warning-dim: var(--warning-dim);
+  --color-danger: var(--danger);
+  --color-danger-dim: var(--danger-dim);
+
+  /* Primitivas de marca também como cores utilitárias. */
+  --color-brand-petroleo: var(--vs-petroleo);
+  --color-brand-teal: var(--vs-teal);
+  --color-brand-turquesa: var(--vs-turquesa);
+  --color-brand-agua: var(--vs-agua);
+
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  --font-sans: "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Título "Vital Ops": gradiente branco → água, estático (limpo, nítido, sem pisca). */
+.vital-ops-title {
+  background-image: linear-gradient(160deg, #ffffff 0%, var(--vs-agua) 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* "Formiguinhas": borda tracejada girando (igual ao dropzone das planilhas). */
+@keyframes marching-ants {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+.animate-marching-ants {
+  animation: marching-ants 1.4s linear infinite;
+}
+
+/* Fundo animado: blobs desfocados que flutuam devagar. Anima só `transform`
+   (composição na GPU) = leve, sem canvas/JS. */
+@keyframes blob-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, 8%, 0) scale(1.12);
+  }
+}
+@keyframes blob-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-7%, -6%, 0) scale(1.1);
+  }
+}
+@keyframes blob-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(5%, -7%, 0) scale(1.15);
+  }
+}
+.animate-blob-a {
+  animation: blob-a 22s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-blob-b {
+  animation: blob-b 26s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-blob-c {
+  animation: blob-c 30s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marching-ants,
+  .animate-blob-a,
+  .animate-blob-b,
+  .animate-blob-c {
+    animation: none;
   }
 }
 
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  /* Vinheta sutil de marca no topo (turquesa bem fraco) — profundidade sem
+     "sujar" o fundo. */
+  background-image: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    color-mix(in srgb, var(--vs-turquesa) 12%, transparent),
+    transparent 70%
+  );
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
