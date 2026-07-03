@@ -199,7 +199,8 @@ async function aplicarResultadoNoBanco(importId: string, resultado: EnvioResulta
   });
   const idPorCodigo = new Map(itensDb.map((i) => [i.codigo, i.id]));
 
-  // Atualizações sequenciais: SQLite (better-sqlite3) serializa escritas.
+  // Atualizações sequenciais (uma query por vez) — simples e previsível; o
+  // volume por lote é baixo, não precisa de paralelismo nem de transação.
   for (const produto of resultado.produtos) {
     const id = idPorCodigo.get(produto.codigo);
     if (!id) continue;

@@ -23,16 +23,17 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 ## Backend (Fase 1 — Fundação)
 
 Plataforma interna de operações da Vital Scheffer. Stack: Next.js 16 (App Router)
-+ Prisma 7 + SQLite (local) + Auth.js v5 (login interno e-mail + senha) + client
++ Prisma 7 + PostgreSQL (Neon) + Auth.js v5 (login interno e-mail + senha) + client
 Omie próprio.
 
-### Setup (local, sem Docker)
+### Setup
 
-1. Copie `.env.example` para `.env` e preencha `AUTH_SECRET` (`openssl rand -base64 32`).
-   `DATABASE_URL="file:./dev.db"` já vem pronto.
+1. Copie `.env.example` para `.env`, preencha `AUTH_SECRET` (`openssl rand -base64 32`)
+   e `DATABASE_URL` com a connection string do Postgres (em dev, um projeto Neon
+   gratuito funciona bem; em produção, Neon/Vercel Postgres/Supabase).
 2. Instale dependências: `npm install` (roda `prisma generate` no `postinstall`).
-3. Crie e aplique o schema: `npm run db:migrate -- --name init` (gera o `dev.db`).
-4. Semeie os usuários padrão: `npm run db:seed`.
+3. Aplique as migrations: `npm run db:migrate` (usa o histórico em `prisma/migrations`).
+4. Semeie os usuários e permissões padrão: `npm run db:seed`.
 5. Suba o app: `npm run dev` → http://localhost:3000.
 6. Verde: `npm test`, `npm run lint`, `npx tsc --noEmit`.
 
@@ -45,17 +46,21 @@ Omie próprio.
 
 ### Banco de dados
 
-Local roda em **SQLite** (arquivo `dev.db` na raiz, gitignored — sem servidor).
-Prisma 7: a URL de conexão fica em `prisma.config.ts` (migrate) e o runtime usa o
-**driver adapter** `@prisma/adapter-better-sqlite3` em `src/lib/db.ts`. O SQLite não
-tem enum: os campos de papel/status são `String` (valores validados no zod dos
-contratos). O seed (`prisma/seed.ts`) cria ADMIN e GESTOR de forma idempotente.
+Roda em **PostgreSQL** (Neon serverless em dev e produção — sem instalar servidor
+local). Prisma 7: a URL de conexão fica em `prisma.config.ts` (migrate) e o runtime
+usa o **driver adapter** `@prisma/adapter-pg` em `src/lib/db.ts`. Papel/status são
+`String` (sem enum nativo — valores validados no zod dos contratos,
+`src/lib/contracts`). Permissões por papel × módulo ficam em `RolePermission`
+(configuráveis por um ADMIN em `/configuracoes`). O seed (`prisma/seed.ts`) cria
+ADMIN, GESTOR e as permissões padrão de forma idempotente. No deploy (Vercel), o
+build roda `prisma migrate deploy` (script `vercel-build`) — nunca `migrate dev`
+em produção.
 
 ### Variáveis de ambiente
 
 | Chave | Uso |
 |---|---|
-| `DATABASE_URL` | SQLite (`file:./dev.db`) — migrate + runtime |
+| `DATABASE_URL` | PostgreSQL (Neon) — migrate + runtime |
 | `AUTH_SECRET` | assina a sessão JWT (`openssl rand -base64 32`) |
 | `AUTH_URL` | base da app em dev (`http://localhost:3000`) |
 | `OMIE_APP_KEY` / `OMIE_APP_SECRET` | credenciais próprias do Omie |

@@ -52,11 +52,12 @@ function buildWhere(filters: {
 }): Prisma.AuditLogWhereInput {
   const where: Prisma.AuditLogWhereInput = {};
   if (filters.q) {
-    // SQLite: LIKE já é case-insensitive para ASCII (sem mode "insensitive").
-    where.actorEmail = { contains: filters.q };
+    // PostgreSQL: LIKE é case-sensitive por padrão — precisa do mode
+    // "insensitive" (vira ILIKE) pra buscar sem se importar com maiúsculas.
+    where.actorEmail = { contains: filters.q, mode: "insensitive" };
   }
   if (filters.action) {
-    where.action = { contains: filters.action };
+    where.action = { contains: filters.action, mode: "insensitive" };
   }
   const createdAt: Prisma.DateTimeFilter = {};
   if (filters.from) {

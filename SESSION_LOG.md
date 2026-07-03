@@ -423,3 +423,133 @@ sozinho no primeiro login por usuario, botao de reabrir no header). `npx tsc
 
 ### Pendencias / proximos passos
 - Testes de UI/interacao (modal) nao cobertos por unit tests (so a logica pura).
+
+## 2026-07-03 — Selects com tema, modal de editar renovado, permissões configuráveis, changelog + revisão do Postgres
+
+### Resumo
+Quatro entregas pedidas pelo dono do produto (por prioridade) e, no meio da sessão,
+uma revisão de código de uma migração para PostgreSQL/Neon que o usuário fez em
+paralelo. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run` verdes (111 testes).
+
+**1) Selects com o tema do app.** Criado `src/components/ui/Select.tsx` (wrapper de
+`<select>` com `appearance-none` + `ChevronDown` do lucide posicionado absoluto,
+classes `bg-field`/`border-border`/`text-card-foreground`/`focus-visible:border-primary`
+— mesmo padrão dos inputs). Substituídos os 3 `<select>` nativos do projeto:
+`CreateUserForm.tsx`, `EditUserDialog.tsx` e `PreviewTable.tsx` (que tinha a versão
+"parcialmente corrigida" — a lógica foi extraída pro componente compartilhado e
+reaplicada lá, sem duplicar).
+
+**2) Modal "Editar usuário" refeito.** `EditUserDialog.tsx`: cartão `rounded-2xl`
+com header (ícone + título + e-mail) separado por `border-b`, corpo com scroll
+próprio, fieldset de Setores com fundo sutil, barra de ações fixa no rodapé
+(`sticky bottom-0`) com os mesmos botões primary/secondary do resto do app. Toda a
+lógica/Server Action/validação ficou igual — só JSX/classes mudaram.
+
+**3) Permissões configuráveis por papel × módulo.** Novo model Prisma
+`RolePermission { role, module, enabled }` (chave composta `role+module`), migration
+própria aplicada (depois consolidada na migration única do Postgres, ver abaixo).
+Módulo novo `src/lib/permissions.ts`: `MODULES` ("products"|"users"|"audit"),
+`DEFAULT_ROLE_PERMISSIONS` (preserva o comportamento antigo: ADMIN/GESTOR tudo,
+FUNCIONARIO só produtos), `buildRolePermissionsMap` (pura, trava ADMIN=true sempre)
+e `getRolePermissionsMap` (única função que toca o banco). `src/lib/rbac.ts`:
+`canManageUsers`/`canViewAudit`/`canAssignRole`/`canEditUser` passaram a receber o
+mapa de permissões já resolvido (continuam puras/testáveis); guards fixos (só ADMIN
+concede/edita ADMIN) permanecem em código, não configuráveis. `src/lib/navigation.ts`
+ganhou o item "Configurações" (ícone `settings`, visível só para ADMIN — regra fixa,
+não passa pela própria tabela que edita) e "Produtos" também virou módulo
+configurável. Tela nova `/configuracoes` (`page.tsx` + `PermissionsMatrixForm.tsx` +
+`actions.ts` com `atualizarPermissoes`): matriz papel×módulo com checkboxes (ADMIN
+sempre marcado/desabilitado), Server Action audita `permissao.atualizar` e revalida
+o layout raiz. `src/lib/tutorial.ts` foi ajustado para derivar a visibilidade dos
+passos a partir das chaves de navegação já resolvidas pelo servidor (em vez de
+duplicar a consulta ao banco num componente cliente) — `Tutorial.tsx` agora recebe
+`navKeys` em vez de `role`. Seed (`prisma/seed.ts`) ganhou upsert idempotente das 9
+linhas padrão de `RolePermission` (só cria se não existir — não sobrescreve ajustes
+que um admin já tenha feito na tela).
+
+**4) Changelog em `/novidades`.** `src/lib/changelog.ts` (array estático curado a
+partir deste `SESSION_LOG.md`, com comentário deixando explícito que toda entrega
+nova precisa de uma entrada nova) + página `src/app/(app)/novidades/page.tsx`
+(timeline simples). Link "Novidades" no rodapé do `AppShell`.
+
+### Revisão do PostgreSQL/Neon (mudança feita pelo usuário em paralelo)
+O usuário trocou o projeto de SQLite para **PostgreSQL (Neon)** por conta própria
+durante a sessão (schema `provider = "postgresql"`, `src/lib/db.ts` com
+`@prisma/adapter-pg`, `prisma.config.ts`, `.env`/`.env.example`, `package.json` com
+`pg`/`@prisma/adapter-pg` e script `vercel-build`, migration única consolidada
+`prisma/migrations/20260702204556_init`) e pediu revisão. Encontrado e corrigido:
+- **Bug real**: filtro de Auditoria (`src/app/(app)/auditoria/page.tsx`) usava
+  `contains` sem `mode: "insensitive"` — no SQLite o `LIKE` já era case-insensitive
+  para ASCII (comentário explicava isso), mas no Postgres `LIKE`/`contains` é
+  case-sensitive por padrão. Sem o fix, buscar por e-mail/ação com case diferente
+  parava de encontrar resultados. Adicionado `mode: "insensitive"` nos dois filtros.
+- **Comentários desatualizados** mencionando SQLite/better-sqlite3 corrigidos em
+  `prisma/schema.prisma` (cabeçalho + model `RolePermission`), `src/lib/users.ts` e
+  `src/app/(app)/produtos/enviar-actions.ts` (a justificativa de escrita sequencial
+  citava "SQLite serializa escritas", o que não se aplica mais — reescrita sem
+  prometer algo que não é mais verdade).
+- **`README.md`**: seção "Backend" inteira reescrita (setup, banco de dados,
+  variáveis de ambiente) — ainda descrevia SQLite/`dev.db`/`better-sqlite3`.
+- **`.gitignore`**: removida duplicata de `.vercel`/`.env*` (o usuário tinha
+  acrescentado no fim do arquivo, mas essas regras já existiam mais acima).
+- Rodado `npx prisma generate` (client para `postgresql`) e `npx prisma migrate
+  status` contra o Neon real — banco já estava migrado. Rodado `npm run db:seed`
+  contra o Neon (idempotente) para garantir ADMIN/GESTOR e as permissões padrão.
+
+### Arquivos criados
+- `src/components/ui/Select.tsx`, `src/lib/permissions.ts`,
+  `src/lib/permissions.test.ts`, `src/lib/changelog.ts`, `src/lib/changelog.test.ts`,
+  `src/app/(app)/novidades/page.tsx`, `src/app/(app)/configuracoes/page.tsx`,
+  `src/app/(app)/configuracoes/actions.ts`,
+  `src/components/configuracoes/PermissionsMatrixForm.tsx`.
+
+### Arquivos alterados (principais)
+- `prisma/schema.prisma` (model `RolePermission` + comentários), `prisma/seed.ts`.
+- `src/lib/rbac.ts`, `src/lib/navigation.ts`, `src/lib/tutorial.ts`.
+- `src/components/users/EditUserDialog.tsx`, `src/components/users/CreateUserForm.tsx`,
+  `src/components/produtos/PreviewTable.tsx`, `src/components/AppShell.tsx`,
+  `src/components/Tutorial.tsx`.
+- `src/app/(app)/layout.tsx`, `src/app/(app)/page.tsx`, `src/app/(app)/usuarios/page.tsx`,
+  `src/app/(app)/usuarios/actions.ts`, `src/app/(app)/auditoria/page.tsx`.
+- Testes atualizados: `src/lib/rbac.test.ts`, `src/lib/navigation.test.ts`,
+  `src/lib/tutorial.test.ts`.
+- Revisão Postgres: `README.md`, `src/lib/users.ts`,
+  `src/app/(app)/produtos/enviar-actions.ts`, `.gitignore`.
+
+### Decisões importantes
+- Permissões: mapa resolvido uma vez por request (`getRolePermissionsMap`) e passado
+  como parâmetro para funções puras de `rbac.ts`/`navigation.ts`, em vez de tornar
+  essas funções assíncronas espalhando `await`+Prisma por toda a UI — mantém a
+  mesma testabilidade pura que já existia (só trocou o array fixo por um mapa).
+- Tutorial passou a depender do `nav` já resolvido pelo servidor (chaves visíveis),
+  não de uma nova consulta a permissões dentro de um componente cliente — evita
+  duplicar a fonte da verdade.
+- "Produtos" virou módulo configurável (antes era `alwaysVisible` fixo) para ficar
+  coerente com o pedido geral de permissões por módulo; default preserva o
+  comportamento atual (todos os papéis com acesso).
+- Guards de segurança fixos (só ADMIN concede/edita papel ADMIN; tela de
+  Configurações só aparece pra ADMIN) continuam em código, não na tabela — pedido
+  explícito do usuário.
+- Não commitei as correções da revisão do Postgres — ficaram no working tree pra o
+  usuário revisar antes (só a entrega original dos itens 1–4 já estava num commit
+  anterior feito por fora desta sessão).
+
+### Comandos relevantes
+- `npx prisma migrate dev --name role_permissions` (SQLite, migration própria —
+  depois substituída pela migration única `20260702204556_init` do Postgres).
+- `npx prisma generate`, `npx prisma migrate status` (Neon), `npm run db:seed` (Neon).
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 111/111 (11 arquivos).
+
+### Pendências / próximos passos
+- Restart do `next dev` pendente para o processo já rodando pegar o Prisma Client
+  regenerado (schema mudou de SQLite pra Postgres depois que o server subiu) —
+  não reiniciei porque a instrução é não rodar `next dev`.
+- Login real pela UI com o banco Neon não foi exercido nesta sessão (só via script
+  de seed + queries do Prisma); vale um teste manual ponta-a-ponta.
+- Aviso de depreciação do driver `pg` sobre `sslmode=require` (vira alias de
+  `verify-full` numa major futura) — não é erro, só um aviso; se quiser silenciar,
+  trocar para `sslmode=require&uselibpqcompat=true` ou `sslmode=verify-full` na
+  `DATABASE_URL`.
+- Correções da revisão do Postgres (README, comentários, filtro de auditoria,
+  .gitignore) estão descritas acima mas não commitadas — decidir se entram no
+  próximo commit.

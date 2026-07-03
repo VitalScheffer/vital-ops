@@ -1,6 +1,7 @@
 // vital-ops — schema Prisma (fonte: docs/REQUISITOS.md §4)
 // Identificadores de domínio seguem o brief (contrato compartilhado com o frontend).
-// Rode `npx prisma generate` após editar. `npx prisma migrate dev` cria o dev.db (SQLite).
+// Banco: PostgreSQL (Neon em dev/prod — ver DATABASE_URL no .env). Rode
+// `npx prisma generate` após editar e `npx prisma migrate dev` para migrar.
 
 generator client {
   provider = "prisma-client-js"
@@ -13,9 +14,9 @@ datasource db {
 // ---------------------------------------------------------------------------
 // Papéis e status
 //
-// SQLite não tem enum: os campos abaixo são String. Os valores válidos são os
-// mesmos dos antigos enums e a validação vive no zod dos contratos
-// (src/lib/contracts). Role: ADMIN | GESTOR | FUNCIONARIO.
+// Mantidos como String (sem enum nativo do Postgres) por simplicidade e para
+// não acoplar o schema a uma lista fechada de valores — a validação vive no
+// zod dos contratos (src/lib/contracts). Role: ADMIN | GESTOR | FUNCIONARIO.
 // ImportStatus: RASCUNHO | ENVIANDO | CONCLUIDO | FALHA.
 // ProdutoItemStatus: NOVO | DUPLICADO | ERRO | ENVIADO | FALHA.
 // EstruturaStatus: PENDENTE | ENVIADO | FALHA.
@@ -91,7 +92,8 @@ model AuditLog {
 
 // Permissões configuráveis por papel × módulo (item 3 da sessão de UI/RBAC).
 // Chave composta role+module. Módulos válidos: "products" | "users" | "audit"
-// (validados em src/lib/permissions.ts, não aqui — SQLite não tem enum).
+// (validados em src/lib/permissions.ts, não aqui — mesmo raciocínio do String
+// sem enum explicado acima).
 // ADMIN é sempre tratado como true em código (src/lib/permissions.ts), mesmo
 // que exista uma linha aqui — trava de segurança, não fica só no seed.
 model RolePermission {
