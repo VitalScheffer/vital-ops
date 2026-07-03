@@ -1,0 +1,73 @@
+name: Gemini Code Reviewer
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR Details and Code Diff
+        # Passa base/head por env (não interpola direto no shell) pra evitar
+        # injeção via nome de branch.
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          # Título e corpo do PR podem ter quebra de linha; usar a sintaxe de
+          # heredoc do $GITHUB_ENV (KEY<<EOF) em vez de "KEY=valor", senão o
+          # runner falha com "Unable to process file command 'env'".
+          {
+            echo "PR_TITLE<<__GEMINI_EOF__"
+            jq --raw-output '.pull_request.title // ""' "$GITHUB_EVENT_PATH"
+            echo "__GEMINI_EOF__"
+            echo "PR_BODY<<__GEMINI_EOF__"
+            jq --raw-output '.pull_request.body // ""' "$GITHUB_EVENT_PATH"
+            echo "__GEMINI_EOF__"
+          } >> "$GITHUB_ENV"
+
+          git fetch --no-tags origin "$BASE" "$HEAD" || true
+
+          # Diff, lista de arquivos (name-status) e commits do PR — insumos do review.js.
+          git diff "origin/${BASE}...origin/${HEAD}" > diff.txt || true
+          git diff --name-status "origin/${BASE}...origin/${HEAD}" > changed_files.txt || true
+          git log --format='- %s%n%b' "origin/${BASE}..origin/${HEAD}" > commits.txt || true
+
+          # Conflito com a base? merge-tree retorna 1 quando há conflito (não toca a árvore).
+          status=0
+          git merge-tree --write-tree "origin/${BASE}" "origin/${HEAD}" > /dev/null 2>&1 || status=$?
+          if [ "$status" = "1" ]; then echo "conflito" > conflicts.txt; else echo "limpo" > conflicts.txt; fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Review Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
+          # Trello (opcional): se os secrets/vars não existirem, a etapa de Trello
+          # simplesmente não faz nada.
+          TRELLO_KEY: ${{ secrets.TRELLO_KEY }}
+          TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+          TRELLO_LIST_APROVADO: ${{ vars.TRELLO_LIST_APROVADO }}
+          TRELLO_LIST_BLOQUEADO: ${{ vars.TRELLO_LIST_BLOQUEADO }}
+          TRELLO_LIST_PRABERTO: ${{ vars.TRELLO_LIST_PRABERTO }}
+          # "true" faz o BLOQUEAR reprovar o check (✗). Só faz sentido com branch
+          # protection ligada (GitHub Pro/Team); senão deixe vazio/false (workflow verde).
+          BLOQUEAR_REPROVA_CHECK: ${{ vars.BLOQUEAR_REPROVA_CHECK }}
+        run: node .github/scripts/review.js
