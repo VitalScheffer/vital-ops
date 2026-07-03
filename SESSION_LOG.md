@@ -553,3 +553,114 @@ durante a sessão (schema `provider = "postgresql"`, `src/lib/db.ts` com
 - Correções da revisão do Postgres (README, comentários, filtro de auditoria,
   .gitignore) estão descritas acima mas não commitadas — decidir se entram no
   próximo commit.
+
+## 2026-07-03 — Deploy no Vercel (Neon São Paulo) + revisão automática de PR com Gemini
+
+### Resumo
+Sessão de infra: subimos o vital-ops pro GitHub/Vercel (o usuário já tinha linkado o
+projeto Vercel via CLI e configurado DATABASE_URL/AUTH_SECRET/OMIE_*/AUTH_TRUST_HOST
+como env vars de produção) e portamos o sistema de **revisão automática de PR com
+Gemini** do `nextstep` pro vital-ops, adaptando as partes específicas de Django pra
+Next.js/Prisma.
+
+### Deploy (Vercel + GitHub)
+- Commitadas as correções pendentes da revisão do Postgres (item da sessão anterior).
+- Criado o repositório `vital-ops` no GitHub (conta `DevVitalCamillo`, depois movido
+  pela própria GitHub/organização para `VitalScheffer/vital-ops`, privado) e feito o
+  push inicial. Remote local atualizado para a nova URL.
+- `gh auth setup-git` configurado (o remote precisou trocar de SSH pra HTTPS — não
+  havia chave SSH nesta máquina; HTTPS + credential helper do `gh` funcionou).
+- Disparado `vercel --prod` (build usa o script `vercel-build` já existente:
+  `prisma generate && prisma migrate deploy && next build`) — **em andamento** no
+  momento de escrever este log.
+- **Bloqueios manuais que restaram** (não dá pra automatizar por CLI):
+  - `vercel git connect` falhou: a conta Vercel precisa de uma **Login Connection**
+    com o GitHub adicionada no dashboard (Account Settings → Login Connections) antes
+    de linkar o repo pra deploy automático em push. Sem isso, deploy fica manual
+    (`vercel --prod`) até o usuário conectar.
+  - `vercel domains add vitalops.vitalscheffer.com.br vital-ops` falhou porque o
+    projeto ainda não tinha nenhum deploy de produção bem-sucedido — só dá pra
+    associar o domínio depois que o primeiro `vercel --prod` completar.
+  - **Não rodei o seed contra o banco de produção**: o classificador de segurança do
+    modo automático bloqueou tanto `vercel env pull` (materializar segredos de prod
+    em disco) quanto um `git add -A` genérico logo em seguida (por precaução). Isso é
+    intencional — pedir confirmação explícita do usuário antes de mexer com
+    credenciais de produção. Sem rodar o seed, não existe ADMIN no banco de produção
+    ainda.
+
+### Revisão automática de PR com Gemini (`.github/`)
+Portado de `C:\Users\TREINAMENTO\nextstep\.github\` (workflow + `scripts/review.js` +
+`scripts/lib/*.js` + `trello-members.json`). Arquitetura: pré-scan determinístico
+(regex no diff) + revisão por IA (Gemini, com fallback de modelos) + comentário
+"sticky" no PR + label de veredito + review formal (Approve/Request changes/Comment)
++ integração opcional com Trello (best-effort, sem SDK, só `fetch`).
+
+**Copiados verbatim** (100% genéricos, sem nada específico do nextstep):
+`lib/gemini.js`, `lib/github.js`, `lib/render.js`, `lib/trello.js`,
+`lib/trello.test.js`, `trello-members.json` (mesmas pessoas/empresa, reaproveitável).
+
+**Adaptados** (eram específicos do nextstep — Django/DRF + monorepo `frontend/`):
+- `lib/scope.js` — troquei a classificação de áreas de Django (`apps/`, `config/`,
+  `manage.py`, `.py`, `frontend/`) pra vital-ops (`prisma/migrations/`,
+  `prisma/schema.prisma`, `src/lib/` + `**/actions.ts` + `src/app/api/` = "server",
+  `src/components/` + resto de `src/app/` = "ui", `.github/`/`Dockerfile`/
+  `vercel.json`/`next.config.ts`/`package.json` = "ci/infra", `docs/`/`*.md` =
+  "specs"). Sem isso, a classificação de escopo classificaria TUDO como "outros" (o
+  código antigo não bate com nenhum caminho deste projeto).
+- `lib/security-rules.js` — mantive as regras genéricas (segredo hardcoded, AWS key,
+  chave privada, `.env` versionado, `eval`/`exec`, TLS sem verificação,
+  `dangerouslySetInnerHTML`, alteração em `.github/workflows/`) e troquei as
+  específicas de Django (`AllowAny`, `permission_classes`, `DEBUG=True`,
+  `ALLOWED_HOSTS`, `CORS_ALLOW_ALL_ORIGINS`, `csrf_exempt`, `mark_safe`, migration
+  `.py`, `settings.py`) por equivalentes reais do vital-ops: `$queryRawUnsafe`/
+  `$executeRawUnsafe` do Prisma (SQL cru = PERIGO), `catch` vazio em vez de
+  `except: pass` (MODERADO), migration/`schema.prisma` tocados (MODERADO), e
+  `src/lib/db.ts`/`auth.ts`/`auth.config.ts`/`prisma.config.ts`/`next.config.ts`
+  tocados = "config central" (MODERADO).
+- `review.js` — só o texto do prompt (`montarPrompt`) mudou: descrevia um "CRM" (o
+  nextstep); agora descreve o Vital Ops e cita `src/lib/rbac.ts`/`permissions.ts`
+  como o que conta como bypass de autorização. O resto (schema JSON, fluxo,
+  fallback de modelos, Trello) é idêntico.
+- `scope.test.js` e `security-rules.test.js` reescritos com exemplos do vital-ops
+  (mesma cobertura/intenção dos testes originais). Rodei `node --test
+  .github/scripts/lib/*.test.js` → **27/27 verdes**.
+
+### Arquivos criados
+- `.github/workflows/gemini-review.yml`, `.github/scripts/review.js`,
+  `.github/scripts/lib/{gemini,github,render,scope,security-rules,trello}.js`,
+  `.github/scripts/lib/{scope,security-rules,trello}.test.js`,
+  `.github/trello-members.json`.
+
+### Decisões importantes
+- **Não copiei segredos entre projetos.** `GEMINI_API_KEY` (e Trello, se quiserem)
+  precisam ser adicionados como secret/variável no repo `VitalScheffer/vital-ops`
+  (`Settings → Secrets and variables → Actions`) — não tentei ler o do nextstep e
+  reusar sem confirmação explícita. Sem `GEMINI_API_KEY`, o workflow ainda roda (cai
+  só no pré-scan determinístico, não quebra).
+- **Não materializei segredos de produção em disco** (bloqueado pelo classificador de
+  segurança do modo automático ao tentar `vercel env pull` pra rodar o seed) — decidi
+  respeitar o bloqueio em vez de contornar, e vou pedir confirmação explícita do
+  usuário nesse passo específico.
+- Escolhida região **São Paulo (GRU)** pro Neon de produção (não Washington D.C.) —
+  a empresa é brasileira, latência menor pros usuários reais.
+
+### Comandos relevantes
+- `gh repo create vital-ops --private --source=. --remote=origin --push`,
+  `gh auth setup-git`, `git remote set-url origin https://github.com/...`.
+- `npx vercel git connect --yes`, `npx vercel domains add ... vital-ops`,
+  `npx vercel --prod --yes` (em background).
+- `node --test .github/scripts/lib/*.test.js` → 27/27.
+
+### Pendências / próximos passos
+1. Confirmar que `vercel --prod` terminou com sucesso (build + `prisma migrate
+   deploy` contra o Neon São Paulo).
+2. **Rodar o seed contra a produção** — preciso da confirmação/participação explícita
+   do usuário (o classificador bloqueou eu materializar `DATABASE_URL` de prod
+   sozinho). Sem isso não existe ADMIN pra logar.
+3. No dashboard do Vercel: Account Settings → Login Connections → conectar GitHub
+   (só assim `vercel git connect`/deploy automático em push funciona).
+4. Depois do primeiro deploy de sucesso: `vercel domains add
+   vitalops.vitalscheffer.com.br vital-ops` (repetir — falhou por falta de deploy).
+   Pegar o registro DNS que o Vercel devolver e cadastrar na KingHost.
+5. Adicionar `GEMINI_API_KEY` (e opcionalmente `TRELLO_KEY`/`TRELLO_TOKEN`/
+   `TRELLO_LIST_*`) nos secrets/vars do repo `VitalScheffer/vital-ops` no GitHub.
