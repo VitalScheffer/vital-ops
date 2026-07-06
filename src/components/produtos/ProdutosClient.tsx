@@ -208,7 +208,7 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
   );
 }
 
-export function ProdutosClient() {
+export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) {
   const [bomFile, setBomFile] = useState<File | null>(null);
   const [omieFile, setOmieFile] = useState<File | null>(null);
 
@@ -413,12 +413,22 @@ export function ProdutosClient() {
       <div className="flex items-start gap-3 rounded-2xl border border-border bg-primary/5 px-4 py-3 text-sm text-foreground">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <p>
-          <strong>Revise, corrija e então</strong> gere a planilha oficial ou envie direto ao Omie pela API. Na tabela
-          abaixo você <span className="font-medium">marca o que vai</span> e edita descrição, família e quantidade. O
-          envio automático precisa da <span className="font-medium">app_key/app_secret do Omie</span> configuradas no
-          ambiente.
+          <strong>Revise, corrija e então</strong> envie direto ao Omie — os produtos entram já com os campos
+          obrigatórios e o controle de lote ativado. Na tabela abaixo você{" "}
+          <span className="font-medium">marca o que vai</span> e edita descrição, família e quantidade. Prefere conferir
+          antes no Omie? Também dá pra baixar a planilha e importar na mão.
         </p>
       </div>
+
+      {!omiePronto && (
+        <div className="flex items-start gap-2 rounded-2xl bg-warning-dim px-4 py-3 text-sm text-warning ring-1 ring-inset ring-warning/25">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            O envio automático ao Omie está temporariamente indisponível (integração em configuração). Você ainda pode
+            baixar a planilha e importá-la no Omie normalmente. Avise o administrador se persistir.
+          </span>
+        </div>
+      )}
 
       <section className="grid gap-4 rounded-3xl border border-border bg-card p-5 shadow-sm sm:grid-cols-2 sm:p-6">
         <FileDropzone
@@ -512,14 +522,11 @@ export function ProdutosClient() {
           )}
 
           <section className="flex flex-col gap-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
-            {/* Destino do envio. TODO: quando a OMIE_APP_KEY estiver configurada,
-                mostrar aqui a empresa/CNPJ da app_key e marcar CRIAR × ATUALIZAR
-                por item (write-then-handle-duplicate — sem consultar o Omie antes). */}
             <div className="flex items-start gap-2 rounded-2xl bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <Building2 className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                Destino: <span className="font-medium text-foreground">Omie</span> — a empresa (CNPJ) e a marcação criar
-                × atualizar aparecem aqui quando a app_key do Omie for configurada.
+                Destino: <span className="font-medium text-foreground">Omie</span> — os produtos são criados ou
+                atualizados na sua conta da Vital Scheffer (reenviar não duplica).
               </span>
             </div>
 

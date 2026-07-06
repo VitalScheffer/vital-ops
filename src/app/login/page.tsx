@@ -2,6 +2,7 @@ import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import { Boxes, ClipboardList, ShieldCheck } from "lucide-react";
 
+import { LoginSubmitButton } from "@/components/auth/LoginSubmitButton";
 import { VitalLogo } from "@/components/VitalLogo";
 import { auth, signIn } from "@/lib/auth";
 
@@ -179,14 +180,7 @@ export default async function LoginPage({
               </p>
             ) : null}
 
-            <button
-              type="submit"
-              className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-sm transition-[filter] hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-turquesa"
-              style={{ background: "var(--vs-turquesa)" }}
-            >
-              Entrar
-              <span aria-hidden>→</span>
-            </button>
+            <LoginSubmitButton />
           </form>
 
           {isDev ? (

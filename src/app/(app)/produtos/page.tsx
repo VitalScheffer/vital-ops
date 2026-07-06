@@ -2,6 +2,14 @@ import { ProdutosClient } from "@/components/produtos/ProdutosClient";
 
 export const metadata = { title: "Produtos (BOM → Omie) — Vital Ops" };
 
+// Credenciais do Omie são segredo de servidor — o cliente não enxerga
+// process.env. Resolvemos aqui e passamos só um booleano para a UI decidir se
+// mostra (ou não) o aviso de "envio indisponível". Com as credenciais no
+// ambiente (produção), o usuário não vê nenhum jargão técnico.
+function omiePronto(): boolean {
+  return Boolean(process.env.OMIE_APP_KEY && process.env.OMIE_APP_SECRET);
+}
+
 // Módulo Produtos (Fase 2, parte local): converte a BOM do CAD na planilha
 // oficial de importação de produtos do Omie. Todo o processamento roda no
 // navegador; o servidor só registra a auditoria da geração. O envio automático
@@ -18,7 +26,7 @@ export default function ProdutosPage() {
         </p>
       </header>
 
-      <ProdutosClient />
+      <ProdutosClient omiePronto={omiePronto()} />
     </div>
   );
 }
