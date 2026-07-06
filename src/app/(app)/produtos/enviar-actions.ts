@@ -163,6 +163,17 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
   } catch (erro) {
     await prisma.produtoImport.update({ where: { id: importRecord.id }, data: { status: "FALHA" } });
     const motivo = erro instanceof Error ? erro.message : String(erro);
+    // Falha inesperada (bug/queda de rede/banco): AUDITA para o admin ver na
+    // /auditoria, senão o erro sumiria (só o usuário veria a mensagem na tela).
+    await audit({
+      actor: { id: session.user.id, email: session.user.email },
+      action: "produto.enviar_omie.erro",
+      entity: "ProdutoImport",
+      entityId: importRecord.id,
+      summary: `Falha inesperada no envio ao Omie: ${motivo}`,
+      after: { erro: motivo, arquivo: importRecord.arquivoNome },
+      req: await requestHeaders(),
+    });
     return { ok: false, importId: importRecord.id, erro: `Falha inesperada no envio ao Omie: ${motivo}` };
   }
 
@@ -185,6 +196,8 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       bloqueado: resultado.bloqueado,
       motivoInterrupcao: resultado.motivoInterrupcao ?? null,
       familias: resultado.familias.map((f) => ({ familia: f.familia, outcome: f.outcome })),
+      // Detalhe das falhas (o quê + porquê) para o admin auditar sem abrir o banco.
+      falhas: falhasDetalhadas(resultado),
     },
     req: await requestHeaders(),
   });
@@ -233,6 +246,32 @@ async function aplicarResultadoNoBanco(importId: string, resultado: EnvioResulta
   }
 }
 
+// Lista plana das falhas do lote (família/produto/estrutura) com o motivo do
+// Omie — vai para o `after` da auditoria e alimenta o resumo abaixo.
+interface FalhaDetalhada {
+  tipo: "familia" | "produto" | "estrutura";
+  ref: string;
+  motivo: string | null;
+}
+
+function falhasDetalhadas(resultado: EnvioResultado): FalhaDetalhada[] {
+  return [
+    ...resultado.familias
+      .filter((f) => f.outcome === "falha")
+      .map((f): FalhaDetalhada => ({ tipo: "familia", ref: f.familia, motivo: f.motivo ?? null })),
+    ...resultado.produtos
+      .filter((p) => p.outcome === "falha")
+      .map((p): FalhaDetalhada => ({ tipo: "produto", ref: p.codigo, motivo: p.motivo ?? null })),
+    ...resultado.estrutura
+      .filter((e) => e.outcome === "falha")
+      .map((e): FalhaDetalhada => ({
+        tipo: "estrutura",
+        ref: `${e.codigoPai}→${e.codigoFilho}`,
+        motivo: e.motivo ?? null,
+      })),
+  ];
+}
+
 function resumoAuditoria(resultado: EnvioResultado): string {
   const { enviados, jaExistiam, falhas, naoEnviados, recusados } = resultado.totais;
   const partes = [
@@ -248,6 +287,17 @@ function resumoAuditoria(resultado: EnvioResultado): string {
     texto += resultado.bloqueado
       ? " Lote interrompido: Omie bloqueou/breaker aberto."
       : " Lote interrompido por erro.";
+  }
+  // Nomeia o quê falhou direto no resumo (é a coluna que o admin lê na
+  // /auditoria); os 3 primeiros, o resto fica no `after`.
+  const falhasLista = falhasDetalhadas(resultado);
+  if (falhasLista.length > 0) {
+    const amostra = falhasLista
+      .slice(0, 3)
+      .map((f) => `${f.ref}${f.motivo ? ` (${f.motivo})` : ""}`)
+      .join("; ");
+    const resto = falhasLista.length > 3 ? ` e mais ${falhasLista.length - 3}` : "";
+    texto += ` Erros: ${amostra}${resto}.`;
   }
   return texto;
 }
