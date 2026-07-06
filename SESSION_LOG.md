@@ -664,3 +664,96 @@ Portado de `C:\Users\TREINAMENTO\nextstep\.github\` (workflow + `scripts/review.
    Pegar o registro DNS que o Vercel devolver e cadastrar na KingHost.
 5. Adicionar `GEMINI_API_KEY` (e opcionalmente `TRELLO_KEY`/`TRELLO_TOKEN`/
    `TRELLO_LIST_*`) nos secrets/vars do repo `VitalScheffer/vital-ops` no GitHub.
+
+## 2026-07-06 — Deploy de produção destravado (build verde) + envio ao Omie finalizado
+
+### Resumo
+Sessão de fechamento para colocar no ar. Três frentes: (1) fechei os TODOs do
+envio ao Omie confirmando os campos contra a doc oficial da API; (2) diagnostiquei
+e corrigi DOIS motivos pelos quais o `vercel --prod` vinha falhando; (3) adicionei o
+domínio custom e levantei o registro DNS para a KingHost. Build de produção agora
+**verde** (`"status":"ok"`); app no ar (atrás do muro de Deployment Protection do
+Vercel, que precisa ser desligado no dashboard). `next build`, `tsc`, `eslint` e
+`vitest` (111) verdes localmente.
+
+### Envio ao Omie — TODOs fechados (confirmados na doc oficial)
+- **Controle de lote agora ativa sozinho**: `UpsertProduto` passa `produto_lote: "S"`
+  (campo confirmado em `app.omie.com.br/api/v1/geral/produtos/`, valores "S"/"N").
+  Todo produto enviado entra no Omie com "Este produto possui controle de lote" ligado.
+- **Bug real corrigido no `IncluirEstrutura`**: o payload estava achatado
+  (`intProduto`/`intProdMalha`/`quantProdMalha` no mesmo nível) e falharia contra a
+  API real. A doc de `geral/malha/` define pai no topo (`intProduto`) + array
+  `itemMalhaIncluir` com os filhos. Reescrito para 1 filho por chamada (mantém o
+  resultado granular por relação). Testes ajustados (`envioOmie.test.ts`, 15 verdes).
+- **Família e código do produto**: confirmados `codigo_familia` (req) e `codigo` na
+  resposta do `UpsertFamilia`; `codigo_produto` na resposta do `UpsertProduto` — já
+  era o que o código lia. Nada a mudar.
+- **Credencial validada**: a `OMIE_APP_KEY` configurada conecta e é da empresa certa —
+  ALP COMERCIO DE PRODUTOS PARA SAUDE LTDA (Scheffer Soluções), CNPJ 43.134.552/0001-03
+  (checado via `ListarEmpresas`, 1 empresa na credencial).
+- Conferi o gerador de `.xlsx` contra a planilha real do usuário
+  (`Omie_Produtos_2026-07-02 (1).xlsx`): colunas C/D/E/I/J/AC e a aba de estrutura
+  (pai/filho/qtd) batem exatamente.
+
+### Deploy destravado — dois bugs em sequência
+1. **`DATABASE_URL` com aspas + BOM** (P1013 "scheme not recognized"): o valor no
+   Vercel tinha aspas literais e, na regravação, o pipe do PowerShell 5.1 prefixou um
+   **BOM U+FEFF** (`﻿postgresql://...`). Regravei via arquivo UTF-8 sem BOM +
+   `cmd /c "vercel env add < arquivo"`. Documentado na memória global
+   (`powershell-pipe-bom.md`).
+2. **`pg` no bundle do navegador** (`Can't resolve 'util/types'`): o componente CLIENTE
+   `PermissionsMatrixForm.tsx` importava `@/lib/permissions`, que importava `@/lib/db`
+   (Prisma + driver `pg`). Isso arrastava o `pg` (Node puro) para o client bundle e
+   quebrava o `next build` — algo que `tsc`/`eslint`/`vitest` NÃO pegam (só o build de
+   produção separa client/server). **Fix**: `permissions.ts` ficou puro
+   (MODULES/tipos/`buildRolePermissionsMap`) e a única função que toca o banco
+   (`getRolePermissionsMap`) foi para **`src/lib/permissions.server.ts`**. Atualizados
+   os 7 importadores de servidor (layout, page, auditoria, usuarios/page+actions,
+   configuracoes/page+actions).
+- Também corrigi o **e-mail do autor do commit** (`dev01@...` não batia com conta
+  GitHub → Vercel bloqueava): troquei para o `noreply` da conta `DevVitalCamillo` e
+  o usuário conectou GitHub↔Vercel no dashboard.
+- `.github/scripts/**` adicionado ao ignore do ESLint (scripts Node/CJS, testados por
+  `node --test`) — estavam quebrando `eslint .` com `no-require-imports`.
+
+### Domínio / DNS (KingHost)
+- `vercel domains add vitalops.vitalscheffer.com.br vital-ops` → sucesso.
+- `vercel domains inspect` devolveu o registro a criar na KingHost (nameservers seguem
+  na KingHost, então basta 1 registro na zona):
+  **A · host `vitalops` · valor `76.76.21.21`** (recomendado pelo Vercel).
+  Alternativa: CNAME `vitalops` → `cname.vercel-dns.com`.
+
+### Arquivos alterados/criados
+- `src/lib/produtos/envioOmie.ts` (produto_lote + formato itemMalhaIncluir),
+  `src/lib/produtos/envioOmie.test.ts` (asserts atualizados).
+- `src/lib/permissions.ts` (agora puro, sem import de db),
+  `src/lib/permissions.server.ts` (**novo** — `getRolePermissionsMap`).
+- `src/app/(app)/{layout,page}.tsx`, `src/app/(app)/auditoria/page.tsx`,
+  `src/app/(app)/usuarios/{page,actions}.ts(x)`,
+  `src/app/(app)/configuracoes/{page,actions}.ts(x)` (import trocado p/ `.server`).
+- `eslint.config.mjs` (ignore de `.github/scripts/**`).
+- Commits: `d3cdf00` (envio Omie), `4d606cb` (fix do build). Ambos com autor
+  `DevVitalCamillo <...noreply.github.com>`.
+
+### Comandos relevantes
+- `npx next build` local (com `DATABASE_URL` do `.env`) → **compilou** (12 rotas).
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 111/111.
+- `npx vercel --prod --yes` → `"status":"ok"` (deploy `vital-aj291zs13`).
+- `npx vercel env rm/add DATABASE_URL production` (regravado sem BOM).
+
+### Pendências / próximos passos (o que falta para o público usar)
+1. **Desligar a Deployment Protection do Vercel** (hoje mostra "Login – Vercel" no
+   lugar do app): Project Settings → Deployment Protection → Vercel Authentication →
+   desligar para Production. SÓ o dono da conta faz isso no dashboard.
+2. **Criar o registro DNS na KingHost**: A `vitalops` → `76.76.21.21` (ou CNAME →
+   `cname.vercel-dns.com`). Propagação + emissão de SSL do Vercel: minutos a algumas
+   horas.
+3. **Confirmar login em produção**: o seed já rodou contra este Neon numa sessão
+   anterior (ADMIN `admin@vitalscheffer.com.br` / `vital123` + GESTOR). Verificar
+   logando uma vez; se não existir ADMIN, rodar `npm run db:seed` com a `DATABASE_URL`
+   de produção. (Não consultei o banco de prod nesta sessão — bloqueado pelo
+   classificador, e correto.)
+4. **Teste ponta-a-ponta real do envio ao Omie**: subir uma BOM pequena e enviar,
+   confirmando na tela do Omie que o produto entrou com lote ligado e a estrutura
+   montou. É o único ponto ainda não exercido contra a API real.
+5. (Opcional) `GEMINI_API_KEY` nos secrets do repo para a revisão automática de PR.
