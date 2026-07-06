@@ -184,10 +184,12 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       unidade: UNIDADE_FIXA,
       ncm: NCM_FIXO,
       tipoItem: TIPO_ITEM_FIXO,
+      // Controle de lote sempre ativo (REQUISITOS §7). Campo confirmado na doc
+      // da API de produtos: `produto_lote` ("S"/"N").
+      produto_lote: "S",
     };
     const rawFamiliaId = item.familia ? idPorFamilia.get(item.familia) : undefined;
     if (rawFamiliaId !== undefined && rawFamiliaId !== null) param.codigo_familia = rawFamiliaId;
-    // TODO: adicionar campo de controle de lote após confirmar o nome exato na API do Omie
 
     try {
       const resp = await chamar("geral/produtos/", "UpsertProduto", param, WRITE);
@@ -228,13 +230,20 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     try {
       // int* referenciam o codigo_produto_integracao (código SEM espaço) — assim
       // a estrutura resolve pai/filho sem consultar o id interno (REQUISITOS §6).
+      // Formato confirmado na doc da API de malha: pai no topo (`intProduto`) e
+      // filhos no array `itemMalhaIncluir` (um por chamada, para o resultado
+      // por relação continuar granular).
       await chamar(
         "geral/malha/",
         "IncluirEstrutura",
         {
           intProduto: semEspaco(rel.codigoPai),
-          intProdMalha: semEspaco(rel.codigoFilho),
-          quantProdMalha: rel.quantidade ?? 1,
+          itemMalhaIncluir: [
+            {
+              intProdMalha: semEspaco(rel.codigoFilho),
+              quantProdMalha: rel.quantidade ?? 1,
+            },
+          ],
         },
         WRITE,
       );

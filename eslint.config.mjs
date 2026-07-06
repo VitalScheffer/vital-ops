@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scripts Node/CJS da revisão de PR (não são código da aplicação;
+    // testados com `node --test .github/scripts/lib/*.test.js`).
+    ".github/scripts/**",
   ]),
 ]);
 

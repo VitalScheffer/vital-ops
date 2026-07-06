@@ -96,6 +96,7 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
       unidade: "UN",
       ncm: "9999.99.99",
       tipoItem: "04",
+      produto_lote: "S",
       codigo_familia: 777,
     });
   });
@@ -117,8 +118,12 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     const est = calls.find((c) => c.call === "IncluirEstrutura");
     expect(est?.param).toMatchObject({
       intProduto: "AAAAASM001CCCCC",
-      intProdMalha: "DDDDDPC002FFSLD",
-      quantProdMalha: 3,
+      itemMalhaIncluir: [
+        {
+          intProdMalha: "DDDDDPC002FFSLD",
+          quantProdMalha: 3,
+        },
+      ],
     });
   });
 
@@ -126,7 +131,8 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     const { fn, calls } = mockChamar(() => ({}));
     await orquestrarEnvio({ novos: [], estrutura: [rel("A", "B", null)] }, fn);
     const est = calls.find((c) => c.call === "IncluirEstrutura");
-    expect(est?.param.quantProdMalha).toBe(1);
+    const itens = est?.param.itemMalhaIncluir as Array<{ quantProdMalha: number }>;
+    expect(itens[0].quantProdMalha).toBe(1);
   });
 
   it("captura o codigo_produto retornado pelo Omie", async () => {
