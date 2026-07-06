@@ -10,7 +10,7 @@ import { createUserSchema, updateUserSchema } from "@/lib/contracts";
 import type { Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
 import type { FormState } from "@/lib/form";
-import { getRolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canAssignRole, canEditUser, canManageUsers, wouldRemoveLastAdmin } from "@/lib/rbac";
 import { requestHeaders } from "@/lib/request";
 

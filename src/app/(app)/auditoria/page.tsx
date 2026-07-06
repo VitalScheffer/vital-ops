@@ -6,7 +6,7 @@ import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getRolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewAudit } from "@/lib/rbac";
 
 export const metadata = { title: "Auditoria — Vital Ops" };

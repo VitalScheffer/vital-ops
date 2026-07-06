@@ -6,7 +6,7 @@ import { EditUserDialog } from "@/components/users/EditUserDialog";
 import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
-import { getRolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canEditUser, canManageUsers } from "@/lib/rbac";
 
 export const metadata = { title: "Usuários e setores — Vital Ops" };

@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/contracts";
 import type { NavIcon } from "@/lib/navigation";
 import { visibleNavFor } from "@/lib/navigation";
-import { getRolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 
 const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,

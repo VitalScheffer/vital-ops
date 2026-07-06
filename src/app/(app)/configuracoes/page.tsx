@@ -2,7 +2,7 @@ import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { PermissionsMatrixForm } from "@/components/configuracoes/PermissionsMatrixForm";
 import { auth } from "@/lib/auth";
-import { getRolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 
 export const metadata = { title: "Configurações — Vital Ops" };
 

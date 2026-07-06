@@ -1,10 +1,11 @@
 import type { Role } from "@/lib/contracts";
-import { prisma } from "@/lib/db";
 
 // Permissões configuráveis por papel × módulo (item 3). Fonte única de
 // verdade da tabela `RolePermission`, consultada por rbac.ts/navigation.ts em
 // vez do antigo array fixo `PRIVILEGED_ROLES`. Lógica de montagem do mapa é
-// pura/testável; só `getRolePermissionsMap` toca o banco.
+// pura/testável; a consulta ao banco vive em `permissions.server.ts` para este
+// módulo NÃO importar `@/lib/db` — assim componentes cliente (que usam MODULES
+// e os tipos daqui) não arrastam o driver `pg` para o bundle do navegador.
 
 export const MODULES = ["products", "users", "audit"] as const;
 export type Module = (typeof MODULES)[number];
@@ -62,10 +63,4 @@ export function buildRolePermissionsMap(rows: readonly RolePermissionRow[]): Rol
 
 export function hasModuleAccess(role: Role, module: Module, permissions: RolePermissionsMap): boolean {
   return permissions[role]?.[module] ?? false;
-}
-
-// Único ponto que consulta o banco: carrega as permissões configuradas.
-export async function getRolePermissionsMap(): Promise<RolePermissionsMap> {
-  const rows = await prisma.rolePermission.findMany();
-  return buildRolePermissionsMap(rows);
 }

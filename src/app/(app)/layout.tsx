@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { auth } from "@/lib/auth";
 import { visibleNavFor } from "@/lib/navigation";
-import { getRolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 
 // Shell autenticado: header com usuário/logout + navegação lateral filtrada por
 // papel. O proxy já barra anônimos; aqui garantimos a sessão (defesa em camadas)

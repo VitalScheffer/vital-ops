@@ -6,7 +6,8 @@ import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { FormState } from "@/lib/form";
-import { getRolePermissionsMap, MODULES, type Module } from "@/lib/permissions";
+import { MODULES, type Module } from "@/lib/permissions";
+import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { requestHeaders } from "@/lib/request";
 
 // Papéis editáveis pela tela — ADMIN nunca aparece aqui: acesso total é regra
