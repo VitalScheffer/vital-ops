@@ -757,3 +757,65 @@ Vercel, que precisa ser desligado no dashboard). `next build`, `tsc`, `eslint` e
    confirmando na tela do Omie que o produto entrou com lote ligado e a estrutura
    montou. É o único ponto ainda não exercido contra a API real.
 5. (Opcional) `GEMINI_API_KEY` nos secrets do repo para a revisão automática de PR.
+
+## 2026-07-06 (continuação) — App no ar + favicon Vital + auditoria de erro + UX
+
+### Resumo
+Depois do deploy verde, o usuário criou o registro DNS na KingHost e desligou a
+Deployment Protection: **o app foi ao ar em `https://vitalops.vitalscheffer.com.br`**
+(SSL ok, login "Entrar — Vital Ops", rotas protegidas com 307). Na sequência, várias
+melhorias pedidas pelo dono do produto antes do teste real. Build de produção verde a
+cada passo; `tsc`/`eslint`/`vitest` (111) verdes.
+
+### Entregas
+- **Favicon da Vital Scheffer**: removido o `favicon.ico` padrão do Next/Vercel;
+  criado `src/app/icon.svg` (símbolo da marca em SVG, fundo petróleo→teal, traços
+  água). No ar: o HTML já serve `<link rel="icon" href="/icon.svg…">`.
+- **Auditoria de erros do envio ao Omie** (`enviar-actions.ts`): a falha inesperada
+  (catch de `orquestrarEnvio`) agora é AUDITADA (`produto.enviar_omie.erro`) — antes
+  retornava sem registrar e o admin não via nada na /auditoria. O resumo da auditoria
+  passou a NOMEAR o que falhou (ref + motivo do Omie, 3 primeiros) e o `after` guarda
+  a lista completa (`falhasDetalhadas`: família/produto/estrutura).
+- **Menos jargão na tela de Produtos**: removido o texto "app_key/app_secret do Omie
+  configuradas no ambiente" do banner (o usuário final não precisa ver). A página
+  (server) resolve `omiePronto` e passa como prop; o aviso de indisponibilidade só
+  aparece se a integração NÃO estiver pronta. Banner de "Destino: Omie" reescrito sem
+  termos técnicos (sem o TODO de app_key).
+- **Navegação mais rápida (percebida)**: `src/app/(app)/loading.tsx` (esqueleto
+  instantâneo ao trocar de tab — mata o "travou ao clicar" e torna o prefetch do
+  `<Link>` efetivo) + `src/app/(app)/template.tsx` (animação de entrada de tela,
+  fade+subida 0.2s, respeitando `prefers-reduced-motion`; keyframe `page-in` no CSS).
+- **Login com feedback**: botão virou client `LoginSubmitButton` com `useFormStatus`
+  (spinner "Entrando…" + `disabled`) e estado pressionado (`active:scale-[0.98]`) —
+  antes o clique no Server Action não dava retorno visual.
+
+### Campos do Omie confirmados na doc oficial (fechando os TODOs do Fable)
+- `produto_lote: "S"` no `UpsertProduto` = "Este produto possui controle de lote"
+  ligado. **Vale só para o botão "Enviar ao Omie" (API).** O caminho "Gerar planilha"
+  + importação manual NÃO ativa lote (o template .xlsx do Omie não tem coluna de lote).
+- `IncluirEstrutura`: pai no topo (`intProduto`) + array `itemMalhaIncluir`
+  (`intProdMalha`/`quantProdMalha`). `codigo_familia` (req) e `codigo` (resp) na
+  família; `codigo_produto` na resposta do produto.
+
+### Arquivos criados/alterados
+- Criados: `src/app/icon.svg`, `src/app/(app)/loading.tsx`,
+  `src/app/(app)/template.tsx`, `src/components/auth/LoginSubmitButton.tsx`.
+- Removido: `src/app/favicon.ico`.
+- Alterados: `src/app/(app)/produtos/enviar-actions.ts` (audita erro + detalha
+  falhas), `src/components/produtos/ProdutosClient.tsx` (prop `omiePronto`, banners
+  sem jargão), `src/app/(app)/produtos/page.tsx` (resolve `omiePronto`),
+  `src/app/login/page.tsx` (usa o novo botão), `src/app/globals.css` (keyframe
+  `page-in`), `src/lib/produtos/envioOmie.ts` + teste (produto_lote + itemMalhaIncluir),
+  `eslint.config.mjs` (ignore `.github/scripts`).
+- Commits: `d3cdf00`, `4d606cb`, `9c2ed1a`, `052fb65`, `8491afa` (autor
+  `DevVitalCamillo`). Deploys de produção verdes.
+
+### Pendências / próximos passos
+1. **Teste real ponta-a-ponta** (o único ponto ainda não exercido): logar em
+   `vitalops.vitalscheffer.com.br`, ir em Produtos, subir uma BOM pequena e clicar
+   **"Enviar ao Omie"** (NÃO a importação manual do Omie), e conferir na tela do Omie
+   que o produto entrou com "controle de lote" ligado e a estrutura montada.
+2. Se o login não entrar, rodar `npm run db:seed` com a `DATABASE_URL` de produção
+   (o seed já rodou antes neste Neon; ADMIN deve existir).
+3. (Opcional) mostrar a empresa/CNPJ da app_key no banner "Destino" — evitei o fetch
+   ao vivo por causa do design ban-safe; daria pra cachear se quiser.
