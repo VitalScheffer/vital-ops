@@ -54,7 +54,17 @@ export async function lerBytesArquivo(file: File): Promise<Uint8Array> {
 // qualquer arquivo, inclusive um Omie salvo pelo Excel). A escrita NÃO passa
 // pelo SheetJS — ver preencherProdutos.
 export function extrairCodigosExistentes(bytes: Uint8Array): string[] {
-  const wb = XLSX.read(bytes, { type: "array", sheets: SHEET_NAME });
+  // Mesmo cuidado do lerBomDeArquivo: se o arquivo não for um Excel legível, o
+  // SheetJS estoura erro cru (ex.: "slurp"). Aqui é o slot do "Omie atual".
+  let wb: XLSX.WorkBook;
+  try {
+    wb = XLSX.read(bytes, { type: "array", sheets: SHEET_NAME });
+  } catch {
+    throw new Error(
+      "Não consegui ler este arquivo do Omie. Confira se é o Omie_Produtos.xlsx exportado do Omie " +
+        "(um Excel válido, não protegido por senha e não corrompido).",
+    );
+  }
   const sheet = wb.Sheets[SHEET_NAME];
   if (!sheet) {
     throw new Error(

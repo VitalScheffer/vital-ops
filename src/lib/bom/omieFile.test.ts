@@ -33,6 +33,20 @@ describe("omieFile (edição cirúrgica do template real)", () => {
     expect(extrairCodigosExistentes(bytesTemplate())).toEqual([]);
   });
 
+  it("dá mensagem amigável (nunca 'slurp') quando o arquivo não é um Excel legível", () => {
+    // "PK\x03\x04" = assinatura de ZIP → o SheetJS tenta abrir como .xlsx e falha
+    // no conteúdo corrompido (o caminho que estourava "slurp" pro usuário).
+    const zipCorrompido = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00]);
+    let mensagem = "";
+    try {
+      extrairCodigosExistentes(zipCorrompido);
+    } catch (e) {
+      mensagem = e instanceof Error ? e.message : String(e);
+    }
+    expect(mensagem).toMatch(/não consegui ler|não protegido/i);
+    expect(mensagem.toLowerCase()).not.toContain("slurp");
+  });
+
   it('preenche C/D/E/I/J/AC a partir da linha 6, mantendo "04" como texto', () => {
     const { bytes, resultado } = preencherProdutos(bytesTemplate(), [
       item("CODIGO000000001"),

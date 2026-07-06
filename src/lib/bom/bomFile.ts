@@ -23,9 +23,24 @@ const MAX_LINHAS_PROCURA_CABECALHO = 20;
 /** Lê a planilha de BOM exportada do CAD (.xls/.xlsx) e extrai Nº / Peça / Qtd. */
 export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array" });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+
+  // A leitura pelo SheetJS pode estourar erros internos crus (ex.: "slurp") em
+  // arquivo corrompido, protegido por senha, .xls num formato antigo que ele não
+  // abre, ou que nem é planilha. Traduzimos para uma mensagem clara ao usuário.
+  let grid: unknown[][];
+  try {
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) {
+      throw new Error("sem abas");
+    }
+    grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+  } catch {
+    throw new Error(
+      "Não consegui ler esta planilha. Confira se é um Excel (.xlsx ou .xls) válido, " +
+        "não protegido por senha e não corrompido — e se é a BOM exportada do CAD.",
+    );
+  }
 
   let headerRowIdx = -1;
   let colPeca = -1;
