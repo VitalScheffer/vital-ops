@@ -13,9 +13,13 @@ export const metadata = { title: "Auditoria — Vital Ops" };
 
 const MAX_ROWS = 200;
 
+// Fixa o fuso de Brasília: a página é renderizada no servidor (Vercel roda em
+// UTC), então SEM timeZone o horário sairia 3h adiantado. Com America/Sao_Paulo
+// o registro aparece sempre no horário local, independente de onde o servidor roda.
 const dateTimeFormat = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
   timeStyle: "short",
+  timeZone: "America/Sao_Paulo",
 });
 
 // O user-agent cru sempre começa com "Mozilla/5.0…" (padrão histórico) — traduz
