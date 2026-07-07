@@ -161,9 +161,9 @@ function ReportModal({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {tab === "enviar" ? (
-            <form action={formAction} className="flex flex-col gap-4">
+            <form id="report-form" action={formAction} className="flex flex-col gap-3.5">
               <input type="hidden" name="rota" value={pathname} />
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="report-tipo" className="text-sm font-medium text-card-foreground">
@@ -199,7 +199,7 @@ function ReportModal({ onClose }: { onClose: () => void }) {
                   id="report-msg"
                   name="mensagem"
                   required
-                  rows={5}
+                  rows={3}
                   maxLength={4000}
                   placeholder="Quanto mais detalhe, mais fácil de resolver."
                   className="resize-y rounded-lg border border-border bg-field px-3 py-2 text-sm text-card-foreground outline-none focus-visible:border-primary"
@@ -222,14 +222,6 @@ function ReportModal({ onClose }: { onClose: () => void }) {
                 </p>
               </div>
               <FormFeedback state={state} />
-              <button
-                type="submit"
-                disabled={pending}
-                className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-              >
-                {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {pending ? "Enviando…" : "Enviar report"}
-              </button>
             </form>
           ) : (
             <ReportList
@@ -240,6 +232,20 @@ function ReportModal({ onClose }: { onClose: () => void }) {
             />
           )}
         </div>
+
+        {tab === "enviar" && (
+          <div className="border-t border-border px-6 py-3.5">
+            <button
+              type="submit"
+              form="report-form"
+              disabled={pending}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {pending ? "Enviando…" : "Enviar report"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
