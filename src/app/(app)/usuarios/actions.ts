@@ -239,6 +239,92 @@ export async function atualizarUsuario(
   return { status: "success", message: `Usuário ${updated.name} atualizado com sucesso.` };
 }
 
+const deleteUserSchema = z.object({ id: z.string().trim().min(1) });
+
+// Exclusão de usuário (ADMIN/GESTOR). Trava para preservar integridade/auditoria:
+// não exclui a si mesmo, não exclui o único admin ativo, e não faz "hard delete"
+// de quem já tem histórico (imports/requisições) — nesse caso orienta a DESATIVAR
+// (o soft-delete via edição), que mantém os registros ligados à pessoa.
+export async function excluirUsuario(_prev: FormState, formData: FormData): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user?.email || !session.user.id) {
+    return unauthenticated();
+  }
+
+  const actorRole = session.user.role;
+  const permissions = await getRolePermissionsMap();
+  if (!canManageUsers(actorRole, permissions)) {
+    return { status: "error", message: "Você não tem permissão para excluir usuários." };
+  }
+
+  const parsed = deleteUserSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) {
+    return { status: "error", message: "Usuário inválido." };
+  }
+  const { id } = parsed.data;
+
+  if (id === session.user.id) {
+    return { status: "error", message: "Você não pode excluir a si mesmo." };
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      active: true,
+      _count: {
+        select: { imports: true, requisicoesFeitas: true, requisicoesGeridas: true },
+      },
+    },
+  });
+  if (!target) {
+    return { status: "error", message: "Usuário não encontrado." };
+  }
+
+  const targetRole = target.role as Role;
+  if (!canEditUser(actorRole, targetRole, permissions)) {
+    return { status: "error", message: "Apenas um Administrador pode excluir um Administrador." };
+  }
+
+  if (targetRole === "ADMIN" && target.active) {
+    const activeAdminCount = await prisma.user.count({ where: { role: "ADMIN", active: true } });
+    if (activeAdminCount <= 1) {
+      return { status: "error", message: "Não é possível excluir o único administrador ativo." };
+    }
+  }
+
+  const temHistorico =
+    target._count.imports > 0 ||
+    target._count.requisicoesFeitas > 0 ||
+    target._count.requisicoesGeridas > 0;
+  if (temHistorico) {
+    return {
+      status: "error",
+      message:
+        "Este usuário tem histórico (importações ou requisições). Para preservar a auditoria, " +
+        "desative-o (Editar → desmarcar \"Usuário ativo\") em vez de excluir.",
+    };
+  }
+
+  await prisma.user.delete({ where: { id } });
+
+  await audit({
+    actor: { id: session.user.id, email: session.user.email },
+    action: "user.delete",
+    entity: "User",
+    entityId: id,
+    summary: `Excluiu o usuário ${target.name} (${target.email}).`,
+    before: { name: target.name, email: target.email, role: target.role, active: target.active },
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/usuarios");
+  return { status: "success", message: `Usuário ${target.name} excluído.` };
+}
+
 const createSetorSchema = z.object({ nome: z.string().trim().min(1) });
 
 // Criação de setor (ADMIN/GESTOR) — o gestor precisa para associar usuários.

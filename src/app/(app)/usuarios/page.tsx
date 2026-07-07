@@ -138,6 +138,7 @@ export default async function UsuariosPage() {
                           }}
                           setores={setores.map((setor) => ({ id: setor.id, nome: setor.nome }))}
                           canAssignAdmin={role === "ADMIN"}
+                          isSelf={user.id === session!.user.id}
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
