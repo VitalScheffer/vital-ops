@@ -13,6 +13,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-07-07",
+    title: "Reports com anexo, exclusão de usuário e leitura das BOMs antigas do CAD",
+    items: [
+      "Botão de Reportar no topo: qualquer pessoa relata um problema ou sugestão, anexa prints/fotos/planilhas, e acompanha o status até ser resolvido (com a resposta do time).",
+      "Erros do sistema passam a ser registrados sozinhos para o time olhar, com uma tela amigável no lugar do erro técnico.",
+      "Gestão de usuários: agora dá para excluir um usuário (com travas de segurança) e o modal de edição foi corrigido.",
+      "Importação de BOM: as planilhas .xls mais antigas exportadas do CAD, que antes davam erro de leitura, agora são lidas normalmente.",
+    ],
+  },
+  {
     date: "2026-07-06",
     title: "Plataforma no ar, controle de lote automático e vários acabamentos",
     items: [
