@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 
 import type { BomRow } from "./types";
+import { lerXlsLegado } from "./xlsLegacy";
 
 // Faixa Unicode dos diacríticos combinantes (U+0300 a U+036F), usada para tirar
 // acento depois do normalize('NFD'). Comparação numérica em vez de regex com
@@ -23,19 +24,27 @@ const MAX_LINHAS_PROCURA_CABECALHO = 20;
 /** Lê a planilha de BOM exportada do CAD (.xls/.xlsx) e extrai Nº / Peça / Qtd. */
 export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
   const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
 
-  // A leitura pelo SheetJS pode estourar erros internos crus (ex.: "slurp") em
-  // arquivo corrompido, protegido por senha, .xls num formato antigo que ele não
-  // abre, ou que nem é planilha. Traduzimos para uma mensagem clara ao usuário.
-  let grid: unknown[][];
+  // Caminho normal: SheetJS lê a grande maioria dos .xlsx/.xls.
+  let grid: unknown[][] | null = null;
   try {
-    const wb = XLSX.read(buf, { type: "array" });
+    const wb = XLSX.read(bytes, { type: "array" });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    if (!sheet) {
-      throw new Error("sem abas");
+    if (sheet) {
+      grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
     }
-    grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
   } catch {
+    // SheetJS abortou (ex.: .xls BIFF antigo do CAD → "Slurp error"). Tentamos o
+    // leitor de fallback abaixo antes de desistir.
+  }
+
+  // Fallback: .xls binário antigo (BIFF8 em contêiner OLE) que o SheetJS recusa.
+  if (!grid) {
+    grid = lerXlsLegado(bytes);
+  }
+
+  if (!grid) {
     throw new Error(
       "Não consegui ler esta planilha. Confira se é um Excel (.xlsx ou .xls) válido, " +
         "não protegido por senha e não corrompido — e se é a BOM exportada do CAD.",
