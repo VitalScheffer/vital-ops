@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useActionState, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   criarReport,
@@ -114,7 +115,12 @@ function ReportModal({ onClose }: { onClose: () => void }) {
     };
   }, [tab, reload]);
 
-  return (
+  // Portal para o <body>: o botão fica no header, que tem backdrop-blur. Um
+  // ancestral com backdrop-filter/transform vira "containing block" do position:
+  // fixed, prendendo o modal ao header (64px) em vez da tela. O portal escapa disso.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
@@ -247,7 +253,8 @@ function ReportModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
