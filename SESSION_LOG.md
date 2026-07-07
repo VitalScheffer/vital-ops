@@ -819,3 +819,32 @@ cada passo; `tsc`/`eslint`/`vitest` (111) verdes.
    (o seed já rodou antes neste Neon; ADMIN deve existir).
 3. (Opcional) mostrar a empresa/CNPJ da app_key no banner "Destino" — evitei o fetch
    ao vivo por causa do design ban-safe; daria pra cachear se quiser.
+
+## 2026-07-07 — NCM fixo dos produtos: 9999.99.99 -> 9403.20.90
+
+### Resumo
+- Problema (Vitor, producao): produtos cadastrados pelo vital-ops iam com NCM generico
+  9999.99.99 e a SEFAZ rejeita a nota de transferencia com "NCM inexistente" (a remessa
+  para a EVO tinha saido normal — o problema aparece na transferencia). O NCM correto,
+  passado pelo Vitor, e 9403.20.90.
+- Feito: trocado o NCM fixo em TODOS os caminhos de cadastro (API UpsertProduto e planilha
+  de importacao do Omie) + testes + docs. Cadastros novos ja saem certos.
+- Os produtos JA cadastrados com 9999.99.99 serao corrigidos pela aba nova "Corrigir NCM"
+  do automacao-lotes (ver SESSION_LOG de la, mesma data).
+
+### Arquivos alterados
+- `src/lib/produtos/envioOmie.ts` — NCM_FIXO = "9403.20.90" (caminho da API).
+- `src/lib/bom/omieFile.ts` — NCM_FIXO = "9403.20.90" (caminho da planilha).
+- `src/app/(app)/produtos/enviar-actions.ts` — ncm gravado no banco (ProdutoItem).
+- `src/lib/produtos/envioOmie.test.ts`, `src/lib/bom/omieFile.test.ts` — expectativas.
+- `docs/REQUISITOS.md` — §7 e §8 atualizados (a confirmacao antiga "9999 em tudo" foi
+  marcada como SUPERADA).
+
+### Comandos relevantes
+- `npm test` -> 116 testes passando (12 arquivos).
+- Commit `630e7b2` na master + push (deploy automatico via Vercel).
+
+### Pendencias / proximos passos
+- Jhonatan deve usar 9403.20.90 nos cadastros manuais tambem (Vitor ja avisou ele).
+- Conferir com o Vitor se ha outro grupo de produto (alem do carro CREHS) que precise de
+  NCM diferente de 9403.20.90 — hoje o valor e fixo para tudo que o vital-ops cadastra.
