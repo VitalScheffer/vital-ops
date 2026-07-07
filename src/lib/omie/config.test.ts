@@ -43,3 +43,26 @@ describe("OMIE_BASE_URL — limpeza defensiva", () => {
     expect(await baseUrlCom(undefined)).toBe("https://app.omie.com.br/api/v1");
   });
 });
+
+describe("omieCredentials — limpeza das chaves", () => {
+  afterEach(() => {
+    delete process.env.OMIE_APP_KEY;
+    delete process.env.OMIE_APP_SECRET;
+  });
+
+  it("remove aspas das credenciais (causa do 'chave de acesso inválida')", async () => {
+    vi.resetModules();
+    process.env.OMIE_APP_KEY = '"minha-chave"';
+    process.env.OMIE_APP_SECRET = '"meu-segredo"';
+    const { omieCredentials } = await import("./config");
+    expect(omieCredentials()).toEqual({ appKey: "minha-chave", appSecret: "meu-segredo" });
+  });
+
+  it("lança erro claro quando a chave fica vazia", async () => {
+    vi.resetModules();
+    process.env.OMIE_APP_KEY = '""';
+    process.env.OMIE_APP_SECRET = "algo";
+    const { omieCredentials } = await import("./config");
+    expect(() => omieCredentials()).toThrow(/não configurados/i);
+  });
+});

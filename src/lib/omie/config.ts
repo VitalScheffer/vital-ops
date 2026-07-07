@@ -1,14 +1,18 @@
 // Configuração do client Omie a partir do ambiente (Vercel/env).
 
-// Limpa a URL base. Em produção (Vercel) o valor da env var entra CRU: se foi
-// salvo com aspas, BOM (U+FEFF) ou espaço/quebra de linha, a URL final fica
-// impossível de parsear ("Failed to parse URL"). Tiramos esse lixo antes de usar.
-function limparUrlBase(raw: string): string {
+// Limpa um valor vindo do ambiente. Em produção (Vercel) o valor entra CRU: se
+// foi salvo com aspas, BOM (U+FEFF) ou espaço/quebra de linha, esse lixo vai
+// junto. Na URL isso dava "Failed to parse URL"; na chave de acesso o Omie
+// rejeita como "chave inválida". Tiramos tudo isso antes de usar.
+function limparEnv(raw: string): string {
   return raw
     .replace(/^\uFEFF/, "") // BOM invisível no começo
     .trim() // espaços e quebras de linha nas pontas
-    .replace(/^["']|["']$/g, "") // aspas acidentais em volta do valor
-    .replace(/\/+$/, ""); // barra(s) final(is)
+    .replace(/^["']|["']$/g, ""); // aspas acidentais em volta do valor
+}
+
+function limparUrlBase(raw: string): string {
+  return limparEnv(raw).replace(/\/+$/, ""); // tira também a barra final
 }
 
 export const OMIE_BASE_URL = limparUrlBase(
@@ -21,11 +25,11 @@ export interface OmieCredentials {
   appSecret: string;
 }
 
-// Credenciais PRÓPRIAS da plataforma. Falha cedo (local) se não configuradas:
-// não faz sentido bater no Omie sem elas.
+// Credenciais PRÓPRIAS da plataforma. Limpa aspas/BOM/espaço (a env var em prod
+// entra crua) e falha cedo se não configuradas.
 export function omieCredentials(): OmieCredentials {
-  const appKey = process.env.OMIE_APP_KEY;
-  const appSecret = process.env.OMIE_APP_SECRET;
+  const appKey = limparEnv(process.env.OMIE_APP_KEY ?? "");
+  const appSecret = limparEnv(process.env.OMIE_APP_SECRET ?? "");
   if (!appKey || !appSecret) {
     throw new Error("OMIE_APP_KEY/OMIE_APP_SECRET não configurados no ambiente.");
   }
