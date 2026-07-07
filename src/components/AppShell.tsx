@@ -17,6 +17,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { logoutAction } from "@/app/(app)/actions";
+import { ReportDialog } from "@/components/ReportDialog";
 import { Tutorial } from "@/components/Tutorial";
 import { VitalLogo } from "@/components/VitalLogo";
 import type { Role } from "@/lib/contracts";
@@ -92,6 +93,7 @@ export function AppShell({ user, nav, children }: AppShellProps) {
               {user.email} · {ROLE_LABEL[user.role]}
             </p>
           </div>
+          <ReportDialog />
           <button
             type="button"
             onClick={() => setTutorialOpen(true)}

@@ -42,6 +42,8 @@ model User {
   imports        ProdutoImport[]
   requisicoesFeitas    Requisicao[] @relation("Solicitante")
   requisicoesGeridas   Requisicao[] @relation("Gestor")
+  reports              Report[]     @relation("ReportAutor")
+  reportsResolvidos    Report[]     @relation("ReportResolvedor")
 
   @@index([role])
 }
@@ -88,6 +90,34 @@ model AuditLog {
   @@index([actorId])
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+// Reports/feedback dentro do app: o usuário reporta problema/sugestão e vê o
+// andamento; erros do sistema são capturados automaticamente (autor nulo). O
+// admin trata num modal e marca como resolvido, com resposta que o autor lê.
+// tipo: PROBLEMA | SUGESTAO | ERRO_SISTEMA. status: ABERTO | EM_ANALISE | RESOLVIDO.
+model Report {
+  id             String    @id @default(cuid())
+  tipo           String    @default("PROBLEMA")
+  titulo         String
+  mensagem       String
+  status         String    @default("ABERTO")
+  autorId        String?
+  autorEmail     String?
+  rota           String?
+  userAgent      String?
+  contexto       Json?
+  resposta       String?
+  resolvidoPorId String?
+  resolvidoEm    DateTime?
+  criadoEm       DateTime  @default(now())
+
+  autor        User? @relation("ReportAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  resolvidoPor User? @relation("ReportResolvedor", fields: [resolvidoPorId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([autorId])
+  @@index([criadoEm])
 }
 
 // Permissões configuráveis por papel × módulo (item 3 da sessão de UI/RBAC).
