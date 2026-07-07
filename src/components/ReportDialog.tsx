@@ -6,6 +6,7 @@ import {
   Lightbulb,
   Loader2,
   MessageSquarePlus,
+  Paperclip,
   Send,
   TriangleAlert,
   X,
@@ -204,6 +205,22 @@ function ReportModal({ onClose }: { onClose: () => void }) {
                   className="resize-y rounded-lg border border-border bg-field px-3 py-2 text-sm text-card-foreground outline-none focus-visible:border-primary"
                 />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="report-anexos" className="text-sm font-medium text-card-foreground">
+                  Anexos (opcional)
+                </label>
+                <input
+                  id="report-anexos"
+                  name="anexos"
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.xlsx,.xls,.csv"
+                  className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-card-foreground hover:file:bg-border"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Prints, fotos ou a planilha que deu erro. Até 5 arquivos, 4 MB cada.
+                </p>
+              </div>
               <FormFeedback state={state} />
               <button
                 type="submit"
@@ -276,6 +293,39 @@ function ReportList({
             {isAdmin && r.autorEmail ? ` · ${r.autorEmail}` : ""}
             {r.rota ? ` · ${r.rota}` : ""}
           </p>
+          {r.anexos.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {r.anexos.map((a) =>
+                a.mime.startsWith("image/") ? (
+                  <a
+                    key={a.id}
+                    href={`/api/reports/anexo/${a.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={a.nome}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/reports/anexo/${a.id}`}
+                      alt={a.nome}
+                      className="h-16 w-16 rounded-lg border border-border object-cover"
+                    />
+                  </a>
+                ) : (
+                  <a
+                    key={a.id}
+                    href={`/api/reports/anexo/${a.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-card-foreground transition-colors hover:bg-muted"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {a.nome}
+                  </a>
+                ),
+              )}
+            </div>
+          ) : null}
           {r.resposta ? (
             <div className="mt-2 rounded-lg bg-success-dim/60 px-3 py-2 text-sm text-foreground">
               <span className="font-medium text-success">Resposta: </span>

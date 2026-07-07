@@ -17,6 +17,17 @@ function isAdmin(role: string | undefined): boolean {
   return role === "ADMIN";
 }
 
+// Anexos ficam como bytea no banco. Limite por arquivo pensado para caber na
+// resposta do serverless da Vercel (~4,5 MB) ao servir de volta.
+const MAX_ANEXOS = 5;
+const MAX_TAMANHO_ANEXO = 4 * 1024 * 1024; // 4 MB
+
+function arquivosDoForm(formData: FormData): File[] {
+  return formData
+    .getAll("anexos")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+}
+
 const criarSchema = z.object({
   tipo: z.enum(["PROBLEMA", "SUGESTAO"]),
   titulo: z.string().trim().min(3, "Escreva um título de ao menos 3 caracteres.").max(120),
@@ -40,8 +51,20 @@ export async function criarReport(_prev: FormState, formData: FormData): Promise
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
+  const arquivos = arquivosDoForm(formData);
+  if (arquivos.length > MAX_ANEXOS) {
+    return { status: "error", message: `Máximo de ${MAX_ANEXOS} anexos por report.` };
+  }
+  const grande = arquivos.find((f) => f.size > MAX_TAMANHO_ANEXO);
+  if (grande) {
+    return {
+      status: "error",
+      message: `O anexo "${grande.name}" passa de 4 MB. Reduza/comprima e tente de novo.`,
+    };
+  }
+
   const headers = await requestHeaders();
-  await prisma.report.create({
+  const report = await prisma.report.create({
     data: {
       tipo: parsed.data.tipo,
       titulo: parsed.data.titulo,
@@ -51,7 +74,21 @@ export async function criarReport(_prev: FormState, formData: FormData): Promise
       autorEmail: session.user.email,
       userAgent: headers.get("user-agent"),
     },
+    select: { id: true },
   });
+
+  for (const arquivo of arquivos) {
+    const dados = Buffer.from(await arquivo.arrayBuffer());
+    await prisma.reportAnexo.create({
+      data: {
+        reportId: report.id,
+        nome: arquivo.name.slice(0, 200),
+        mime: arquivo.type || "application/octet-stream",
+        tamanho: dados.length,
+        dados,
+      },
+    });
+  }
 
   revalidatePath("/", "layout");
   return { status: "success", message: "Report enviado! Você acompanha o status por aqui." };
@@ -111,6 +148,12 @@ export async function resolverReport(_prev: FormState, formData: FormData): Prom
   return { status: "success", message: "Report atualizado." };
 }
 
+export interface ReportAnexoView {
+  id: string;
+  nome: string;
+  mime: string;
+}
+
 export interface ReportView {
   id: string;
   tipo: string;
@@ -122,6 +165,7 @@ export interface ReportView {
   resposta: string | null;
   criadoEm: string;
   resolvidoEm: string | null;
+  anexos: ReportAnexoView[];
 }
 
 // Lista para o modal: admin vê TODOS; qualquer outro vê só os próprios. A regra
@@ -137,6 +181,7 @@ export async function listarReports(): Promise<{ isAdmin: boolean; reports: Repo
     where: admin ? {} : { autorId: session.user.id ?? "__none__" },
     orderBy: { criadoEm: "desc" },
     take: 200,
+    include: { anexos: { select: { id: true, nome: true, mime: true } } },
   });
 
   return {
@@ -152,6 +197,7 @@ export async function listarReports(): Promise<{ isAdmin: boolean; reports: Repo
       resposta: r.resposta,
       criadoEm: r.criadoEm.toISOString(),
       resolvidoEm: r.resolvidoEm ? r.resolvidoEm.toISOString() : null,
+      anexos: r.anexos.map((a) => ({ id: a.id, nome: a.nome, mime: a.mime })),
     })),
   };
 }

@@ -32,3 +32,22 @@ ALTER TABLE "Report" ADD CONSTRAINT "Report_autorId_fkey" FOREIGN KEY ("autorId"
 
 -- AddForeignKey
 ALTER TABLE "Report" ADD CONSTRAINT "Report_resolvidoPorId_fkey" FOREIGN KEY ("resolvidoPorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- CreateTable
+CREATE TABLE "ReportAnexo" (
+    "id" TEXT NOT NULL,
+    "reportId" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "mime" TEXT NOT NULL,
+    "tamanho" INTEGER NOT NULL,
+    "dados" BYTEA NOT NULL,
+    "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ReportAnexo_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "ReportAnexo_reportId_idx" ON "ReportAnexo"("reportId");
+
+-- AddForeignKey
+ALTER TABLE "ReportAnexo" ADD CONSTRAINT "ReportAnexo_reportId_fkey" FOREIGN KEY ("reportId") REFERENCES "Report"("id") ON DELETE CASCADE ON UPDATE CASCADE;

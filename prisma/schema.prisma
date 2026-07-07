@@ -112,12 +112,30 @@ model Report {
   resolvidoEm    DateTime?
   criadoEm       DateTime  @default(now())
 
-  autor        User? @relation("ReportAutor", fields: [autorId], references: [id], onDelete: SetNull)
-  resolvidoPor User? @relation("ReportResolvedor", fields: [resolvidoPorId], references: [id], onDelete: SetNull)
+  autor        User?         @relation("ReportAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  resolvidoPor User?         @relation("ReportResolvedor", fields: [resolvidoPorId], references: [id], onDelete: SetNull)
+  anexos       ReportAnexo[]
 
   @@index([status])
   @@index([autorId])
   @@index([criadoEm])
+}
+
+// Anexo de um report (print, foto, planilha que deu erro). Guardado no próprio
+// banco (bytea) — simples e sem infra extra; limite de tamanho na Server Action
+// para caber no serverless. Servido por /api/reports/anexo/[id] com guarda.
+model ReportAnexo {
+  id       String   @id @default(cuid())
+  reportId String
+  nome     String
+  mime     String
+  tamanho  Int
+  dados    Bytes
+  criadoEm DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
 }
 
 // Permissões configuráveis por papel × módulo (item 3 da sessão de UI/RBAC).
