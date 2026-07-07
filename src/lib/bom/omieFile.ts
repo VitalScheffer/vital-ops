@@ -14,7 +14,9 @@ const LAST_DATA_ROW = 10005;
 // Caminho servido a partir de public/ (mesmo arquivo do omie-bom-converter).
 const TEMPLATE_URL = "/templates/Omie_Produtos_v1_9_5.xlsx";
 
-const NCM_FIXO = "9999.99.99";
+// NCM: era 9999.99.99 (genérico), mas a SEFAZ rejeita como inexistente na nota
+// de transferência — trocado para 9403.20.90 em 07/07/2026 (pedido do Vitor).
+const NCM_FIXO = "9403.20.90";
 const UNIDADE_FIXA = "UN";
 const TIPO_PRODUTO_FIXO = "04";
 

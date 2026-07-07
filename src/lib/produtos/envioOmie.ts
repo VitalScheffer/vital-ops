@@ -23,7 +23,9 @@ export type ChamarFn = (
 const WRITE: ChamarOptions = { write: true };
 
 // Fixos confirmados pelo usuário (REQUISITOS §7/§8).
-const NCM_FIXO = "9999.99.99";
+// NCM: era 9999.99.99 (genérico), mas a SEFAZ rejeita como inexistente na nota
+// de transferência — trocado para 9403.20.90 em 07/07/2026 (pedido do Vitor).
+const NCM_FIXO = "9403.20.90";
 const UNIDADE_FIXA = "UN";
 const TIPO_ITEM_FIXO = "04";
 

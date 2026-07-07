@@ -94,7 +94,7 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
       codigo: "AAAAA SM001 CCCCC",
       descricao: "AAAAA SM001 CCCCC - descrição",
       unidade: "UN",
-      ncm: "9999.99.99",
+      ncm: "9403.20.90",
       tipoItem: "04",
       produto_lote: "S",
       codigo_familia: 777,

@@ -57,7 +57,7 @@ describe("omieFile (edição cirúrgica do template real)", () => {
     const v = lerCelulas(bytes);
     expect(v("C6")).toBe("CODIGO000000001");
     expect(v("D6")).toBe("CODIGO000000001 - desc");
-    expect(v("E6")).toBe("9999.99.99");
+    expect(v("E6")).toBe("9403.20.90");
     expect(v("I6")).toBe("UN");
     expect(v("J6")).toBe("SBM - SUBMONTAGEM");
     expect(v("AC6")).toBe("04"); // texto, não o número 4

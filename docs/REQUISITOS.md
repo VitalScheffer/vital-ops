@@ -112,7 +112,8 @@ Fonte: `nextstep/docs/omie.md` + `nextstep/apps/omie/` (client, breaker, cache, 
 Reaproveitar a lógica do `omie-bom-converter` (`C:\Users\TREINAMENTO\omie-bom-converter\src\lib`):
 `bomParser.ts` (código 5-5-5 com espaço, família COM/SBM/PCF/PCA, `parseEstrutura` pela coluna Nº).
 
-- **Fixos**: NCM `9999.99.99` (CONFIRMADO pelo usuário — "o NCM, tudo 9999"), unidade `UN`, tipo `04`.
+- **Fixos**: NCM `9403.20.90` (era `9999.99.99`, mas a SEFAZ rejeitava como "NCM inexistente"
+  na nota de transferência — trocado em 07/07/2026 a pedido do Vitor), unidade `UN`, tipo `04`.
 - **Controle de lote**: **sempre ativar** "este produto possui controle de lote" (CONFIRMADO).
   Setar o campo correspondente no `UpsertProduto` (confirmar o nome exato do campo na API do Omie).
   O schema já traz `ProdutoItem.controleLote` com default `true`.
@@ -128,7 +129,8 @@ Reaproveitar a lógica do `omie-bom-converter` (`C:\Users\TREINAMENTO\omie-bom-c
 
 ## 8. Confirmações do usuário
 
-- ✅ **"9999 em tudo" = o NCM** (`9999.99.99`). Já implementado.
+- ✅ **"9999 em tudo" = o NCM** (`9999.99.99`). **SUPERADO em 07/07/2026**: a SEFAZ rejeita
+  `9999.99.99` como "NCM inexistente" na nota de transferência; o fixo agora é `9403.20.90`.
 - ✅ **Controle de lote**: ativar automático sempre (toggle da tela de produto do Omie).
 - ⏸️ **Bug UN (700 vira 7.00000)**: é um erro de **÷100 / casa decimal** (vem da tela de Produtos
   do Omie). Adiado — "vemos melhor juntos". Fase 4.

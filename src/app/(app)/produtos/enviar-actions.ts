@@ -133,7 +133,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       codigo: item.codigo,
       descricao: item.descricaoProduto,
       familia: item.familia,
-      ncm: "9999.99.99",
+      ncm: "9403.20.90",
       unidade: "UN",
       tipo: "04",
       localEstoque: local,
