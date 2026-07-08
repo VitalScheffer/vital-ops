@@ -848,3 +848,157 @@ cada passo; `tsc`/`eslint`/`vitest` (111) verdes.
 - Jhonatan deve usar 9403.20.90 nos cadastros manuais tambem (Vitor ja avisou ele).
 - Conferir com o Vitor se ha outro grupo de produto (alem do carro CREHS) que precise de
   NCM diferente de 9403.20.90 — hoje o valor e fixo para tudo que o vital-ops cadastra.
+
+## 2026-07-08 — Bug real: 1 item com descrição duplicada parava o lote inteiro
+
+### Resumo
+João testou o envio pós-fix do NCM: 5 itens cadastrados, o 6º (uma dobradiça já
+cadastrada no Omie sob outro código) deu erro e o lote parou — 50 itens ficaram
+"não enviados". Vitor reportou o print do erro (via Auditoria do próprio app).
+Causa raiz identificada e corrigida. `npx tsc --noEmit`, `npx eslint .` e
+`npx vitest run` verdes (130 testes; +8 novos).
+
+### Causa raiz (duas partes)
+1. **Bug real no client Omie**: o erro veio como `HTTP 500: {"faultstring":"ERROR:
+   A descrição informada já está sendo utilizada pelo produto com código COMDB
+   P0381 018AC.","faultcode":"SOAP-ENV:Client-143"}`. O `client.ts` tratava
+   **qualquer** HTTP ≥500 como falha genérica de infra (`retryable: true`) SEM
+   tentar parsear/classificar o corpo — mesmo a REQUISITOS.md §6 já documentando
+   "HTTP 500 às vezes é validação (não transitório)". Nenhuma classificação (nem
+   DUPLICATE, nem nada) rodava pra respostas 500, então esse faultstring nunca
+   tinha chance de ser reconhecido.
+2. **Faultstring não coberto**: mesmo se o `handle()` tentasse classificar, "a
+   descrição informada já está sendo utilizada" não batia no regex de DUPLICATE
+   (`ja cadastrad|ja existe`) — é um caso diferente: não é o NOSSO registro que já
+   existe (idempotência), é uma descrição colidindo com um produto de OUTRO
+   código (típico de peça padrão — parafuso, dobradiça — reaproveitada em várias
+   BOMs/projetos, cada upload gerando a mesma descrição).
+
+### Correção
+- `src/lib/omie/client.ts` (`handle`): agora lê o corpo e tenta parsear/classificar
+  o `faultstring` **independente do status HTTP** — só cai no "erro genérico de
+  infra retryable" quando o corpo não tem `faultstring` reconhecível. Mantém o
+  comportamento antigo pros casos sem corpo/não-JSON.
+- `src/lib/omie/taxonomy.ts`: nova `Category.DESCRIPTION_CONFLICT` (regex
+  `descricao informada ja esta sendo utilizada`), adicionada ao `FAULT_LIKE`.
+- `src/lib/omie/errors.ts`: nova classe `OmieDescriptionConflict extends OmieError`
+  (mesmo padrão de `OmieDuplicate`).
+- `src/lib/produtos/envioOmie.ts`: o loop de produtos agora trata
+  `OmieDescriptionConflict` como falha **do item** (mensagem já cita o código
+  conflitante pro usuário corrigir) mas **NÃO chama `interromper()`** — o lote
+  continua pros próximos itens. Diferente de `OmieDuplicate` (que é sucesso
+  idempotente), aqui o item genuinamente não foi criado/atualizado no Omie —
+  precisa de decisão humana (renomear a descrição ou reaproveitar o código já
+  existente) — mas isso não é sinal de risco de bloqueio do app_key, então não
+  faz sentido travar os outros 50 itens saudáveis do lote por causa de 1.
+- `docs/REQUISITOS.md` §7 — documentado o caso e a decisão (resolução ainda
+  manual; não automatizei vincular ao código já existente).
+
+### Decisões importantes
+- **Não tratei `DESCRIPTION_CONFLICT` como sucesso** (diferente de `OmieDuplicate`):
+  o item realmente não foi gravado sob o nosso `codigo_produto_integracao`, então
+  marcar como "já existia" corromperia silenciosamente os vínculos de estrutura
+  (BOM) que dependem desse código. Fica como "falha" visível, com o código do
+  produto conflitante na mensagem, pro usuário decidir.
+- **Não toquei no "para o lote em qualquer outro erro genérico"** (`OmieError` não
+  classificado continua parando o lote — ban-safety §6/§7, testado em
+  `envioOmie.test.ts`). Só criei a exceção pontual pro caso específico e já
+  confirmado em produção (conflito de descrição), que não é risco de bloqueio.
+- **Risco conhecido não resolvido nesta sessão**: como o lote agora continua após
+  uma falha de item, o passo de Estrutura pode tentar `IncluirEstrutura`
+  referenciando um `codigo_produto_integracao` que nunca chegou a ser criado no
+  Omie (o produto que falhou). Se o Omie responder isso como NOT_FOUND (categoria
+  que hoje o client devolve como `null`, não exceção), a relação de estrutura
+  seria marcada "enviado" incorretamente (bug pré-existente, não introduzido
+  agora, mas que fica mais alcançável com o lote não parando mais). Não reproduzi
+  esse caso real; fica como acompanhar se aparecer no próximo teste.
+
+### Arquivos alterados/criados
+- `src/lib/omie/client.ts`, `src/lib/omie/taxonomy.ts`, `src/lib/omie/errors.ts`,
+  `src/lib/produtos/envioOmie.ts`, `docs/REQUISITOS.md`.
+- Testes: `src/lib/omie/__tests__/taxonomy.test.ts` (+1 caso),
+  `src/lib/omie/__tests__/client.test.ts` (**novo** — 1º teste de integração do
+  `chamar()`/`handle()` mockando `fetch`, cobrindo o bug do HTTP 500),
+  `src/lib/produtos/envioOmie.test.ts` (+1 caso: descrição duplicada não para o lote).
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 130/130 (14 arquivos).
+
+### Pendências / próximos passos
+1. **Não commitado/enviado ainda** — aguardando confirmação do Vitor antes de
+   commit + push (push pra master faz deploy automático em produção via Vercel).
+2. João precisa reenviar a mesma BOM pra confirmar em produção real que os outros
+   itens saudáveis passam a ir mesmo com a dobradiça falhando (e que a mensagem de
+   erro agora é legível, sem o JSON cru).
+3. ~~Resolver a dobradiça em si: decidir se renomeia ou reaproveita~~ — **decisão do
+   Vitor logo em seguida na mesma sessão, ver abaixo: sempre reaproveitar.**
+4. Acompanhar o risco de Estrutura descrito acima (NOT_FOUND tratado como `null`
+   em vez de exceção) caso apareça em produção — hoje é teórico, não reproduzido.
+
+## 2026-07-08 (continuação) — Decisão do Vitor: reaproveitar automaticamente o cadastro existente
+
+### Resumo
+Vitor confirmou a política pro caso de conflito de descrição (item acima): "Melhor
+sempre aproveitar o que já tem cadastrado, pois esses itens já podem estar em outro
+produto que está em ordem de produção ou com saldo em estoque." Ou seja, NÃO pedir
+resolução manual — resolver sozinho. Implementado: no conflito, busca o cadastro
+existente no Omie e reaproveita (outcome "já existia"), incluindo a Estrutura (BOM)
+passando a referenciar o código REAL do cadastro existente, não o gerado localmente
+pela BOM. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run` verdes (133 testes;
++4 novos sobre a entrada anterior).
+
+### Implementação
+- `src/lib/produtos/envioOmie.ts`:
+  - `extrairCodigoConflitante(mensagem)` — regex que pega o código citado na
+    mensagem do Omie ("...produto com código X." → "X").
+  - `resolverProdutoExistente(codigo, chamar)` — chamada **READ** (`ListarProdutos`,
+    `geral/produtos/`, filtro `produtosPorCodigo: [{codigo}]` — mesmo padrão já
+    usado em produção no nextstep, `apps/omie/services/products.py`) que devolve
+    `codigo_produto`/`codigo_produto_integracao` do cadastro achado. Só chamada
+    DEPOIS de um conflito confirmado (nunca preventivamente — mantém o
+    write-then-handle-duplicate do §6).
+  - No catch de `OmieDescriptionConflict`: tenta resolver; se achar, marca
+    `outcome: "ja_existia"` com o `omieCodigoProduto` real e guarda o
+    `codigo_produto_integracao` real num mapa (`integracaoReal`) indexado pelo
+    nosso código sem espaço. Se não achar (busca vazia) ou a busca falhar por
+    motivo comum, cai pra `"falha"` (não assume sucesso sem confirmar) — mas
+    **sem parar o lote**. Se a própria busca vier `OmieBlocked`, aí sim para o
+    lote (ban-safety genuína).
+  - Passo de Estrutura: antes de montar `intProduto`/`intProdMalha`, consulta o
+    `integracaoReal` primeiro; só cai pro código local se não houve reaproveitamento.
+- `docs/REQUISITOS.md` §6 (nova call `ListarProdutos` documentada) e §7 (decisão
+  atualizada — reaproveitamento é automático, não mais "resolução manual").
+
+### Decisões importantes
+- **Só resolve DEPOIS do conflito, nunca antes**: mantém a regra de ban-safety
+  (§6) de não consultar preventivamente — o custo extra de 1 leitura só acontece
+  quando o conflito já foi confirmado pelo próprio Omie.
+- **Busca falhou/vazia ≠ sucesso**: se `ListarProdutos` não achar nada (ou o
+  código extraído da mensagem vier de um formato inesperado), o item fica como
+  falha visível — nunca finge que reaproveitou algo que não confirmou.
+- **`OmieBlocked` na busca de resolução ainda para o lote**: a exceção ao "não
+  para o lote" é só pra esse tipo específico de erro (conflito de descrição);
+  qualquer sinal real de bloqueio do app_key continua interrompendo tudo.
+
+### Limitação conhecida (não resolvida)
+Se o cadastro existente no Omie não tiver `codigo_produto_integracao` preenchido
+(ex.: cadastrado manualmente na tela do Omie, sem vir de import via API), a
+Estrutura cai de volta pro código gerado localmente — que provavelmente vai falhar
+(o Omie não vai reconhecer esse código de integração pra aquele produto). Não
+reproduzido ainda; se acontecer, precisa de outra estratégia (ex. referenciar pelo
+`codigo_produto` interno, se a API de malha aceitar — não confirmado na doc).
+
+### Arquivos alterados
+- `src/lib/produtos/envioOmie.ts`, `src/lib/produtos/envioOmie.test.ts` (+4 casos),
+  `docs/REQUISITOS.md`.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 133/133 (14 arquivos).
+
+### Pendências / próximos passos
+1. **Ainda não commitado/enviado** — mesma pendência da entrada anterior, aguardando
+   confirmação do Vitor pro commit + push (deploy automático).
+2. Testar em produção real: João reenviar a BOM com a dobradiça e confirmar que ela
+   sai como "já existia" (reaproveitada), não mais como falha.
+3. Acompanhar a limitação conhecida acima (código de integração ausente no cadastro
+   existente) — só resolver se aparecer de fato.

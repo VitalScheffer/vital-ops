@@ -40,3 +40,15 @@ export class OmieDuplicate extends OmieError {
     this.name = "OmieDuplicate";
   }
 }
+
+// Descrição do produto já usada por OUTRO cadastro (código diferente do nosso).
+// Diferente de OmieDuplicate: aqui NÃO é o nosso próprio registro que já existe
+// (não dá pra tratar como sucesso) — é um item que precisa de decisão humana
+// (renomear a descrição ou reaproveitar o código já existente no Omie). Comum
+// para peças padrão (parafusos, dobradiças) reusadas em várias BOMs.
+export class OmieDescriptionConflict extends OmieError {
+  constructor(message: string, options: { faultcode?: string } = {}) {
+    super(message, { retryable: false, faultcode: options.faultcode });
+    this.name = "OmieDescriptionConflict";
+  }
+}

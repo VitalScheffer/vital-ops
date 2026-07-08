@@ -104,6 +104,10 @@ Fonte: `nextstep/docs/omie.md` + `nextstep/apps/omie/` (client, breaker, cache, 
   - `UpsertProduto` (`geral/produtos/`) — obrigatórios: `codigo_produto_integracao`, `codigo`,
     `descricao`, `unidade`, `ncm`; + `tipoItem="04"`; + família; + **controle de lote** (ver §7).
   - `IncluirEstrutura` (`geral/malha/`) — pai `intProduto`, filho `intProdMalha`, `quantProdMalha`.
+  - `ListarProdutos` (`geral/produtos/`, filtro `produtosPorCodigo: [{codigo}]`) — READ, só usado
+    depois de um conflito de descrição confirmado (nunca preventivamente), pra achar
+    `codigo_produto`/`codigo_produto_integracao` do cadastro já existente e reaproveitar (ver §7).
+    Mesmo padrão já usado no nextstep (`apps/omie/services/products.py`).
   - (Fase 3) baixa de estoque — ver `nextstep/apps/omie/services/estoque.py` pro call certo.
 - **Idempotência**: `codigo_produto_integracao = nosso código` → estrutura referencia por `int...` sem consultar id interno.
 
@@ -122,6 +126,18 @@ Reaproveitar a lógica do `omie-bom-converter` (`C:\Users\TREINAMENTO\omie-bom-c
   estrutura que já existe, tratar `OmieDuplicate` como sucesso E evitar mandar em massa o que já
   existe (senão o Omie conta como erro e pode bloquear o app_key).
 - **Dedup**: 1 código = 1 produto (parafuso repetido não vira N cadastros). Já implementado no parser.
+- **Descrição já usada por outro código** (comum em peça padrão reaproveitada entre BOMs, ex.
+  parafuso/dobradiça — Vitor: "melhor sempre aproveitar o que já tem cadastrado, pois esses itens já
+  podem estar em outro produto que está em ordem de produção ou com saldo em estoque"): o Omie
+  rejeita o `UpsertProduto` com "A descrição informada já está sendo utilizada pelo produto com
+  código X" — às vezes via **HTTP 500** (não só 200+faultstring, ver §6). Classificado como categoria
+  própria (`DESCRIPTION_CONFLICT` → `OmieDescriptionConflict`). **Decisão confirmada em 08/07/2026:
+  reaproveitar automaticamente** — extrai o código conflitante da mensagem, busca via
+  `ListarProdutos` (§6) e usa o `codigo_produto`/`codigo_produto_integracao` já existentes (outcome
+  "já existia"; a Estrutura passa a referenciar esse código real, não o gerado localmente pela BOM).
+  Se não achar o cadastro (busca vazia/erro), cai pra "falha" sem assumir sucesso — **não para o
+  lote** nos dois casos (não é sinal de risco de bloqueio do app_key). Corrigido após o João bater
+  nisso em produção (5 itens ok, o 6º parava o lote inteiro — 50 itens saudáveis ficavam presos).
 - **Avisar o usuário** o que precisa corrigir (erros de formato/tamanho) antes de enviar.
 - **Processar em lote**: enviar o import inteiro pela fila (com ✓/✗ por item).
 - **Tela de revisão** (a "telinha"): lista editável do que vai (código/desc/família/qtd/local),

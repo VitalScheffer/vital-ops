@@ -41,6 +41,12 @@ describe("classifyFault", () => {
     );
   });
 
+  it("descrição já usada por outro código → DESCRIPTION_CONFLICT", () => {
+    const fault =
+      "ERROR: A descrição informada já está sendo utilizada pelo produto com código COMDB P0381 018AC.";
+    expect(classifyFault(fault)).toBe(Category.DESCRIPTION_CONFLICT);
+  });
+
   it("desconhecido → ERROR e loga WARNING", () => {
     const logger = { warn: vi.fn() };
     expect(classifyFault("ERROR: Algo totalmente novo aconteceu", logger)).toBe(Category.ERROR);

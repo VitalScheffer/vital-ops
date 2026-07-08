@@ -12,6 +12,7 @@ export enum Category {
   NOT_FOUND = "not_found", // registro específico não cadastrado
   BLOCKED = "blocked", // consumo indevido / API bloqueada
   DUPLICATE = "duplicate", // já cadastrado (idempotência de escrita)
+  DESCRIPTION_CONFLICT = "description_conflict", // descrição já usada por OUTRO código
   TRANSIENT = "transient", // resposta quebrada do app server (BG) — retryable
   REDUNDANT = "redundant", // req idêntica <60s — espera curta e tenta de novo
   ERROR = "error", // validação / fatal / desconhecido
@@ -25,6 +26,7 @@ export const FAULT_LIKE = [
   Category.EMPTY,
   Category.NOT_FOUND,
   Category.BLOCKED,
+  Category.DESCRIPTION_CONFLICT,
   Category.TRANSIENT,
   Category.REDUNDANT,
   Category.ERROR,
@@ -50,6 +52,7 @@ const REGISTRY: ReadonlyArray<[Category, RegExp]> = [
   [Category.BLOCKED, /consumo indevido|bloquead/],
   [Category.TRANSIENT, /broken response|soap-error/],
   [Category.DUPLICATE, /ja cadastrad|ja existe/],
+  [Category.DESCRIPTION_CONFLICT, /descricao informada ja esta sendo utilizada/],
   [Category.EMPTY, /nao existem registros/],
   [Category.NOT_FOUND, /nao cadastrad. para o codigo/],
 ];

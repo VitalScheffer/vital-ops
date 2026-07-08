@@ -1,17 +1,20 @@
 // Client base do Omie ERP (portado do nextstep/apps/omie/client.py).
 //
 // Fluxo de `chamar`: breaker → cache → POST → classifica → atualiza breaker/cache.
+// A classificação por `faultstring` roda independente do status HTTP (o Omie
+// às vezes valida via 5xx, não só 200 — ver REQUISITOS §6).
 // Contrato de retorno:
-//   • OK                → objeto da resposta
-//   • EMPTY/NOT_FOUND   → null (vazio/ausência; o caller decide []/null)
-//   • BLOCKED/REDUNDANT → lança OmieBlocked
-//   • DUPLICATE         → lança OmieDuplicate (escrita idempotente)
-//   • erro/5xx/rede     → lança OmieError (com retryable)
+//   • OK                    → objeto da resposta
+//   • EMPTY/NOT_FOUND       → null (vazio/ausência; o caller decide []/null)
+//   • BLOCKED/REDUNDANT     → lança OmieBlocked
+//   • DUPLICATE             → lança OmieDuplicate (escrita idempotente)
+//   • DESCRIPTION_CONFLICT  → lança OmieDescriptionConflict (descrição em uso por outro código)
+//   • erro/5xx sem corpo/rede → lança OmieError (com retryable)
 
 import { Breaker } from "./breaker";
 import { type CacheStore, DEFAULT_TTL_SECONDS, cacheKey } from "./cache";
 import { OMIE_BASE_URL, OMIE_TIMEOUT_MS, type OmieCredentials, omieCredentials } from "./config";
-import { OmieBlocked, OmieDuplicate, OmieError } from "./errors";
+import { OmieBlocked, OmieDescriptionConflict, OmieDuplicate, OmieError } from "./errors";
 import { PrismaBreakerStore, PrismaCacheStore } from "./stores";
 import { Category, EMPTY_LIKE, type WarnLogger, classifyFault, parseRetryAfter } from "./taxonomy";
 
@@ -124,27 +127,36 @@ async function handle(
   ctx: HandleContext,
   deps: OmieClientDeps,
 ): Promise<OmiePayload | null> {
-  if (resp.status >= 500) {
-    await deps.breaker.recordFault();
-    const detail = (await safeText(resp)).slice(0, 500).trim();
-    const message = detail ? `HTTP ${resp.status}: ${detail}` : `HTTP ${resp.status}`;
-    throw new OmieError(message, { retryable: true, status: resp.status });
-  }
-
+  const rawBody = await safeText(resp);
   let bodyJson: unknown;
   try {
-    bodyJson = await resp.json();
+    bodyJson = rawBody ? JSON.parse(rawBody) : undefined;
   } catch {
-    // Corpo não-JSON é quase sempre resposta quebrada/infra do Omie → retryable.
-    await deps.breaker.recordFault();
-    throw new OmieError(`resposta não-JSON (HTTP ${resp.status})`, {
-      retryable: true,
-      status: resp.status,
-    });
+    bodyJson = undefined;
   }
 
   const faultstring = isRecord(bodyJson) ? (bodyJson.faultstring as string | undefined) : undefined;
+
+  // O Omie normalmente devolve erro como HTTP 200 + `faultstring` (semântica
+  // invertida), mas HTTP 5xx às vezes também é validação, não só infra
+  // (REQUISITOS §6) — por isso classificamos o corpo antes de desistir por status.
   if (!faultstring) {
+    if (resp.status >= 500) {
+      await deps.breaker.recordFault();
+      const detail = rawBody.slice(0, 500).trim();
+      const message = detail ? `HTTP ${resp.status}: ${detail}` : `HTTP ${resp.status}`;
+      throw new OmieError(message, { retryable: true, status: resp.status });
+    }
+
+    if (bodyJson === undefined) {
+      // Corpo não-JSON é quase sempre resposta quebrada/infra do Omie → retryable.
+      await deps.breaker.recordFault();
+      throw new OmieError(`resposta não-JSON (HTTP ${resp.status})`, {
+        retryable: true,
+        status: resp.status,
+      });
+    }
+
     await deps.breaker.recordOk();
     const resposta = isRecord(bodyJson) ? bodyJson : {};
     await deps.cache.store({
@@ -197,11 +209,20 @@ async function handle(
     throw new OmieDuplicate(faultstring, { faultcode });
   }
 
+  if (category === Category.DESCRIPTION_CONFLICT) {
+    await deps.breaker.recordFault();
+    throw new OmieDescriptionConflict(faultstring, { faultcode });
+  }
+
   if (category === Category.TRANSIENT) {
     await deps.breaker.recordFault();
     throw new OmieError(faultstring, { retryable: true, faultcode });
   }
 
   await deps.breaker.recordFault();
-  throw new OmieError(faultstring, { retryable: retryableFaultcode(faultcode), faultcode });
+  throw new OmieError(faultstring, {
+    retryable: retryableFaultcode(faultcode),
+    faultcode,
+    status: resp.status,
+  });
 }

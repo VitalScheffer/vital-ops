@@ -13,6 +13,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-07-08",
+    title: "Envio ao Omie não trava mais o lote inteiro por causa de 1 item",
+    items: [
+      "Peça padrão que já existe no Omie sob outro código (ex.: parafuso ou dobradiça usados em vários projetos diferentes) agora é reconhecida e reaproveitada automaticamente, em vez de dar erro.",
+      "Se mesmo assim algum item não puder ser enviado, os demais da mesma planilha continuam normalmente — antes, um erro travava o envio inteiro.",
+      "Mensagens de erro do envio ao Omie ficaram mais claras, sem trecho técnico bruto.",
+    ],
+  },
+  {
     date: "2026-07-07",
     title: "Reports com anexo, exclusão de usuário e leitura das BOMs antigas do CAD",
     items: [

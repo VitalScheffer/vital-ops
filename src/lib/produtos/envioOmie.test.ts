@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EstruturaRel, Familia, ParsedItem } from "@/lib/bom/types";
 import type { OmiePayload } from "@/lib/omie/client";
-import { OmieBlocked, OmieDuplicate, OmieError } from "@/lib/omie/errors";
+import { OmieBlocked, OmieDescriptionConflict, OmieDuplicate, OmieError } from "@/lib/omie/errors";
 
 import { orquestrarEnvio, type ChamarFn } from "./envioOmie";
 
@@ -222,6 +222,87 @@ describe("orquestrarEnvio — bloqueio e erro param o lote", () => {
     expect(res.interrompido).toBe(true);
     expect(res.produtos[0].outcome).toBe("nao_enviado");
     expect(calls.some((c) => c.call === "UpsertProduto")).toBe(false);
+  });
+});
+
+describe("orquestrarEnvio — descrição já usada por outro código (reaproveita o cadastro existente)", () => {
+  const CODIGO_EXISTENTE = "COMDB P0381 018AC";
+  const FAULTSTRING_CONFLITO = `ERROR: A descrição informada já está sendo utilizada pelo produto com código ${CODIGO_EXISTENTE}.`;
+
+  it("reaproveita o produto existente (busca por ListarProdutos) e NÃO para o lote", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
+        return new OmieDescriptionConflict(FAULTSTRING_CONFLITO);
+      }
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: CODIGO_EXISTENTE, codigo_produto: 999, codigo_produto_integracao: "COMDBP0381018AC" },
+          ],
+        };
+      }
+      return {};
+    });
+    const novos = [item("P1", null), item("P2", null)];
+    const res = await orquestrarEnvio({ novos, estrutura: [] }, fn);
+
+    expect(res.produtos[0]).toMatchObject({ outcome: "ja_existia", omieCodigoProduto: "999" });
+    expect(res.produtos[1].outcome).toBe("enviado");
+    expect(res.interrompido).toBe(false);
+    expect(res.totais).toMatchObject({ enviados: 1, jaExistiam: 1, falhas: 0, naoEnviados: 0 });
+
+    const listar = calls.find((c) => c.call === "ListarProdutos");
+    expect(listar?.param).toMatchObject({ produtosPorCodigo: [{ codigo: CODIGO_EXISTENTE }] });
+  });
+
+  it("estrutura referencia o codigo_produto_integracao REAL do cadastro existente, não o nosso", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
+        return new OmieDescriptionConflict(FAULTSTRING_CONFLITO);
+      }
+      if (rec.call === "ListarProdutos") {
+        return { produto_servico_cadastro: [{ codigo_produto: 999, codigo_produto_integracao: "COMDBP0381018AC" }] };
+      }
+      return {};
+    });
+    await orquestrarEnvio({ novos: [item("P1", null)], estrutura: [rel("P1", "FILHO1", 2)] }, fn);
+
+    const est = calls.find((c) => c.call === "IncluirEstrutura");
+    expect(est?.param).toMatchObject({ intProduto: "COMDBP0381018AC" });
+  });
+
+  it("se não achar o cadastro existente, marca falha (não assume sucesso) e segue o lote", async () => {
+    const { fn } = mockChamar((rec) => {
+      if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
+        return new OmieDescriptionConflict(FAULTSTRING_CONFLITO);
+      }
+      if (rec.call === "ListarProdutos") return null; // não encontrado
+      return {};
+    });
+    const novos = [item("P1", null), item("P2", null)];
+    const res = await orquestrarEnvio({ novos, estrutura: [] }, fn);
+
+    expect(res.produtos[0].outcome).toBe("falha");
+    expect(res.produtos[0].motivo).toContain("confira manualmente");
+    expect(res.produtos[1].outcome).toBe("enviado");
+    expect(res.interrompido).toBe(false);
+  });
+
+  it("se a busca do cadastro existente vier bloqueada pelo Omie, para o lote (ban-safety)", async () => {
+    const { fn } = mockChamar((rec) => {
+      if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
+        return new OmieDescriptionConflict(FAULTSTRING_CONFLITO);
+      }
+      if (rec.call === "ListarProdutos") return new OmieBlocked("bloqueado");
+      return {};
+    });
+    const novos = [item("P1", null), item("P2", null)];
+    const res = await orquestrarEnvio({ novos, estrutura: [] }, fn);
+
+    expect(res.produtos[0].outcome).toBe("falha");
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(true);
+    expect(res.produtos[1].outcome).toBe("nao_enviado");
   });
 });
 
