@@ -108,6 +108,10 @@ Fonte: `nextstep/docs/omie.md` + `nextstep/apps/omie/` (client, breaker, cache, 
     depois de um conflito de descrição confirmado (nunca preventivamente), pra achar
     `codigo_produto`/`codigo_produto_integracao` do cadastro já existente e reaproveitar (ver §7).
     Mesmo padrão já usado no nextstep (`apps/omie/services/products.py`).
+  - `ConsultarProduto` (`geral/produtos/`, param `codigo_produto: <id interno>`) — READ, só usado
+    depois de um conflito de CÓDIGO confirmado (a mensagem do Omie já cita o ID interno do
+    cadastro existente). Confirmado na doc oficial (`developer.omie.com.br`) que `codigo_produto`
+    é aceito como chave principal pra localizar o produto (ver §7).
   - (Fase 3) baixa de estoque — ver `nextstep/apps/omie/services/estoque.py` pro call certo.
 - **Idempotência**: `codigo_produto_integracao = nosso código` → estrutura referencia por `int...` sem consultar id interno.
 
@@ -138,6 +142,19 @@ Reaproveitar a lógica do `omie-bom-converter` (`C:\Users\TREINAMENTO\omie-bom-c
   Se não achar o cadastro (busca vazia/erro), cai pra "falha" sem assumir sucesso — **não para o
   lote** nos dois casos (não é sinal de risco de bloqueio do app_key). Corrigido após o João bater
   nisso em produção (5 itens ok, o 6º parava o lote inteiro — 50 itens saudáveis ficavam presos).
+- **Código já usado por outro ID** (mesma ideia acima, mas o Omie identifica o cadastro existente
+  pelo ID interno, não pela descrição): "O código X informado já está sendo utilizado pelo produto
+  com ID Y" (confirmado em produção 08/07/2026, item PC021). Classificado como categoria própria
+  (`CODE_CONFLICT` → `OmieCodeConflict`), mesma política de reaproveitamento automático — busca via
+  `ConsultarProduto`/`codigo_produto` (§6) em vez de `ListarProdutos`/`codigo`.
+- **Só `OmieBlocked` para o lote inteiro** (decisão de 08/07/2026, generalizada após o João bater
+  de novo num item diferente — item 21/PC021 com faultstring não coberto pelo regex específico de
+  `DESCRIPTION_CONFLICT`, e o lote parou de novo, deixando tudo abaixo dele como "não enviado").
+  Qualquer `OmieError` — classificado (`DUPLICATE`, `DESCRIPTION_CONFLICT`) ou **não** — passa a ser
+  falha isolada daquele item/família/relação de estrutura; o orquestrador segue pros próximos. O
+  breaker do client (§6) já conta toda falha e lança `OmieBlocked` sozinho se acumular demais (soft
+  6/2min, hard em bloqueio explícito) — o orquestrador travar o lote de novo por cima disso era
+  redundante e frágil (dependia de cobrir cada variação de faultstring com um regex próprio).
 - **Avisar o usuário** o que precisa corrigir (erros de formato/tamanho) antes de enviar.
 - **Processar em lote**: enviar o import inteiro pela fila (com ✓/✗ por item).
 - **Tela de revisão** (a "telinha"): lista editável do que vai (código/desc/família/qtd/local),

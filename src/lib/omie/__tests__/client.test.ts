@@ -4,7 +4,7 @@ import type { BreakerState, BreakerStore } from "../breaker";
 import { Breaker } from "../breaker";
 import type { CacheStore } from "../cache";
 import { chamar, type OmieClientDeps } from "../client";
-import { OmieDescriptionConflict, OmieDuplicate, OmieError } from "../errors";
+import { OmieCodeConflict, OmieDescriptionConflict, OmieDuplicate, OmieError } from "../errors";
 
 function memoryBreaker(): Breaker {
   let state: BreakerState = { estado: "CLOSED", faults: 0, cooldownUntil: null, blockedUntil: null };
@@ -80,6 +80,22 @@ describe("chamar — classificação independe do status HTTP", () => {
     const erro = await chamarEspera(fetchImpl);
     expect(erro).toBeInstanceOf(OmieDescriptionConflict);
     expect((erro as Error).message).toContain("COMDB P0381 018AC");
+  });
+
+  it("HTTP 500 com faultstring de código em uso por outro id → OmieCodeConflict", async () => {
+    const fetchImpl = vi.fn(async () =>
+      fakeResponse(
+        500,
+        JSON.stringify({
+          faultstring:
+            "ERROR: O código CREHI PC021 ITSLD informado já está sendo utilizado pelo produto com ID 12123048648.",
+          faultcode: "SOAP-ENV:Client-143",
+        }),
+      ),
+    );
+    const erro = await chamarEspera(fetchImpl);
+    expect(erro).toBeInstanceOf(OmieCodeConflict);
+    expect((erro as Error).message).toContain("12123048648");
   });
 
   it("HTTP 500 sem corpo reconhecível continua um OmieError retryable", async () => {

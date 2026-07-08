@@ -1002,3 +1002,96 @@ reproduzido ainda; se acontecer, precisa de outra estratégia (ex. referenciar p
    sai como "já existia" (reaproveitada), não mais como falha.
 3. Acompanhar a limitação conhecida acima (código de integração ausente no cadastro
    existente) — só resolver se aparecer de fato.
+
+## 2026-07-08 (continuação 2) — Mesmo bug reaparece em outro item (PC021): generalizada a regra de "não parar o lote" + reaproveitamento também pra conflito de CÓDIGO
+
+### Resumo
+Depois do commit `d0f5de7` (fix específico de `DESCRIPTION_CONFLICT`) já enviado/deployado, o
+Victor repassou um novo teste do João: reenviaram a planilha e o envio subiu até o item 21;
+ao descobrir que o item 21 (PC021) já estava cadastrado sob outro ID, tudo que vinha depois
+dele na planilha ficou sem subir (só os itens acima foram — print da tela mostrou 8
+cadastrados, 2 já existiam, 1 falha, **45 não enviados**). Investigado e corrigido em duas
+partes: (1) generalizada a regra de "não parar o lote" pra qualquer erro que não seja
+bloqueio real; (2) confirmado o texto exato do erro (print do Victor) e estendido o
+reaproveitamento automático (que já existia pra conflito de DESCRIÇÃO) pro conflito de
+CÓDIGO também. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run` verdes (140 testes;
++6 novos sobre a entrada anterior).
+
+### Causa raiz
+O fix de mais cedo hoje (`d0f5de7`) só parou de interromper o lote para o `faultstring`
+ESPECÍFICO já visto ("a descrição informada já está sendo utilizada..."). Qualquer OUTRO erro do
+Omie que não batesse em `DUPLICATE`/`DESCRIPTION_CONFLICT` ainda caía no `else` genérico de
+`orquestrarEnvio`, que chamava `interromper()` e parava o lote inteiro. O print do Victor
+confirmou o texto exato pro item 21: `ERROR: O código CREHI PC021 ITSLD informado já está
+sendo utilizado pelo produto com ID 12123048648.` — uma variação de CÓDIGO (não descrição),
+com formato de mensagem diferente ("produto com ID <número>" em vez de "produto com código
+<texto>"), que não batia em nenhum regex existente → caía em `ERROR` → parava o lote. Como o
+`client.ts` já registra TODA falha no breaker (`deps.breaker.recordFault()`, inclusive pra
+`ERROR` não reconhecida) e o breaker sozinho lança `OmieBlocked` quando acumula demais (soft
+6/2min, hard em bloqueio explícito), o `orquestrarEnvio` parar o lote de novo em cima disso
+era redundante e frágil: dependia de ir cobrindo, um regex de cada vez, toda variação de
+mensagem que o Omie decidisse usar.
+
+### Correção — parte 1 (generalização: só bloqueio real para o lote)
+- `src/lib/produtos/envioOmie.ts`: o helper `interromper(erro)` agora só age se
+  `erro instanceof OmieBlocked` (early return caso contrário) — os 3 pontos de chamada
+  (família, produto, estrutura) não precisaram mudar, só o helper. Na prática: família,
+  produto ou relação de estrutura com QUALQUER erro que não seja bloqueio real vira "falha"
+  isolada daquele item, e o lote CONTINUA pros próximos.
+- Testes (`envioOmie.test.ts`): reescritos os 2 testes que afirmavam "OmieError genérico
+  para o lote" (produto e família) pra afirmar o novo comportamento (segue o lote); +1 teste
+  novo cobrindo erro genérico na estrutura (falha só na relação, segue as demais).
+
+### Correção — parte 2 (nova categoria CODE_CONFLICT, com reaproveitamento automático)
+Com o texto real do erro confirmado, deu pra tratar esse caso com a MESMA política que o
+Victor já tinha confirmado pra descrição (08/07/2026, entrada anterior): reaproveitar
+automaticamente o cadastro existente, em vez de só marcar falha isolada.
+- `src/lib/omie/taxonomy.ts`: nova `Category.CODE_CONFLICT` (regex `informado ja esta sendo
+  utilizado pelo produto com id`, distinta da de descrição que termina em "...com código").
+- `src/lib/omie/errors.ts`: nova classe `OmieCodeConflict extends OmieError`.
+- `src/lib/omie/client.ts`: `handle()` lança `OmieCodeConflict` pra essa categoria (mesmo
+  padrão de `OmieDescriptionConflict`, incluindo via HTTP 500).
+- `src/lib/produtos/envioOmie.ts`:
+  - `extrairIdConflitante(mensagem)` — regex pega o ID citado ("...produto com ID
+    12123048648." → "12123048648").
+  - `resolverProdutoExistentePorId(codigoProduto, chamar)` — chamada **READ**
+    (`ConsultarProduto`, `geral/produtos/`, param `codigo_produto: <id>`). Confirmado na doc
+    oficial do Omie (`developer.omie.com.br`) que `ConsultarProduto` aceita `codigo_produto`
+    (ID interno) como chave principal pra localizar o produto — diferente do fluxo de
+    descrição, que busca por `ListarProdutos`/`codigo` (SKU), aqui a mensagem já dá o ID
+    interno direto.
+  - Extraído `tratarConflito(...)` — helper compartilhado que faz a resolução + reaproveitamento
+    (usado tanto por `OmieDescriptionConflict` quanto por `OmieCodeConflict`, só muda a função
+    de extração da chave e a de busca). Evita duplicar a lógica de "achou → já existia",
+    "não achou → falha sem assumir sucesso", "busca bloqueada → para o lote".
+- `docs/REQUISITOS.md` §7 — documentada a generalização (parte 1) e a nova categoria
+  `CODE_CONFLICT` com reaproveitamento (parte 2).
+
+### Decisões importantes
+- **Só `OmieBlocked` para o lote** — não mais "qualquer erro fora de uma lista de exceções
+  conhecidas". Evita o padrão de whack-a-mole (cobrir 1 faultstring por vez) — o próximo erro
+  desconhecido que aparecer já vai ser tratado como falha isolada, não vai travar dezenas de
+  itens de novo.
+- **Conflito de código reaproveita automaticamente, igual o de descrição** — mesma política do
+  Victor ("melhor sempre aproveitar o que já tem cadastrado"), agora coberta pros dois formatos
+  de mensagem que o Omie usa pra dizer "isso já existe sob outro cadastro".
+- Família com erro (não-bloqueio) agora também segue o lote: o produto que dependia dela é
+  enviado sem `codigo_familia`.
+- Não toquei no client/breaker além de adicionar a nova categoria — a mecânica de
+  ban-safety (breaker soft/hard) continua igual.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 140/140 (14 arquivos).
+
+### Pendências / próximos passos
+1. **Não commitado/enviado ainda** — aguardando confirmação do Victor antes de commit + push
+   (push pra master faz deploy automático em produção via Vercel).
+2. O lookup por `ConsultarProduto`/`codigo_produto` foi confirmado na doc oficial do Omie mas
+   **não exercido contra a API real** (só testes mockados) — mesma ressalva que já valia pro
+   fluxo de descrição. Vale confirmar no próximo teste real.
+3. João precisa reenviar a mesma planilha (ou uma nova com esse tipo de conflito) pra
+   confirmar em produção que (a) os itens depois do PC021 agora sobem mesmo com ele
+   encontrando conflito, e (b) o PC021 em si sai como "já existia" (reaproveitado), não como
+   falha.
+4. Mesma limitação conhecida da entrada anterior (cadastro existente sem
+   `codigo_produto_integracao` preenchido) também vale aqui — não reproduzida ainda.

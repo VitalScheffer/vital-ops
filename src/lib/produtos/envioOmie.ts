@@ -10,7 +10,7 @@
 
 import type { EstruturaRel, Familia, ParsedItem } from "@/lib/bom/types";
 import type { ChamarOptions, OmiePayload } from "@/lib/omie/client";
-import { OmieBlocked, OmieDescriptionConflict, OmieDuplicate } from "@/lib/omie/errors";
+import { OmieBlocked, OmieCodeConflict, OmieDescriptionConflict, OmieDuplicate } from "@/lib/omie/errors";
 
 // Assinatura mínima de `chamar` do client Omie (o real é compatível com esta).
 export type ChamarFn = (
@@ -113,13 +113,22 @@ function texto(valor: unknown): string | undefined {
   return String(valor);
 }
 
-// Extrai o código do produto conflitante da mensagem do Omie: "...produto com
-// código COMDB P0381 018AC." → "COMDB P0381 018AC".
+// Extrai o código do produto conflitante da mensagem do Omie (conflito de
+// DESCRIÇÃO): "...produto com código COMDB P0381 018AC." → "COMDB P0381 018AC".
 const CODIGO_CONFLITANTE = /produto com c[oó]digo\s+([^.]+)\.?\s*$/i;
 
 function extrairCodigoConflitante(mensagem: string): string | null {
   const match = CODIGO_CONFLITANTE.exec(mensagem.trim());
   return match ? match[1].trim() : null;
+}
+
+// Extrai o ID interno do produto conflitante da mensagem do Omie (conflito de
+// CÓDIGO): "...produto com ID 12123048648." → "12123048648".
+const ID_CONFLITANTE = /produto com id\s+(\d+)/i;
+
+function extrairIdConflitante(mensagem: string): string | null {
+  const match = ID_CONFLITANTE.exec(mensagem);
+  return match ? match[1] : null;
 }
 
 interface ProdutoExistente {
@@ -147,6 +156,71 @@ async function resolverProdutoExistente(codigo: string, chamar: ChamarFn): Promi
   };
 }
 
+// Busca (READ) o produto já cadastrado sob outro ID interno — usado só depois
+// de um conflito de CÓDIGO confirmado pelo Omie (a mensagem já cita o ID do
+// cadastro existente). `ConsultarProduto` aceita `codigo_produto` (ID interno)
+// como chave principal (doc oficial: "É o ID do produto e será utilizado
+// apenas nas APIs como chave principal para localizar um produto").
+async function resolverProdutoExistentePorId(
+  codigoProduto: string,
+  chamar: ChamarFn,
+): Promise<ProdutoExistente | null> {
+  const resp = await chamar("geral/produtos/", "ConsultarProduto", {
+    codigo_produto: Number(codigoProduto),
+  });
+  if (!resp) return null;
+  return {
+    codigoProduto: texto(resp.codigo_produto),
+    codigoProdutoIntegracao: texto(resp.codigo_produto_integracao) || undefined,
+  };
+}
+
+// Resolve um conflito (descrição OU código) reaproveitando o cadastro
+// existente no Omie. Compartilhado pelas duas categorias — só muda como
+// extrai a chave da mensagem e como busca o cadastro (§7).
+async function tratarConflito(
+  item: ParsedItem,
+  erroOriginal: Error,
+  chave: string | null,
+  buscar: (chave: string, chamar: ChamarFn) => Promise<ProdutoExistente | null>,
+  chamar: ChamarFn,
+  integracaoReal: Map<string, string>,
+  interromper: (erro: unknown) => void,
+): Promise<ProdutoResultado> {
+  try {
+    const existente = chave ? await buscar(chave, chamar) : null;
+    if (existente) {
+      if (existente.codigoProdutoIntegracao) {
+        integracaoReal.set(semEspaco(item.codigo), existente.codigoProdutoIntegracao);
+      }
+      return {
+        codigo: item.codigo,
+        descricao: item.descricaoProduto,
+        outcome: "ja_existia",
+        omieCodigoProduto: existente.codigoProduto,
+      };
+    }
+  } catch (erroResolucao) {
+    if (erroResolucao instanceof OmieBlocked) {
+      interromper(erroResolucao);
+      return {
+        codigo: item.codigo,
+        descricao: item.descricaoProduto,
+        outcome: "falha",
+        motivo: mensagem(erroOriginal),
+      };
+    }
+    // Não deu pra confirmar o cadastro existente (erro na busca) — cai no
+    // fallback abaixo em vez de assumir sucesso sem confirmar.
+  }
+  return {
+    codigo: item.codigo,
+    descricao: item.descricaoProduto,
+    outcome: "falha",
+    motivo: `${mensagem(erroOriginal)} Não foi possível localizar o cadastro existente automaticamente — confira manualmente no Omie.`,
+  };
+}
+
 interface Interrupcao {
   interrompido: boolean;
   bloqueado: boolean;
@@ -158,9 +232,12 @@ interface Interrupcao {
  * garantindo as famílias antes. Idempotente: `Upsert*` atualiza no reenvio e
  * `OmieDuplicate` conta como sucesso. Conflito de descrição (peça padrão já
  * cadastrada sob outro código, ex. parafuso/dobradiça) é resolvido buscando e
- * reaproveitando o cadastro existente — não para o lote. Em `OmieBlocked`/erro
- * genérico, PARA o lote (o breaker já protege) e marca o restante como não
- * enviado.
+ * reaproveitando o cadastro existente — não para o lote. Só `OmieBlocked`
+ * (breaker/app_key realmente bloqueado) PARA o lote inteiro e marca o restante
+ * como não enviado; qualquer outro erro (classificado ou não) é falha só
+ * daquele item — o breaker do client já conta essas falhas e lança
+ * `OmieBlocked` sozinho se acumular demais, então não há necessidade de o
+ * orquestrador travar o lote de novo por conta própria.
  */
 export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Promise<EnvioResultado> {
   const novos = input.novos.filter((i) => i.status === "novo");
@@ -171,14 +248,17 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   const estrutura: EstruturaResultado[] = [];
   const idPorFamilia = new Map<Familia, unknown>();
   // Nosso código (sem espaço) → codigo_produto_integracao REAL, quando um item
-  // foi resolvido por reaproveitamento (conflito de descrição). A Estrutura usa
-  // isso pra referenciar o cadastro que realmente existe no Omie.
+  // foi resolvido por reaproveitamento (conflito de descrição ou de código). A
+  // Estrutura usa isso pra referenciar o cadastro que realmente existe no Omie.
   const integracaoReal = new Map<string, string>();
   const interrupcao: Interrupcao = { interrompido: false, bloqueado: false };
 
+  // Só bloqueio real (OmieBlocked) para o lote inteiro — qualquer outro erro
+  // vira falha isolada do item, e o caller segue pros próximos.
   const interromper = (erro: unknown) => {
+    if (!(erro instanceof OmieBlocked)) return;
     interrupcao.interrompido = true;
-    if (erro instanceof OmieBlocked) interrupcao.bloqueado = true;
+    interrupcao.bloqueado = true;
     interrupcao.motivo = mensagem(erro);
   };
 
@@ -254,40 +334,36 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         // já pode estar em outro produto com ordem de produção ou saldo em
         // estoque. NÃO é sinal de risco de bloqueio do app_key: não para o lote.
         const codigoExistente = extrairCodigoConflitante(erro.message);
-        try {
-          const existente = codigoExistente ? await resolverProdutoExistente(codigoExistente, chamar) : null;
-          if (existente) {
-            if (existente.codigoProdutoIntegracao) {
-              integracaoReal.set(semEspaco(item.codigo), existente.codigoProdutoIntegracao);
-            }
-            produtos.push({
-              codigo: item.codigo,
-              descricao: item.descricaoProduto,
-              outcome: "ja_existia",
-              omieCodigoProduto: existente.codigoProduto,
-            });
-            continue;
-          }
-        } catch (erroResolucao) {
-          if (erroResolucao instanceof OmieBlocked) {
-            produtos.push({
-              codigo: item.codigo,
-              descricao: item.descricaoProduto,
-              outcome: "falha",
-              motivo: mensagem(erro),
-            });
-            interromper(erroResolucao);
-            continue;
-          }
-          // Não deu pra confirmar o cadastro existente (erro na busca) — cai no
-          // fallback abaixo em vez de assumir sucesso sem confirmar.
-        }
-        produtos.push({
-          codigo: item.codigo,
-          descricao: item.descricaoProduto,
-          outcome: "falha",
-          motivo: `${mensagem(erro)} Não foi possível localizar o cadastro existente automaticamente — confira manualmente no Omie.`,
-        });
+        produtos.push(
+          await tratarConflito(
+            item,
+            erro,
+            codigoExistente,
+            resolverProdutoExistente,
+            chamar,
+            integracaoReal,
+            interromper,
+          ),
+        );
+        continue;
+      }
+      if (erro instanceof OmieCodeConflict) {
+        // Código (SKU) já usado por OUTRO id interno — mesma política do
+        // conflito de descrição (reaproveitar automaticamente), só que a
+        // mensagem do Omie cita o ID interno do cadastro existente em vez do
+        // código, então a busca é por ConsultarProduto/codigo_produto.
+        const idExistente = extrairIdConflitante(erro.message);
+        produtos.push(
+          await tratarConflito(
+            item,
+            erro,
+            idExistente,
+            resolverProdutoExistentePorId,
+            chamar,
+            integracaoReal,
+            interromper,
+          ),
+        );
         continue;
       }
       produtos.push({
@@ -319,8 +395,9 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       // Formato confirmado na doc da API de malha: pai no topo (`intProduto`) e
       // filhos no array `itemMalhaIncluir` (um por chamada, para o resultado
       // por relação continuar granular). Quando o pai/filho foi reaproveitado de
-      // um cadastro existente (conflito de descrição), usa o codigo_produto_
-      // integracao REAL desse cadastro em vez do nosso código gerado localmente.
+      // um cadastro existente (conflito de descrição ou de código), usa o
+      // codigo_produto_integracao REAL desse cadastro em vez do nosso código
+      // gerado localmente.
       const intProduto = integracaoReal.get(semEspaco(rel.codigoPai)) ?? semEspaco(rel.codigoPai);
       const intProdMalha = integracaoReal.get(semEspaco(rel.codigoFilho)) ?? semEspaco(rel.codigoFilho);
       await chamar(

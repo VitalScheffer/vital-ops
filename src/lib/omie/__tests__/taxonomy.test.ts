@@ -47,6 +47,12 @@ describe("classifyFault", () => {
     expect(classifyFault(fault)).toBe(Category.DESCRIPTION_CONFLICT);
   });
 
+  it("código já usado por outro id → CODE_CONFLICT", () => {
+    const fault =
+      "ERROR: O código CREHI PC021 ITSLD informado já está sendo utilizado pelo produto com ID 12123048648.";
+    expect(classifyFault(fault)).toBe(Category.CODE_CONFLICT);
+  });
+
   it("desconhecido → ERROR e loga WARNING", () => {
     const logger = { warn: vi.fn() };
     expect(classifyFault("ERROR: Algo totalmente novo aconteceu", logger)).toBe(Category.ERROR);

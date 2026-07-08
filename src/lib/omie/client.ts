@@ -9,12 +9,13 @@
 //   • BLOCKED/REDUNDANT     → lança OmieBlocked
 //   • DUPLICATE             → lança OmieDuplicate (escrita idempotente)
 //   • DESCRIPTION_CONFLICT  → lança OmieDescriptionConflict (descrição em uso por outro código)
+//   • CODE_CONFLICT         → lança OmieCodeConflict (código em uso por outro id interno)
 //   • erro/5xx sem corpo/rede → lança OmieError (com retryable)
 
 import { Breaker } from "./breaker";
 import { type CacheStore, DEFAULT_TTL_SECONDS, cacheKey } from "./cache";
 import { OMIE_BASE_URL, OMIE_TIMEOUT_MS, type OmieCredentials, omieCredentials } from "./config";
-import { OmieBlocked, OmieDescriptionConflict, OmieDuplicate, OmieError } from "./errors";
+import { OmieBlocked, OmieCodeConflict, OmieDescriptionConflict, OmieDuplicate, OmieError } from "./errors";
 import { PrismaBreakerStore, PrismaCacheStore } from "./stores";
 import { Category, EMPTY_LIKE, type WarnLogger, classifyFault, parseRetryAfter } from "./taxonomy";
 
@@ -212,6 +213,11 @@ async function handle(
   if (category === Category.DESCRIPTION_CONFLICT) {
     await deps.breaker.recordFault();
     throw new OmieDescriptionConflict(faultstring, { faultcode });
+  }
+
+  if (category === Category.CODE_CONFLICT) {
+    await deps.breaker.recordFault();
+    throw new OmieCodeConflict(faultstring, { faultcode });
   }
 
   if (category === Category.TRANSIENT) {

@@ -52,3 +52,14 @@ export class OmieDescriptionConflict extends OmieError {
     this.name = "OmieDescriptionConflict";
   }
 }
+
+// Código (SKU) já usado por OUTRO cadastro, sob um ID interno (`codigo_produto`)
+// diferente do nosso. Mesma ideia do OmieDescriptionConflict (peça padrão
+// reaproveitada entre BOMs), mas aqui o Omie identifica o cadastro existente
+// pelo ID interno na mensagem, não pelo `codigo`.
+export class OmieCodeConflict extends OmieError {
+  constructor(message: string, options: { faultcode?: string } = {}) {
+    super(message, { retryable: false, faultcode: options.faultcode });
+    this.name = "OmieCodeConflict";
+  }
+}
