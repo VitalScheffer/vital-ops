@@ -1084,8 +1084,8 @@ automaticamente o cadastro existente, em vez de só marcar falha isolada.
 - `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 140/140 (14 arquivos).
 
 ### Pendências / próximos passos
-1. **Não commitado/enviado ainda** — aguardando confirmação do Victor antes de commit + push
-   (push pra master faz deploy automático em produção via Vercel).
+1. **Commitado e enviado** — commit `97e928a` na `master`, confirmado pelo Victor. Push feito
+   → deploy automático em produção via Vercel disparado.
 2. O lookup por `ConsultarProduto`/`codigo_produto` foi confirmado na doc oficial do Omie mas
    **não exercido contra a API real** (só testes mockados) — mesma ressalva que já valia pro
    fluxo de descrição. Vale confirmar no próximo teste real.
