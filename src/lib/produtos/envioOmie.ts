@@ -106,7 +106,10 @@ function intMalhaDe(codigoPai: string, codigoFilho: string): string {
     fnv = Math.imul(fnv ^ c, 0x01000193) >>> 0;
     djb = (((djb << 5) + djb + c) >>> 0);
   }
-  return `${fnv.toString(36)}${djb.toString(36)}`.slice(0, 20);
+  // Separador entre os dois hashes: remove a ambiguidade de concatenação
+  // ("1a"+"2b3" vs "1a2"+"b3"). O "-" é aceito no intMalha (ex. da doc: "MALHA-001").
+  // Comprimento máximo: 7 + 1 + 7 = 15, dentro do string20.
+  return `${fnv.toString(36)}-${djb.toString(36)}`.slice(0, 20);
 }
 
 function mensagem(erro: unknown): string {
@@ -256,6 +259,37 @@ async function precarregarExistentes(
     }
   }
   return mapa;
+}
+
+// Pré-checa (LEITURA) as relações de estrutura que JÁ existem nos produtos-pai
+// conhecidos, pra PULAR a inclusão delas no reenvio (idempotência). Sem isso, o
+// reenvio de uma estrutura já montada dispararia um erro de duplicado por relação;
+// se o faultstring de duplicado da malha não casar o regex DUPLICATE, viraria
+// "falha" e o freio pausaria. Consulta uma vez por produto-pai (só os que têm ID
+// interno). Devolve um conjunto de chaves "idPai|idFilho".
+//
+// IMPORTANTE: esta leitura NUNCA interrompe o lote. `ConsultarEstrutura` do MESMO
+// idProduto em menos de 60s volta como "consumo redundante", que o client lança
+// como `OmieBlocked` (não é bloqueio real da chave). Se a gente interrompesse aqui,
+// um reenvio rápido pararia o envio à toa. Então qualquer erro só faz perder a
+// otimização daquele pai; quem decide parar por bloqueio REAL é o loop de escrita
+// (IncluirEstrutura), que aí sim vê o `consumo indevido`.
+async function precarregarEstruturas(idsPai: Set<string>, chamar: ChamarFn): Promise<Set<string>> {
+  const existentes = new Set<string>();
+  for (const idPai of idsPai) {
+    try {
+      const resp = await chamar("geral/malha/", "ConsultarEstrutura", { idProduto: Number(idPai) });
+      const itens = resp?.itens;
+      if (!Array.isArray(itens)) continue;
+      for (const it of itens as OmiePayload[]) {
+        const idFilho = texto(it.idProdMalha);
+        if (idFilho) existentes.add(`${idPai}|${idFilho}`);
+      }
+    } catch {
+      // Redundante/bloqueio/erro na leitura: só perde a otimização deste pai.
+    }
+  }
+  return existentes;
 }
 
 // Resolve um conflito (descrição OU código) reaproveitando o cadastro
@@ -555,6 +589,18 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     }
   }
 
+  // 2.5. Pré-checagem da estrutura: lê as relações que já existem nos pais
+  // conhecidos, pra pular a inclusão delas (reenvio idempotente, sem depender de
+  // classificar o duplicado da malha).
+  const idsPaiEstrutura = new Set<string>();
+  for (const rel of input.estrutura) {
+    const idPai = idOmiePorCodigo.get(semEspaco(rel.codigoPai));
+    if (idPai) idsPaiEstrutura.add(idPai);
+  }
+  const relacoesExistentes = interrupcao.interrompido
+    ? new Set<string>()
+    : await precarregarEstruturas(idsPaiEstrutura, chamar);
+
   // 3. Estrutura (IncluirEstrutura não tem Upsert → duplicado = já existe = ok).
   for (const rel of input.estrutura) {
     const chaves = {
@@ -580,12 +626,24 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       const chaveFilho = semEspaco(rel.codigoFilho);
       const idPai = idOmiePorCodigo.get(chavePai);
       const idFilho = idOmiePorCodigo.get(chaveFilho);
+
+      // Relação já existe no pai (pré-check): não reinclui (evita duplicado no
+      // reenvio). Sem chamada ao Omie, não conta pro freio.
+      if (idPai && idFilho && relacoesExistentes.has(`${idPai}|${idFilho}`)) {
+        estrutura.push({ ...chaves, outcome: "ja_existia" });
+        registrarSequencia("ja_existia", false);
+        continue;
+      }
+
       const refPai = idPai
         ? { idProduto: Number(idPai) }
         : { intProduto: integracaoReal.get(chavePai) ?? chavePai };
       const refFilho = idFilho
         ? { idProdMalha: Number(idFilho) }
         : { intProdMalha: integracaoReal.get(chaveFilho) ?? chaveFilho };
+      // `??` só cobre null/undefined; um NaN vindo do parser viraria JSON null, então
+      // exige um número finito de verdade (senão, quantidade 1).
+      const quant = typeof rel.quantidade === "number" && Number.isFinite(rel.quantidade) ? rel.quantidade : 1;
       await chamar(
         "geral/malha/",
         "IncluirEstrutura",
@@ -596,7 +654,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
               // intMalha é OBRIGATÓRIO pelo Omie (string20); sem ele o item falha.
               intMalha: intMalhaDe(rel.codigoPai, rel.codigoFilho),
               ...refFilho,
-              quantProdMalha: rel.quantidade ?? 1,
+              quantProdMalha: quant,
             },
           ],
         },

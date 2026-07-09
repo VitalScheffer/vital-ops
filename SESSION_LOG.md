@@ -1427,3 +1427,49 @@ integração da relação de malha, **string20**). A gente mandava só `idProdMa
    filhos pela API, sem precisar preencher na mão).
 2. Confirmação ao vivo do `IncluirEstrutura` com `intMalha` (escrita) depende de autorização — o sandbox
    barra escrita na chave de produção compartilhada. Se autorizado, dá pra provar antes do reteste.
+
+## 2026-07-09 (continuação 5) — Code review pedido + endurecimento do reenvio da estrutura
+
+### Resumo
+Victor pediu novo code review e verificação da Omie antes de retestar. Fiz: (1) cruzei o contrato do
+IncluirEstrutura VERBATIM com a doc da Omie (bate caractere por caractere), (2) li o estado real do
+CREHI (SM001/SM002/SM003 existem mas com estrutura VAZIA — confirma o bug do intMalha), (3) rodei um
+revisor independente adversarial. Veredito: o fix do `intMalha` faz o CREHI passar no próximo envio;
+não há bloqueador. O revisor apontou 1 risco de REENVIO (duplicado da malha pode não ser reconhecido)
+que eu matei proativamente. `npx tsc/eslint/vitest` verdes (163 testes; +2).
+
+### Verificação
+- Contrato IncluirEstrutura (doc oficial): topo `idProduto`/`intProduto`; array `itemMalhaIncluir`; por
+  item `intMalha` (string20, OBRIGATÓRIO), `idProdMalha`/`intProdMalha`, `quantProdMalha` (decimal). Bate
+  exatamente com o payload do código. Basta 1 identificador do pai (mando `idProduto`).
+- Estado CREHI (leitura): SM001-SM003 existem com nosso código de integração e estrutura VAZIA; SM004
+  tem 2 itens e código de integração vazio (foi mexido na mão). Confirma que a estrutura via API nunca
+  subiu (era o intMalha) — e reforça que "CREHS populado" da sessão anterior foi preenchido manualmente.
+
+### Endurecimento (`src/lib/produtos/envioOmie.ts`)
+- **Pré-checagem da estrutura (novo)**: `precarregarEstruturas` lê (`ConsultarEstrutura`) as relações que
+  JÁ existem em cada pai conhecido e o loop PULA essas (marca "já existia", sem chamada). Torna o reenvio
+  idempotente sem depender de classificar o faultstring de duplicado da malha (risco #1 do revisor). Também
+  resolve o SM004 (que já tinha itens): não reinclui, não duplica.
+- **Sem interromper o lote por leitura**: `ConsultarEstrutura` do mesmo id em <60s volta "consumo
+  redundante", que o client lança como `OmieBlocked`. Se o pré-check interrompesse nisso, um reenvio
+  rápido pararia o envio à toa. Então o pré-check da estrutura NUNCA interrompe: erro de leitura só perde a
+  otimização; quem para por bloqueio REAL é o loop de escrita.
+- **intMalha com separador** (`fnv-djb`): remove a ambiguidade teórica de concatenação (o "-" é aceito,
+  ex. da doc "MALHA-001"; comprimento 15 ≤ 20).
+- **quantProdMalha protegida**: exige número finito de verdade (NaN do parser viraria JSON null).
+- Testes (+2): pula relação já existente (sem IncluirEstrutura); inclui relação nova mesmo com o pai tendo
+  outras relações.
+
+### Achados do revisor NÃO alterados (robustez menor, não bloqueiam)
+- Inspeção do `codStatus`/`itemMalhaStatus` na resposta do IncluirEstrutura: NÃO adicionei, pra não
+  arriscar falso-negativo (marcar sucesso real como falha por não conhecer todos os códigos de sucesso).
+  O erro real (`intMalha`) veio como faultstring e foi pego; erros por-item reais também vêm assim.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 163/163 (15 arquivos).
+
+### Pendências / próximos passos
+1. Reenviar o CREHI: estrutura deve subir sem erro; reenviar de novo NÃO deve mais dar falha/pausa (as
+   relações já existentes são puladas).
+2. Confirmação por ESCRITA na Omie segue dependendo de autorização (sandbox barra a chave de produção).

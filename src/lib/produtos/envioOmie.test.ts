@@ -186,6 +186,42 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     expect(await gerar()).toBe(await gerar());
   });
 
+  it("pula a relação de estrutura que JÁ existe no pai (reenvio idempotente, sem IncluirEstrutura)", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "PAI", codigo_produto: 500 },
+            { codigo: "FILHO", codigo_produto: 600 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") return { itens: [{ idProdMalha: 600 }] }; // PAI->FILHO já existe
+      return {};
+    });
+    const res = await orquestrarEnvio({ novos: [item("PAI", null)], estrutura: [rel("PAI", "FILHO", 2)] }, fn);
+    expect(res.estrutura[0].outcome).toBe("ja_existia");
+    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(false);
+  });
+
+  it("inclui a relação nova mesmo quando o pai já tem OUTRAS relações", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "PAI", codigo_produto: 500 },
+            { codigo: "FILHO", codigo_produto: 600 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") return { itens: [{ idProdMalha: 999 }] }; // outra relação, não a nossa
+      return {};
+    });
+    const res = await orquestrarEnvio({ novos: [item("PAI", null)], estrutura: [rel("PAI", "FILHO", 2)] }, fn);
+    expect(res.estrutura[0].outcome).toBe("enviado");
+    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(true);
+  });
+
   it("usa quantidade 1 quando a relação vem sem quantidade", async () => {
     const { fn, calls } = mockChamar(() => ({}));
     await orquestrarEnvio({ novos: [], estrutura: [rel("A", "B", null)] }, fn);
