@@ -89,6 +89,26 @@ function semEspaco(codigo: string): string {
   return codigo.replace(/\s+/g, "");
 }
 
+// `intMalha` é o "código de integração da malha" que o Omie EXIGE em cada item do
+// IncluirEstrutura (erro "O preenchimento da tag [intMalha] é obrigatório!" quando
+// ausente). É `string20` (máx. 20 chars), então "PAI-FILHO" concatenado estoura.
+// Geramos um id determinístico de "pai|filho" (dois hashes independentes, FNV-1a +
+// djb2, em base36) — cabe em 20 chars, é ESTÁVEL entre reenvios (a mesma relação
+// vira duplicado idempotente) e ÚNICO por par pai/filho (a mesma peça em duas
+// submontagens diferentes recebe intMalha distinto, senão uma das duas seria
+// recusada como duplicada e ficaria sem vínculo).
+function intMalhaDe(codigoPai: string, codigoFilho: string): string {
+  const chave = `${semEspaco(codigoPai)}|${semEspaco(codigoFilho)}`;
+  let fnv = 0x811c9dc5;
+  let djb = 5381;
+  for (let i = 0; i < chave.length; i++) {
+    const c = chave.charCodeAt(i);
+    fnv = Math.imul(fnv ^ c, 0x01000193) >>> 0;
+    djb = (((djb << 5) + djb + c) >>> 0);
+  }
+  return `${fnv.toString(36)}${djb.toString(36)}`.slice(0, 20);
+}
+
 function mensagem(erro: unknown): string {
   return erro instanceof Error ? erro.message : String(erro);
 }
@@ -573,6 +593,8 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
           ...refPai,
           itemMalhaIncluir: [
             {
+              // intMalha é OBRIGATÓRIO pelo Omie (string20); sem ele o item falha.
+              intMalha: intMalhaDe(rel.codigoPai, rel.codigoFilho),
               ...refFilho,
               quantProdMalha: rel.quantidade ?? 1,
             },

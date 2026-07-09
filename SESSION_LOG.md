@@ -1384,3 +1384,46 @@ Victor pediu um CAMPO pra escolher o NCM por envio. Implementado:
 1. João: dar refresh no Omie e confirmar que a estrutura das submontagens aparece (deve aparecer).
 2. Confirmar o campo de NCM no próximo envio (digitar um NCM e ver que os produtos novos saem com ele).
 3. Segue valendo confirmar a captura automática de falha (item da entrada anterior) num envio que falhe.
+
+## 2026-07-09 (continuação 4) — BUG REAL da estrutura: faltava o `intMalha` (obrigatório). CORREÇÃO DO DIAGNÓSTICO ANTERIOR
+
+### Resumo
+Teste do projeto CREHI (não CREHS) deixou o erro explícito na tela:
+`ERROR: O preenchimento da tag [intMalha] é obrigatório!` em cada relação de estrutura, e o freio
+pausou após 5 falhas seguidas. **Correção de rumo importante**: na entrada anterior eu concluí que a
+estrutura "funcionava" porque li o CREHS populado — ERRADO. A estrutura via NOSSA API nunca funcionou
+(falta o `intMalha`); o CREHS populado provavelmente foi preenchido na MÃO no Omie (o `IncluirEstrutura`
+pela UI não exige `intMalha`, mas pela API exige). O erro do CREHI confirma isso sem ambiguidade.
+
+### Causa raiz
+`IncluirEstrutura` (geral/malha/) exige, por item de `itemMalhaIncluir`, o campo `intMalha` (código de
+integração da relação de malha, **string20**). A gente mandava só `idProdMalha`/`intProdMalha` +
+`quantProdMalha`, nunca o `intMalha` → Omie recusava cada item com "tag [intMalha] é obrigatório".
+
+### Correção (`src/lib/produtos/envioOmie.ts`)
+- `intMalhaDe(codigoPai, codigoFilho)`: gera um `intMalha` determinístico (dois hashes independentes,
+  FNV-1a + djb2, em base36) que cabe nos 20 chars do `string20`. É ESTÁVEL entre reenvios (mesma relação
+  → mesmo `intMalha` → duplicado idempotente) e ÚNICO por par pai/filho (a mesma peça em submontagens
+  diferentes, ex. a dobradiça em SM003 e SM004, recebe `intMalha` distinto, senão a 2ª seria recusada
+  como duplicada e ficaria sem vínculo). "PAI-FILHO" concatenado (~31 chars) estouraria o limite de 20.
+- No `IncluirEstrutura`, cada item agora leva `intMalha`.
+- Requisitos por item reconfirmados na doc: obrigatórios = `intMalha` + (`idProdMalha` OU `intProdMalha`)
+  + `quantProdMalha`. Os três já iam; só faltava o `intMalha`. Os demais campos são opcionais.
+- Testes (+3): `intMalha` presente e ≤ 20 chars; distinto pra mesma peça em pais diferentes; determinístico.
+
+### Decisões importantes
+- **Assumir o erro anterior**: não dá pra confirmar "funciona" por leitura de uma estrutura que pode ter
+  sido preenchida na mão. A prova boa é a mensagem de erro da API (essa foi explícita) e, idealmente, um
+  teste de ESCRITA (barrado pelo sandbox sem autorização).
+- **`intMalha` por hash, não por concatenação**: limite de 20 chars não comporta os códigos completos.
+- **Estável + único**: os dois requisitos que evitam (a) duplicar no reenvio e (b) perder o vínculo da
+  mesma peça em pais diferentes.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 161/161 (15 arquivos).
+
+### Pendências / próximos passos
+1. Reenviar o CREHI: agora a estrutura deve subir SEM o erro de `intMalha` (as submontagens ficam com os
+   filhos pela API, sem precisar preencher na mão).
+2. Confirmação ao vivo do `IncluirEstrutura` com `intMalha` (escrita) depende de autorização — o sandbox
+   barra escrita na chave de produção compartilhada. Se autorizado, dá pra provar antes do reteste.

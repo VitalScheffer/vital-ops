@@ -150,6 +150,42 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     });
   });
 
+  it("preenche o intMalha (obrigatório no Omie) em cada item, dentro do limite de 20 chars", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    await orquestrarEnvio({ novos: [], estrutura: [rel("CREHI SM001 I0POL", "CREHI PC015 ITSLD", 1)] }, fn);
+    const item0 = (
+      calls.find((c) => c.call === "IncluirEstrutura")?.param.itemMalhaIncluir as Array<{ intMalha: string }>
+    )[0];
+    expect(item0.intMalha).toBeTruthy();
+    expect(item0.intMalha.length).toBeGreaterThan(0);
+    expect(item0.intMalha.length).toBeLessThanOrEqual(20);
+  });
+
+  it("o intMalha é estável por relação e distinto para a mesma peça em pais diferentes", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    const dobradica = "COMDB P0381 018AC";
+    await orquestrarEnvio(
+      { novos: [], estrutura: [rel("CREHI SM003 I0POL", dobradica, 2), rel("CREHI SM004 I0POL", dobradica, 2)] },
+      fn,
+    );
+    const malhas = calls
+      .filter((c) => c.call === "IncluirEstrutura")
+      .map((c) => (c.param.itemMalhaIncluir as Array<{ intMalha: string }>)[0].intMalha);
+    // Mesma peça em duas submontagens → intMalha diferente (senão o 2º viraria
+    // duplicado e a peça ficaria sem vínculo em uma delas).
+    expect(malhas[0]).not.toBe(malhas[1]);
+  });
+
+  it("o intMalha é determinístico (mesma relação gera sempre o mesmo valor)", async () => {
+    const gerar = async () => {
+      const { fn, calls } = mockChamar(() => ({}));
+      await orquestrarEnvio({ novos: [], estrutura: [rel("CREHI SM001 I0POL", "CREHI PC015 ITSLD", 1)] }, fn);
+      return (calls.find((c) => c.call === "IncluirEstrutura")?.param.itemMalhaIncluir as Array<{ intMalha: string }>)[0]
+        .intMalha;
+    };
+    expect(await gerar()).toBe(await gerar());
+  });
+
   it("usa quantidade 1 quando a relação vem sem quantidade", async () => {
     const { fn, calls } = mockChamar(() => ({}));
     await orquestrarEnvio({ novos: [], estrutura: [rel("A", "B", null)] }, fn);
