@@ -146,7 +146,12 @@ Reaproveitar a lógica do `omie-bom-converter` (`C:\Users\TREINAMENTO\omie-bom-c
   pelo ID interno, não pela descrição): "O código X informado já está sendo utilizado pelo produto
   com ID Y" (confirmado em produção 08/07/2026, item PC021). Classificado como categoria própria
   (`CODE_CONFLICT` → `OmieCodeConflict`), mesma política de reaproveitamento automático — busca via
-  `ConsultarProduto`/`codigo_produto` (§6) em vez de `ListarProdutos`/`codigo`.
+  `ConsultarProduto`/`codigo_produto` (§6) em vez de `ListarProdutos`/`codigo`. **Atenção ao
+  gênero do verbo**: o Omie varia entre "utilizado" e "utiliza**da**" (09/07/2026 apareceu
+  "O código ... utiliza**da** ... com ID", quebrando o regex antigo que exigia "utilizado" e
+  fazendo o item virar "falha" + bloqueio da chave). Os regexes de conflito passam a ancorar no
+  final da mensagem ("...com código" vs "...com id") e tolerar os dois gêneros (`utilizad[oa]`),
+  em vez de depender do prefixo do sujeito.
 - **Só `OmieBlocked` para o lote inteiro** (decisão de 08/07/2026, generalizada após o João bater
   de novo num item diferente — item 21/PC021 com faultstring não coberto pelo regex específico de
   `DESCRIPTION_CONFLICT`, e o lote parou de novo, deixando tudo abaixo dele como "não enviado").
@@ -155,6 +160,17 @@ Reaproveitar a lógica do `omie-bom-converter` (`C:\Users\TREINAMENTO\omie-bom-c
   breaker do client (§6) já conta toda falha e lança `OmieBlocked` sozinho se acumular demais (soft
   6/2min, hard em bloqueio explícito) — o orquestrador travar o lote de novo por cima disso era
   redundante e frágil (dependia de cobrir cada variação de faultstring com um regex próprio).
+- **Freio de segurança próprio (sequência de respostas fora do sucesso limpo)** — decisão de
+  08/07/2026, depois que a Omie bloqueou a app_key por 30 min num teste real assim que o item acima
+  passou a não parar mais o lote. A Omie conta TODA resposta fora de sucesso limpo (inclusive
+  duplicado/conflito) pro PRÓPRIO limite de banimento (§6: "resultado vazio = erro, conta pro ban";
+  "reenviar estrutura já existente em massa... conta como erro e pode bloquear"), mas o breaker do
+  client não enxerga isso: a leitura de resolução de conflito (`ListarProdutos`/`ConsultarProduto`)
+  costuma dar OK logo em seguida e reseta o contador dele. Por isso `orquestrarEnvio` mantém sua
+  PRÓPRIA sequência (compartilhada entre família/produto/estrutura, zera em sucesso limpo) e pausa o
+  envio sozinho ao bater `LIMITE_SEQUENCIA_RISCO` (5) respostas seguidas sem sucesso limpo — bem
+  abaixo do limite real da Omie (10). `interrompido=true` mas `bloqueado=false` (não é bloqueio real,
+  é margem de segurança nossa); os itens restantes ficam "não enviado" pra reenviar depois.
 - **Avisar o usuário** o que precisa corrigir (erros de formato/tamanho) antes de enviar.
 - **Processar em lote**: enviar o import inteiro pela fila (com ✓/✗ por item).
 - **Tela de revisão** (a "telinha"): lista editável do que vai (código/desc/família/qtd/local),

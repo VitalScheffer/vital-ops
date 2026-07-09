@@ -53,6 +53,20 @@ describe("classifyFault", () => {
     expect(classifyFault(fault)).toBe(Category.CODE_CONFLICT);
   });
 
+  it("código já usado, mensagem no feminino ('utilizada') → CODE_CONFLICT", () => {
+    // Forma real que o Omie devolveu (09/07/2026): "O código ... utilizada ...".
+    // O gênero do verbo varia; ancoramos no final "com ID <número>".
+    const fault =
+      "ERROR: O código COMBC PT019 P0158 informado já está sendo utilizada pelo produto com ID 12098952111.";
+    expect(classifyFault(fault)).toBe(Category.CODE_CONFLICT);
+  });
+
+  it("descrição já usada, mensagem no masculino ('utilizado') → DESCRIPTION_CONFLICT", () => {
+    const fault =
+      "ERROR: A descrição informada já está sendo utilizado pelo produto com código COMDB P0381 018AC.";
+    expect(classifyFault(fault)).toBe(Category.DESCRIPTION_CONFLICT);
+  });
+
   it("desconhecido → ERROR e loga WARNING", () => {
     const logger = { warn: vi.fn() };
     expect(classifyFault("ERROR: Algo totalmente novo aconteceu", logger)).toBe(Category.ERROR);

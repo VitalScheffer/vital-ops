@@ -1095,3 +1095,134 @@ automaticamente o cadastro existente, em vez de só marcar falha isolada.
    falha.
 4. Mesma limitação conhecida da entrada anterior (cadastro existente sem
    `codigo_produto_integracao` preenchido) também vale aqui — não reproduzida ainda.
+
+## 2026-07-08 (continuação 3) — Freio de segurança próprio: Omie bloqueou a app_key por 30 min
+
+### Resumo
+Depois do commit `97e928a` (fixes de bloqueante geral + `CODE_CONFLICT`) já enviado, o Victor
+testou de novo e reportou que a **própria Omie bloqueou a app_key por 30 minutos** — não é
+bug do nosso código, é a proteção anti-abuso da própria Omie disparando de verdade. Como essa
+`app_key` é **compartilhada com o nextstep** (CRM em produção), um bloqueio afeta os dois
+sistemas ao mesmo tempo — então NÃO dava pra simplesmente "desligar" a proteção. Implementado
+um freio de segurança PRÓPRIO no orquestrador, que pausa o envio sozinho antes de chegar perto
+do limite real da Omie. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run` verdes (143
+testes; +3 novos).
+
+### Causa raiz
+Antes de hoje, o lote nunca passava do item 21 — os itens depois nunca tinham sido enviados de
+verdade pra Omie. Com os fixes de hoje, o envio passou a tentar TODOS os itens, e essa BOM
+aparentemente tem vários itens "peça padrão" que colidem (conflito de descrição/código) em
+sequência. A Omie conta TODA resposta fora de sucesso limpo — inclusive duplicado/conflito, que
+pra nós é um outcome bom — pro seu PRÓPRIO contador de banimento (REQUISITOS §6 já documentava:
+"resultado vazio = erro, conta pro ban"; §7 já avisava pra `IncluirEstrutura`: "evitar mandar em
+massa o que já existe, senão a Omie conta como erro e pode bloquear" — um risco JÁ CONHECIDO mas
+nunca implementado). O breaker do nosso client (soft 6 faults/2min) deveria pegar isso antes —
+mas cada vez que resolvemos um conflito com sucesso (a leitura via `ListarProdutos`/
+`ConsultarProduto` dá OK), o breaker é RESETADO (`recordOk()` zera o contador dele), então ele
+nunca via a sequência de ESCRITAS ruins se acumulando — só a Omie via, do lado dela, e bloqueou.
+
+### Correção
+- `src/lib/produtos/envioOmie.ts`: novo contador `sequenciaRisco`, compartilhado entre os 3
+  loops (família/produto/estrutura). Reseta a cada outcome `"enviado"` (sucesso limpo); qualquer
+  outro outcome (`falha`, `ja_existia`) soma. Ao bater `LIMITE_SEQUENCIA_RISCO = 5` (bem abaixo
+  do limite real de 10 da Omie), pausa o envio (`interrompido = true`, `bloqueado = false` — não
+  é bloqueio real, é margem de segurança nossa) e marca o restante como "não enviado", igual já
+  acontece pra bloqueio real.
+- `src/components/produtos/ProdutosClient.tsx`: texto do banner pro caso "interrompido mas não
+  bloqueado" (que hoje só acontece por esse freio) atualizado pra descrever a pausa de segurança
+  em vez do texto antigo de "corrija o item marcado" (que não fazia mais sentido — não é 1 item,
+  é uma sequência).
+- `docs/REQUISITOS.md` §7 — documentado o freio e o motivo (bloqueio real em produção, risco já
+  citado no doc mas nunca implementado).
+- Testes (`envioOmie.test.ts`): +3 casos — pausa após N respostas seguidas sem sucesso limpo;
+  um sucesso no meio reseta a sequência (não pausa); a sequência é compartilhada entre família e
+  produto.
+
+### Decisões importantes
+- **Não mexi no breaker do client nem no soft/hard threshold dele** — o problema não era o
+  breaker estar errado, era o orquestrador ter uma sequência de escritas ruins que o breaker (que
+  reresponde a QUALQUER resposta, inclusive as leituras de resolução de conflito) não conseguia
+  enxergar isoladamente. Resolvido na camada certa (orquestração), sem tocar no client genérico
+  que outras integrações podem usar no futuro.
+- **Threshold de 5, não 6 (igual o breaker) nem mais baixo**: dá margem confortável abaixo do
+  limite real de 10 da Omie, sem reintroduzir o problema de mais cedo (1 item isolado nunca
+  atinge 5 sozinho — só uma sequência de verdade pausa).
+- **`ja_existia` conta pra sequência de risco**, mesmo sendo um outcome bom pra nós — porque pra
+  Omie continua sendo uma resposta de erro (mesmo raciocínio do §7 sobre reenviar estrutura já
+  existente em massa). Efeito colateral aceito: reenviar uma BOM inteira já 100% processada
+  (tudo duplicado) vai pausar a cada 5 itens em vez de ir tudo de uma vez — o Victor está ciente
+  do trade-off (evitar bloqueio real > enviar tudo de uma vez sem interrupção).
+
+### Limitação conhecida (não implementada, ficou pra depois)
+Não implementei a persistência de "esse código já resolvemos como conflito" entre envios
+diferentes (reenvios da mesma BOM ainda tentam `UpsertProduto` de novo pros itens que sabemos
+que vão conflitar de novo, gastando parte do orçamento de erro à toa). O freio de sequência já
+reduz bastante o risco disso mesmo sem essa otimização; fica como possível melhoria futura se o
+padrão de reenvio repetido continuar sendo comum.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 143/143 (14 arquivos).
+
+### Pendências / próximos passos
+1. **Aguardando confirmação do Victor antes de commit + push** (mesmo aviso de sempre — push pra
+   master faz deploy automático em produção via Vercel, e essa `app_key` também é usada pelo
+   nextstep).
+2. Depois do deploy, esperar o bloqueio atual da Omie (se ainda ativo) expirar e o João reenviar
+   a mesma BOM pra confirmar que o freio de segurança pausa antes de chegar perto de um bloqueio
+   real de novo.
+3. Considerar a melhoria de persistência (item acima) se reenvios repetidos da mesma BOM
+   continuarem sendo o padrão de uso comum.
+
+## 2026-07-09 — Conflito de código não era reconhecido (Omie manda "utilizada", regex esperava "utilizado")
+
+### Resumo
+Novo teste do João (print do projetos02, 08:23) voltou a bloquear a app_key por ~30 min
+(1799s) e mostrou vários componentes como "Falha" com a mensagem "O código X informado já
+está sendo utilizada pelo produto com ID <número>". Investigado: a mensagem real do Omie usa
+o verbo no FEMININO ("utiliza**da**"), mas o regex de `CODE_CONFLICT` em `taxonomy.ts` exigia
+o MASCULINO ("utiliza**do**") (o exemplo PC021 registrado ontem no log estava escrito
+"utilizado", provavelmente transcrito errado do print). Sem casar, o erro caía em `ERROR`
+genérico e o item virava `"falha"` (com o texto cru na tela) em vez de reaproveitar o
+cadastro existente como `"já existia"`. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run`
+verdes (145 testes; +2 novos).
+
+### Causa raiz
+`src/lib/omie/taxonomy.ts` linha 58: `CODE_CONFLICT` = `/informado ja esta sendo utilizado
+pelo produto com id/`. A Omie devolveu "...já está sendo utiliza**da** pelo produto com ID...".
+Cadeia inteira confirmada: `classifyFault` não reconhece → `client.handle()` lança `OmieError`
+genérico (não `OmieCodeConflict`) → `orquestrarEnvio` cai no catch genérico (linha 411) →
+`outcome: "falha"` com o `faultstring` cru. A extração do ID (`ID_CONFLITANTE`, envioOmie.ts)
+nunca foi o problema (independe do gênero); só a CLASSIFICAÇÃO quebrava.
+
+### Correção
+- `src/lib/omie/taxonomy.ts`: reescritos os DOIS regexes de conflito, ancorados no que de fato
+  distingue os casos (o final da mensagem) e tolerando os dois gêneros do verbo:
+  - `DESCRIPTION_CONFLICT` = `/ja esta sendo utilizad[oa] pelo produto com codigo/`
+  - `CODE_CONFLICT` = `/ja esta sendo utilizad[oa] pelo produto com id/`
+  Assim para de depender do prefixo do sujeito ("A descrição informada" vs "O código X
+  informado") e da concordância de gênero (mata essa classe de whack-a-mole de vez).
+- Testes (`taxonomy.test.ts`): +1 caso com a mensagem real no feminino (código → `CODE_CONFLICT`)
+  e +1 caso espelho (descrição no masculino → `DESCRIPTION_CONFLICT`).
+
+### Decisões importantes
+- **Ancorar no final da mensagem, não no começo**: "pelo produto com id" vs "pelo produto com
+  código" é o sinal estável que separa os dois conflitos; o gênero do verbo e o sujeito variam.
+- Não mexi no `client.ts`, no orquestrador nem na extração de chave — só a classificação estava
+  errada.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 145/145 (14 arquivos).
+
+### Pendências / próximos passos
+1. **Não commitado ainda.** Este fix está no working tree JUNTO com o freio de segurança da
+   entrada anterior (que também nunca foi commitado). Para de fato parar o bloqueio da Omie, os
+   DOIS precisam ir pra produção juntos: o regex (rotula certo + reaproveita) e o freio (pausa
+   antes da Omie bloquear). Aguardando o OK do Vitor pro commit + push (deploy automático, chave
+   compartilhada com o nextstep).
+2. Mesmo com os dois no ar: como a maior parte dos componentes JÁ existe no Omie, o freio vai
+   pausar a cada 5 conflitos seguidos — o João vai precisar reenviar o restante algumas vezes até
+   fechar a BOM. É o freio funcionando (troca conveniência por não banir a chave compartilhada).
+3. Melhoria real pra esse padrão (a maioria dos componentes já cadastrada): persistir os códigos
+   já resolvidos como conflito e PULAR o `UpsertProduto` deles nos reenvios, em vez de tentar de
+   novo e gastar orçamento de erro. É a "Limitação conhecida (persistência)" das entradas
+   anteriores, agora com motivo concreto pra priorizar. Decisão do Vitor.

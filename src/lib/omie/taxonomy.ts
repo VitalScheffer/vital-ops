@@ -54,8 +54,14 @@ const REGISTRY: ReadonlyArray<[Category, RegExp]> = [
   [Category.BLOCKED, /consumo indevido|bloquead/],
   [Category.TRANSIENT, /broken response|soap-error/],
   [Category.DUPLICATE, /ja cadastrad|ja existe/],
-  [Category.DESCRIPTION_CONFLICT, /descricao informada ja esta sendo utilizada/],
-  [Category.CODE_CONFLICT, /informado ja esta sendo utilizado pelo produto com id/],
+  // Conflito de "já existe sob outro cadastro". O Omie varia o gênero do verbo
+  // ("utilizada"/"utilizado" — nem sempre concorda com o sujeito: já apareceu
+  // "O código ... utilizada") e o sujeito ("A descrição informada..." vs
+  // "O código X informado..."). Por isso ancoramos no que de fato distingue os
+  // dois casos: o final "...pelo produto com código <SKU>" (descrição) vs
+  // "...pelo produto com id <número>" (código), tolerando os dois gêneros.
+  [Category.DESCRIPTION_CONFLICT, /ja esta sendo utilizad[oa] pelo produto com codigo/],
+  [Category.CODE_CONFLICT, /ja esta sendo utilizad[oa] pelo produto com id/],
   [Category.EMPTY, /nao existem registros/],
   [Category.NOT_FOUND, /nao cadastrad. para o codigo/],
 ];
