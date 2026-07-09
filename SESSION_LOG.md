@@ -1226,3 +1226,71 @@ nunca foi o problema (independe do gênero); só a CLASSIFICAÇÃO quebrava.
    já resolvidos como conflito e PULAR o `UpsertProduto` deles nos reenvios, em vez de tentar de
    novo e gastar orçamento de erro. É a "Limitação conhecida (persistência)" das entradas
    anteriores, agora com motivo concreto pra priorizar. Decisão do Vitor.
+
+## 2026-07-09 (continuação) — Pré-checagem em lote: para de reenviar o que já existe (ataca a causa do bloqueio)
+
+### Resumo
+Depois do fix do regex, o Victor pediu pra automatizar o problema de fundo: a maioria dos
+componentes já existe no Omie, então todo envio reescreve tudo, cada reescrita de item existente
+volta conflito, e isso estoura o contador de bloqueio da Omie (o freio ajuda mas força reenviar em
+levas). Investiguei a API oficial da Omie e confirmei a regra exata do bloqueio, além de métodos que
+não estávamos usando. Reescrevi o orquestrador pra fazer uma PRÉ-CHECAGEM em lote (leitura) e PULAR
+o Upsert do que já existe. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run` verdes (150 testes;
++5 novos). Confirmado também contra a API real (1 leitura).
+
+### O que a doc da Omie confirmou (fontes em REQUISITOS §6)
+- **Regra do bloqueio**: HTTP 425 (~30 min) dispara na 10ª requisição INCORRETA pro mesmo IP +
+  app_key + MÉTODO. O que trava é chamada que dá ERRO no mesmo método, não volume. Logo, LEITURA que
+  dá certo não conta, e a saída é não gerar a escrita incorreta.
+- **`ListarProdutos` aceita `produtosPorCodigo` com vários códigos** (listagem em lote, recomendada
+  pela própria Omie). Verificado real: 4 códigos consultados, 3 encontrados (o inexistente ausente).
+- **`IncluirEstrutura` aceita `idProduto`/`idProdMalha` (ID interno)** além do código de integração.
+- **Descartado**: `UpsertProdutosPorLote`/`IncluirProdutosPorLote` estão deprecated e a resposta é
+  agregada (não diz item por item). `AssociarCodIntProduto` existe (associa código de integração a
+  cadastro existente) mas dispensável, já que a Estrutura aceita ID interno (evita escrever em produto
+  compartilhado com o nextstep).
+
+### Verificação real (1 leitura, requisição correta)
+`ListarProdutos` com os códigos do print do João retornou, entre outros: COMBC PT019 P0158 →
+`codigo_produto` 12098952111 (bate com o "ID 12098952111" da mensagem de erro do print); COMRZ G3PSF
+E0635 → 12111559011. Nos três, `codigo_produto_integracao` veio VAZIO — isso prova a raiz (existem sem
+o nosso código de integração, por isso o Upsert conflita) e prova que a Estrutura tem que referenciar
+por ID interno (por integração falharia, é a limitação conhecida do vínculo).
+
+### Correção (`src/lib/produtos/envioOmie.ts`)
+- `precarregarExistentes(codigos, chamar, interromper)`: leitura em lote (blocos de 50) via
+  `ListarProdutos`+`produtosPorCodigo`, montando `codigo → { codigo_produto (ID), codigo_produto_integracao }`.
+  Fail-safe: erro comum na leitura só perde a otimização (cai no Upsert normal); só `OmieBlocked`
+  interrompe. Roda entre famílias e produtos, incluindo também os códigos que só aparecem na estrutura.
+- Loop de produtos: se o código já existe (pré-check), PULA o `UpsertProduto` (zero chamada ao Omie),
+  marca "já existia" e guarda o ID interno. Como não houve chamada, NÃO conta pro freio
+  (`registrarSequencia(outcome, custoOmie=false)`).
+- Loop de estrutura: referencia pai/filho por `idProduto`/`idProdMalha` (ID interno) quando conhecido
+  (do pré-check OU do Upsert/reaproveitamento), caindo pro código de integração só como fallback.
+- Testes: +5 casos (pula quem existe; estrutura por ID interno sem Upsert; muitos existentes não
+  pausam o lote; falha na leitura não interrompe; bloqueio real na leitura para o lote). Ajustados 4
+  testes que assumiam o comportamento antigo (ordem das chamadas, resolução de conflito, estrutura por
+  código de integração).
+
+### Decisões importantes
+- **Atacar a causa (não reescrever o que existe), não o sintoma (freio)**: o freio continua de rede de
+  segurança, mas o normal passa a ser não gerar o conflito.
+- **Estrutura por ID interno, sem escrever no produto existente**: em vez de `AssociarCodIntProduto`
+  (que escreveria num cadastro compartilhado com o nextstep), usa o ID interno que a API de malha
+  aceita. Zero risco pro outro sistema.
+- **Sem tabela nova / sem migração**: a fonte da verdade é o próprio Omie (a leitura), e o `OmieCache`
+  já guarda leituras por TTL. Mais simples e menos arriscado que persistir catálogo local.
+- **Reversão parcial do §6** ("não consultar antes"): com a regra real do bloqueio confirmada, a
+  pré-checagem em LOTE é estritamente melhor (1 leitura correta evita dezenas de escritas incorretas).
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 150/150 (14 arquivos).
+
+### Pendências / próximos passos
+1. Confirmar em produção no próximo envio do João: os componentes que já existem devem sair como "já
+   existia" SEM aparecer como conflito/falha, o lote não deve mais bloquear, e a estrutura (vínculo)
+   deve fechar mesmo nos itens sem código de integração.
+2. `IncluirEstrutura` por `idProduto`/`idProdMalha` foi confirmado na doc mas ainda não exercido contra
+   a API real de malha (só leitura foi). Acompanhar no teste do vínculo.
+3. Pedido do Victor (separado, ainda a fazer): permitir anexar CSV/XLS/XLSX/PDF no report, pra mandarem
+   a planilha usada junto do erro e a gente cruzar mais fácil o que causou.

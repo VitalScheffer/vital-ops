@@ -55,8 +55,19 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
 
     await orquestrarEnvio({ novos, estrutura }, fn);
 
-    expect(calls.map((c) => c.call)).toEqual(["UpsertFamilia", "UpsertProduto", "IncluirEstrutura"]);
-    expect(calls.map((c) => c.path)).toEqual(["geral/familias/", "geral/produtos/", "geral/malha/"]);
+    // A pré-checagem em lote (ListarProdutos) roda entre as famílias e os produtos.
+    expect(calls.map((c) => c.call)).toEqual([
+      "UpsertFamilia",
+      "ListarProdutos",
+      "UpsertProduto",
+      "IncluirEstrutura",
+    ]);
+    expect(calls.map((c) => c.path)).toEqual([
+      "geral/familias/",
+      "geral/produtos/",
+      "geral/produtos/",
+      "geral/malha/",
+    ]);
   });
 
   it("garante cada família só uma vez, mesmo com vários produtos", async () => {
@@ -264,11 +275,13 @@ describe("orquestrarEnvio — descrição já usada por outro código (reaprovei
     expect(res.interrompido).toBe(false);
     expect(res.totais).toMatchObject({ enviados: 1, jaExistiam: 1, falhas: 0, naoEnviados: 0 });
 
-    const listar = calls.find((c) => c.call === "ListarProdutos");
-    expect(listar?.param).toMatchObject({ produtosPorCodigo: [{ codigo: CODIGO_EXISTENTE }] });
+    // O primeiro ListarProdutos é a pré-checagem em lote; a resolução do conflito
+    // (busca pelo código conflitante) é a última.
+    const listares = calls.filter((c) => c.call === "ListarProdutos");
+    expect(listares.at(-1)?.param).toMatchObject({ produtosPorCodigo: [{ codigo: CODIGO_EXISTENTE }] });
   });
 
-  it("estrutura referencia o codigo_produto_integracao REAL do cadastro existente, não o nosso", async () => {
+  it("estrutura referencia o ID interno (codigo_produto) do cadastro existente", async () => {
     const { fn, calls } = mockChamar((rec) => {
       if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
         return new OmieDescriptionConflict(FAULTSTRING_CONFLITO);
@@ -281,7 +294,7 @@ describe("orquestrarEnvio — descrição já usada por outro código (reaprovei
     await orquestrarEnvio({ novos: [item("P1", null)], estrutura: [rel("P1", "FILHO1", 2)] }, fn);
 
     const est = calls.find((c) => c.call === "IncluirEstrutura");
-    expect(est?.param).toMatchObject({ intProduto: "COMDBP0381018AC" });
+    expect(est?.param).toMatchObject({ idProduto: 999 });
   });
 
   it("se não achar o cadastro existente, marca falha (não assume sucesso) e segue o lote", async () => {
@@ -306,7 +319,15 @@ describe("orquestrarEnvio — descrição já usada por outro código (reaprovei
       if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
         return new OmieDescriptionConflict(FAULTSTRING_CONFLITO);
       }
-      if (rec.call === "ListarProdutos") return new OmieBlocked("bloqueado");
+      if (rec.call === "ListarProdutos") {
+        // Só a busca de RESOLUÇÃO (pelo código conflitante) bloqueia; a
+        // pré-checagem em lote (pelos códigos P1/P2) passa vazia.
+        const codigos = (rec.param.produtosPorCodigo as Array<{ codigo: string }> | undefined)?.map(
+          (p) => p.codigo,
+        );
+        if (codigos?.includes(CODIGO_EXISTENTE)) return new OmieBlocked("bloqueado");
+        return {};
+      }
       return {};
     });
     const novos = [item("P1", null), item("P2", null)];
@@ -345,7 +366,7 @@ describe("orquestrarEnvio — código já usado por outro id (reaproveita o cada
     expect(consultar?.param).toMatchObject({ codigo_produto: Number(ID_EXISTENTE) });
   });
 
-  it("estrutura referencia o codigo_produto_integracao REAL do cadastro existente, não o nosso", async () => {
+  it("estrutura referencia o ID interno (codigo_produto) do cadastro existente", async () => {
     const { fn, calls } = mockChamar((rec) => {
       if (rec.call === "UpsertProduto" && rec.param.codigo === "P1") {
         return new OmieCodeConflict(FAULTSTRING_CONFLITO);
@@ -358,7 +379,7 @@ describe("orquestrarEnvio — código já usado por outro id (reaproveita o cada
     await orquestrarEnvio({ novos: [item("P1", null)], estrutura: [rel("P1", "FILHO1", 2)] }, fn);
 
     const est = calls.find((c) => c.call === "IncluirEstrutura");
-    expect(est?.param).toMatchObject({ intProduto: "CREHIPC021ITSLD" });
+    expect(est?.param).toMatchObject({ idProduto: Number(ID_EXISTENTE) });
   });
 
   it("se não achar o cadastro existente, marca falha (não assume sucesso) e segue o lote", async () => {
@@ -444,6 +465,100 @@ describe("orquestrarEnvio — freio de segurança (sequência sem sucesso limpo 
     expect(res.interrompido).toBe(true);
     expect(res.bloqueado).toBe(false);
     expect(res.produtos[2].outcome).toBe("nao_enviado");
+  });
+});
+
+describe("orquestrarEnvio — pré-checagem pula o que já existe (evita conflito/bloqueio)", () => {
+  it("pula o UpsertProduto de quem já existe no Omie e marca como já existia", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "P1", codigo_produto: 111, codigo_produto_integracao: "P1INT" },
+          ],
+        };
+      }
+      return {};
+    });
+    const res = await orquestrarEnvio({ novos: [item("P1", null), item("P2", null)], estrutura: [] }, fn);
+
+    // P1 já existia → nenhum UpsertProduto pra ele; só P2 (novo de verdade) é enviado.
+    const upserts = calls.filter((c) => c.call === "UpsertProduto").map((c) => c.param.codigo);
+    expect(upserts).toEqual(["P2"]);
+    expect(res.produtos[0]).toMatchObject({ codigo: "P1", outcome: "ja_existia", omieCodigoProduto: "111" });
+    expect(res.produtos[1].outcome).toBe("enviado");
+    expect(res.interrompido).toBe(false);
+  });
+
+  it("estrutura de produto pré-existente usa o ID interno (idProduto/idProdMalha), sem Upsert", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "PAI", codigo_produto: 500, codigo_produto_integracao: "" },
+            { codigo: "FILHO", codigo_produto: 600, codigo_produto_integracao: "" },
+          ],
+        };
+      }
+      return {};
+    });
+    const res = await orquestrarEnvio(
+      { novos: [item("PAI", null)], estrutura: [rel("PAI", "FILHO", 2)] },
+      fn,
+    );
+
+    const est = calls.find((c) => c.call === "IncluirEstrutura");
+    expect(est?.param).toMatchObject({
+      idProduto: 500,
+      itemMalhaIncluir: [{ idProdMalha: 600, quantProdMalha: 2 }],
+    });
+    expect(calls.some((c) => c.call === "UpsertProduto")).toBe(false); // PAI já existia → pulado
+    expect(res.produtos[0].outcome).toBe("ja_existia");
+  });
+
+  it("muitos produtos já existentes NÃO pausam o lote (skip não conta pro freio)", async () => {
+    const codigos = Array.from({ length: 8 }, (_, i) => `E${i + 1}`);
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: codigos.map((c, i) => ({
+            codigo: c,
+            codigo_produto: 1000 + i,
+            codigo_produto_integracao: `${c}INT`,
+          })),
+        };
+      }
+      return {};
+    });
+    const res = await orquestrarEnvio({ novos: codigos.map((c) => item(c, null)), estrutura: [] }, fn);
+
+    // 8 já existentes seguidos passariam do limite do freio (5) se contassem — mas
+    // skip não tem chamada ao Omie, então não conta e o lote não pausa.
+    expect(res.interrompido).toBe(false);
+    expect(res.produtos.every((p) => p.outcome === "ja_existia")).toBe(true);
+    expect(calls.some((c) => c.call === "UpsertProduto")).toBe(false);
+  });
+
+  it("falha na leitura da pré-checagem não interrompe: cai no Upsert normal", async () => {
+    const { fn, calls } = mockChamar((rec) =>
+      rec.call === "ListarProdutos" ? new OmieError("erro na leitura") : {},
+    );
+    const res = await orquestrarEnvio({ novos: [item("P1", null)], estrutura: [] }, fn);
+
+    expect(res.interrompido).toBe(false);
+    expect(res.produtos[0].outcome).toBe("enviado");
+    expect(calls.some((c) => c.call === "UpsertProduto")).toBe(true);
+  });
+
+  it("bloqueio real na pré-checagem para o lote (ban-safety)", async () => {
+    const { fn } = mockChamar((rec) =>
+      rec.call === "ListarProdutos" ? new OmieBlocked("bloqueado") : {},
+    );
+    const res = await orquestrarEnvio({ novos: [item("P1", null), item("P2", null)], estrutura: [] }, fn);
+
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(true);
+    expect(res.produtos.every((p) => p.outcome === "nao_enviado")).toBe(true);
   });
 });
 

@@ -92,9 +92,18 @@ Fonte: `nextstep/docs/omie.md` + `nextstep/apps/omie/` (client, breaker, cache, 
 - **API call-based**: `POST https://app.omie.com.br/api/v1/<path>/` com
   `{ call, app_key, app_secret, param:[...] }`. **Erro vem como HTTP 200 + `faultstring`**
   (semântica invertida); HTTP 500 às vezes é validação (não transitório).
-- **Orçamento de ban**: requisição idêntica < 60s = erro; **resultado vazio = erro** (conta pro ban);
-  **10 erros seguidos = app_key bloqueado** (duração vem na msg); **sucesso zera** o contador.
-- **write-then-handle-duplicate**: NÃO consultar-antes; chamar `Upsert`/`Incluir` e tratar duplicado.
+- **Orçamento de ban** (confirmado na doc oficial da Omie, 09/07/2026 — "Limites de Consumo da API"):
+  o bloqueio de ~30 min (HTTP 425) dispara na **10ª requisição INCORRETA pro mesmo IP + app_key +
+  MÉTODO**. O que trava NÃO é volume de chamadas, é chamada que dá ERRO no mesmo método. Requisição
+  idêntica < 60s = erro; **resultado vazio = erro** (conta pro ban); **sucesso zera** o contador.
+  Corolário importante: uma LEITURA que dá certo (ex. `ListarProdutos` com resultado) é requisição
+  correta e NÃO conta pro bloqueio.
+- **write-then-handle-duplicate** (regra geral): chamar `Upsert`/`Incluir` e tratar duplicado, sem
+  consulta preventiva POR ITEM. **Exceção confirmada em 09/07/2026 (produtos)**: quando a maioria dos
+  itens já existe (peça padrão), uma PRÉ-CHECAGEM em LOTE (`ListarProdutos` com vários códigos numa
+  chamada só) passa a ser estritamente melhor — é 1 leitura correta que evita dezenas de ESCRITAS
+  incorretas (reenviar cadastro existente volta conflito, e é ISSO que estoura o contador de bloqueio).
+  A própria Omie recomenda usar listagem em lote em vez de consultar/reenviar um a um. Ver §7.
 - **Validar LOCAL antes** (campos, tamanhos, NCM) — não gastar ban com erro evitável.
 - **Cache** de SKU/família (conhecido nunca re-bate). **Breaker** soft/hard, respeitar `blockedUntil`.
 - **Classificar por `faultstring`** (normalizado, sem acento), não por `faultcode`.
@@ -103,11 +112,15 @@ Fonte: `nextstep/docs/omie.md` + `nextstep/apps/omie/` (client, breaker, cache, 
   - `UpsertFamilia` (`geral/familias/`) — garantir COM/SBM/PCF/PCA antes dos produtos.
   - `UpsertProduto` (`geral/produtos/`) — obrigatórios: `codigo_produto_integracao`, `codigo`,
     `descricao`, `unidade`, `ncm`; + `tipoItem="04"`; + família; + **controle de lote** (ver §7).
-  - `IncluirEstrutura` (`geral/malha/`) — pai `intProduto`, filho `intProdMalha`, `quantProdMalha`.
-  - `ListarProdutos` (`geral/produtos/`, filtro `produtosPorCodigo: [{codigo}]`) — READ, só usado
-    depois de um conflito de descrição confirmado (nunca preventivamente), pra achar
-    `codigo_produto`/`codigo_produto_integracao` do cadastro já existente e reaproveitar (ver §7).
-    Mesmo padrão já usado no nextstep (`apps/omie/services/products.py`).
+  - `IncluirEstrutura` (`geral/malha/`) — pai e filho podem ser referenciados pelo **ID interno**
+    (`idProduto`/`idProdMalha`) OU pelo código de integração (`intProduto`/`intProdMalha`), `quantProdMalha`.
+    Preferimos o ID interno quando conhecido: não depende do `codigo_produto_integracao` estar
+    preenchido no cadastro (nos produtos existentes ele costuma vir VAZIO — confirmado 09/07/2026).
+  - `ListarProdutos` (`geral/produtos/`, filtro `produtosPorCodigo: [{codigo}, ...]`) — READ. Usado em
+    DOIS momentos: (a) **PRÉ-CHECAGEM em LOTE** antes de enviar, pra pular o `UpsertProduto` de quem já
+    existe (evita o conflito que bane) e pegar o `codigo_produto` (ID interno) pra Estrutura; (b) depois
+    de um conflito de descrição, pra achar o cadastro existente e reaproveitar. Aceita vários códigos por
+    chamada — confirmado contra a API real (4 códigos → 3 encontrados, 1 inexistente ausente).
   - `ConsultarProduto` (`geral/produtos/`, param `codigo_produto: <id interno>`) — READ, só usado
     depois de um conflito de CÓDIGO confirmado (a mensagem do Omie já cita o ID interno do
     cadastro existente). Confirmado na doc oficial (`developer.omie.com.br`) que `codigo_produto`

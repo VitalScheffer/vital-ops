@@ -175,6 +175,67 @@ async function resolverProdutoExistentePorId(
   };
 }
 
+// Um cadastro já existente no Omie descoberto pela pré-checagem em lote.
+interface CadastroExistente {
+  idProduto?: string; // codigo_produto (ID interno do Omie)
+  intProduto?: string; // codigo_produto_integracao real, quando preenchido
+}
+
+// Divide uma lista em blocos de tamanho fixo (respeita o limite de registros por
+// página da Omie na leitura em lote).
+function emBlocos<T>(itens: T[], tamanho: number): T[][] {
+  const blocos: T[][] = [];
+  for (let i = 0; i < itens.length; i += tamanho) blocos.push(itens.slice(i, i + tamanho));
+  return blocos;
+}
+
+const BLOCO_PRECHECK = 50;
+
+// Pré-checa (LEITURA em lote) quais códigos já estão cadastrados no Omie. Uma
+// leitura que dá certo é requisição CORRETA — não conta pro contador de bloqueio
+// da Omie (que dispara na 10ª requisição INCORRETA no mesmo método). Isso deixa o
+// orquestrador PULAR o UpsertProduto dos que já existem, que hoje volta erro de
+// conflito e é justamente o que estoura esse contador (peça padrão já cadastrada).
+// Reusa o mesmo call já provado em produção (`ListarProdutos` + `produtosPorCodigo`),
+// só que com vários códigos por chamada. Falha na leitura NÃO interrompe o envio:
+// só perde a otimização (cai no caminho antigo de tentar o Upsert e tratar o
+// conflito); apenas `OmieBlocked` (bloqueio real) interrompe o lote.
+async function precarregarExistentes(
+  codigos: string[],
+  chamar: ChamarFn,
+  interromper: (erro: unknown) => void,
+): Promise<Map<string, CadastroExistente>> {
+  const mapa = new Map<string, CadastroExistente>();
+  for (const bloco of emBlocos(codigos, BLOCO_PRECHECK)) {
+    try {
+      const resp = await chamar("geral/produtos/", "ListarProdutos", {
+        pagina: 1,
+        registros_por_pagina: 100,
+        apenas_importado_api: "N",
+        filtrar_apenas_omiepdv: "N",
+        produtosPorCodigo: bloco.map((codigo) => ({ codigo })),
+      });
+      const lista = resp?.produto_servico_cadastro;
+      if (!Array.isArray(lista)) continue;
+      for (const registro of lista as OmiePayload[]) {
+        const codigo = texto(registro.codigo);
+        if (!codigo) continue;
+        mapa.set(semEspaco(codigo), {
+          idProduto: texto(registro.codigo_produto),
+          intProduto: texto(registro.codigo_produto_integracao) || undefined,
+        });
+      }
+    } catch (erro) {
+      if (erro instanceof OmieBlocked) {
+        interromper(erro);
+        break;
+      }
+      // Qualquer outro erro: só perde a otimização deste bloco.
+    }
+  }
+  return mapa;
+}
+
 // Resolve um conflito (descrição OU código) reaproveitando o cadastro
 // existente no Omie. Compartilhado pelas duas categorias — só muda como
 // extrai a chave da mensagem e como busca o cadastro (§7).
@@ -241,7 +302,12 @@ const LIMITE_SEQUENCIA_RISCO = 5;
 
 /**
  * Envia ao Omie os produtos "novos" de uma BOM e suas relações de estrutura,
- * garantindo as famílias antes. Idempotente: `Upsert*` atualiza no reenvio e
+ * garantindo as famílias antes. Antes dos produtos, faz uma PRÉ-CHECAGEM em lote
+ * (leitura, não conta pro bloqueio da Omie) pra descobrir quais códigos JÁ existem
+ * e PULAR o Upsert deles — reenviar um cadastro existente volta erro de conflito, e
+ * é isso que estoura o contador de bloqueio (10 requisições incorretas no mesmo
+ * método). A Estrutura referencia pai/filho pelo ID interno do Omie quando conhecido.
+ * Idempotente: `Upsert*` atualiza no reenvio e
  * `OmieDuplicate` conta como sucesso. Conflito de descrição/código (peça
  * padrão já cadastrada sob outro código/ID, ex. parafuso/dobradiça) é
  * resolvido buscando e reaproveitando o cadastro existente — não para o lote.
@@ -266,6 +332,11 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // foi resolvido por reaproveitamento (conflito de descrição ou de código). A
   // Estrutura usa isso pra referenciar o cadastro que realmente existe no Omie.
   const integracaoReal = new Map<string, string>();
+  // Nosso código (sem espaço) → codigo_produto (ID interno do Omie), de quem já
+  // existia (pré-check) OU foi enviado/reaproveitado agora. A Estrutura prefere
+  // referenciar pelo ID interno (idProduto/idProdMalha), que não depende do
+  // código de integração estar preenchido no cadastro.
+  const idOmiePorCodigo = new Map<string, string>();
   const interrupcao: Interrupcao = { interrompido: false, bloqueado: false };
   let sequenciaRisco = 0;
 
@@ -282,9 +353,11 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // sequência em sucesso limpo; qualquer outra coisa soma, e ao bater o limite
   // pausa o envio por segurança (bloqueado fica false — não é um bloqueio real
   // da Omie, é a nossa própria margem de segurança).
-  const registrarSequencia = (outcome: OutcomeEnvio) => {
+  const registrarSequencia = (outcome: OutcomeEnvio, custoOmie = true) => {
     if (interrupcao.interrompido) return;
-    if (outcome === "enviado") {
+    // Sucesso limpo OU passo sem chamada ao Omie (item pulado por já existir)
+    // zeram a sequência — só resposta ruim de uma chamada REAL soma pro freio.
+    if (outcome === "enviado" || !custoOmie) {
       sequenciaRisco = 0;
       return;
     }
@@ -328,6 +401,24 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     }
   }
 
+  // 1.5. Pré-checagem em lote: descobre quais códigos JÁ existem no Omie (leitura,
+  // não conta pro bloqueio) pra pular o UpsertProduto deles adiante. Inclui também
+  // os códigos que só aparecem na estrutura (pai/filho fora de "novos"), pra a
+  // Estrutura conseguir referenciá-los pelo ID interno.
+  const codigosParaChecar = new Set<string>();
+  for (const item of novos) codigosParaChecar.add(item.codigo);
+  for (const rel of input.estrutura) {
+    codigosParaChecar.add(rel.codigoPai);
+    codigosParaChecar.add(rel.codigoFilho);
+  }
+  const existentes = interrupcao.interrompido
+    ? new Map<string, CadastroExistente>()
+    : await precarregarExistentes([...codigosParaChecar], chamar, interromper);
+  for (const [chave, cadastro] of existentes) {
+    if (cadastro.idProduto) idOmiePorCodigo.set(chave, cadastro.idProduto);
+    if (cadastro.intProduto) integracaoReal.set(chave, cadastro.intProduto);
+  }
+
   // 2. Produtos (idempotente via UpsertProduto).
   for (const item of novos) {
     if (interrupcao.interrompido) {
@@ -337,6 +428,24 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         outcome: "nao_enviado",
         motivo: MOTIVO_NAO_ENVIADO,
       });
+      continue;
+    }
+
+    const chaveItem = semEspaco(item.codigo);
+
+    // Já cadastrado no Omie (descoberto na pré-checagem): NÃO reenvia o Upsert —
+    // reenviar volta erro de conflito, que é o que estoura o contador de bloqueio
+    // da Omie. Reaproveita o cadastro (ID interno guardado pra Estrutura). Como
+    // não houve chamada ao Omie, não conta pro freio (custoOmie = false).
+    const jaExiste = existentes.get(chaveItem);
+    if (jaExiste) {
+      produtos.push({
+        codigo: item.codigo,
+        descricao: item.descricaoProduto,
+        outcome: "ja_existia",
+        omieCodigoProduto: jaExiste.idProduto,
+      });
+      registrarSequencia("ja_existia", false);
       continue;
     }
 
@@ -356,11 +465,13 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
 
     try {
       const resp = await chamar("geral/produtos/", "UpsertProduto", param, WRITE);
+      const idProduto = texto(resp?.codigo_produto);
+      if (idProduto) idOmiePorCodigo.set(chaveItem, idProduto);
       produtos.push({
         codigo: item.codigo,
         descricao: item.descricaoProduto,
         outcome: "enviado",
-        omieCodigoProduto: texto(resp?.codigo_produto),
+        omieCodigoProduto: idProduto,
       });
       registrarSequencia("enviado");
     } catch (erro) {
@@ -385,6 +496,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
           integracaoReal,
           interromper,
         );
+        if (resultado.omieCodigoProduto) idOmiePorCodigo.set(chaveItem, resultado.omieCodigoProduto);
         produtos.push(resultado);
         registrarSequencia(resultado.outcome);
         continue;
@@ -404,6 +516,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
           integracaoReal,
           interromper,
         );
+        if (resultado.omieCodigoProduto) idOmiePorCodigo.set(chaveItem, resultado.omieCodigoProduto);
         produtos.push(resultado);
         registrarSequencia(resultado.outcome);
         continue;
@@ -433,24 +546,31 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     }
 
     try {
-      // int* referenciam o codigo_produto_integracao (código SEM espaço) — assim
-      // a estrutura resolve pai/filho sem consultar o id interno (REQUISITOS §6).
-      // Formato confirmado na doc da API de malha: pai no topo (`intProduto`) e
-      // filhos no array `itemMalhaIncluir` (um por chamada, para o resultado
-      // por relação continuar granular). Quando o pai/filho foi reaproveitado de
-      // um cadastro existente (conflito de descrição ou de código), usa o
-      // codigo_produto_integracao REAL desse cadastro em vez do nosso código
-      // gerado localmente.
-      const intProduto = integracaoReal.get(semEspaco(rel.codigoPai)) ?? semEspaco(rel.codigoPai);
-      const intProdMalha = integracaoReal.get(semEspaco(rel.codigoFilho)) ?? semEspaco(rel.codigoFilho);
+      // Referência de pai/filho: prefere o ID INTERNO do Omie (idProduto/idProdMalha),
+      // que não depende do código de integração estar preenchido no cadastro — vale
+      // tanto pra quem já existia (pré-check) quanto pra quem acabou de ser enviado.
+      // Só cai pro código de integração (intProduto/intProdMalha, código SEM espaço)
+      // como fallback quando o ID interno não é conhecido. Formato confirmado na doc
+      // da API de malha: pai no topo, filhos no array `itemMalhaIncluir` (um por
+      // chamada, pro resultado por relação continuar granular).
+      const chavePai = semEspaco(rel.codigoPai);
+      const chaveFilho = semEspaco(rel.codigoFilho);
+      const idPai = idOmiePorCodigo.get(chavePai);
+      const idFilho = idOmiePorCodigo.get(chaveFilho);
+      const refPai = idPai
+        ? { idProduto: Number(idPai) }
+        : { intProduto: integracaoReal.get(chavePai) ?? chavePai };
+      const refFilho = idFilho
+        ? { idProdMalha: Number(idFilho) }
+        : { intProdMalha: integracaoReal.get(chaveFilho) ?? chaveFilho };
       await chamar(
         "geral/malha/",
         "IncluirEstrutura",
         {
-          intProduto,
+          ...refPai,
           itemMalhaIncluir: [
             {
-              intProdMalha,
+              ...refFilho,
               quantProdMalha: rel.quantidade ?? 1,
             },
           ],
