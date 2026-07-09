@@ -1337,3 +1337,50 @@ sem novos, é UI).
    falha real de envio); confirmar no uso.
 3. Se o volume de reports automáticos incomodar, dá pra deduplicar por arquivo+dia ou limitar aos casos
    com falha de item (excluindo a pausa do freio). Reavaliar conforme o uso.
+
+## 2026-07-09 (continuação 3) — Teste CREHS: Multinível OK (print desatualizado) + NCM vira campo escolhido pelo usuário
+
+### Resumo
+Teste real no projeto CREHS (empresa ALP). A pré-checagem funcionou (peças existentes saíram como
+"já existe", sem reenviar). O Victor levantou dois pontos: (1) o Multinível/estrutura "não teria sido
+efetuado" (print do João mostrava a submontagem SM001 sem itens); (2) o NCM saiu como 9403.20.90 e não
+como o 999 neutro que eles usavam pro Fiscal corrigir depois. Investiguei por LEITURA na API real da
+Omie (sem escrever — a tentativa de escrita de teste foi corretamente barrada pelo sandbox, chave de
+produção compartilhada).
+
+### Multinível: FUNCIONOU (o print estava desatualizado)
+`ConsultarEstrutura` mostrou as 13 relações todas presentes, nas 6 submontagens (SM001..SM006), com as
+peças e quantidades certas — inclusive a dobradiça compartilhada `COMDB P0381 018AC` ligada em SM003 e
+SM004 (o caso que a estrutura-por-ID-interno resolve). O print do João era a tela do Omie sem refresh.
+**Ação pro João**: F5 / reabrir a estrutura no Omie. Isso RESOLVE a ressalva anterior: `IncluirEstrutura`
+por `idProduto`/`idProdMalha` está agora confirmado contra a API real (não é mais só na doc). Nenhuma
+mudança de código foi necessária pra estrutura.
+
+### NCM: agora é campo escolhido pelo usuário (decisão do Victor)
+O 999 neutro não dá mais (SEFAZ rejeita 9999.99.99 na transferência, por isso estava fixo em 9403.20.90).
+Victor pediu um CAMPO pra escolher o NCM por envio. Implementado:
+- Novo `src/lib/produtos/ncm.ts`: `NCM_PADRAO = "9403.20.90"` + `normalizarNcm()` (aceita com/sem pontos,
+  formata pra XXXX.XX.XX; sem 8 dígitos cai no padrão — nunca envia NCM malformado). Fonte única.
+- `envioOmie.ts`: `EnvioInput.ncm` opcional; usa `normalizarNcm(input.ncm)` no `UpsertProduto` (era fixo).
+- `omieFile.ts`: `preencherProdutos(bytes, itens, ncm?)` usa o NCM na coluna E da planilha de backup.
+- `enviar-actions.ts`: aceita `ncm`, normaliza, usa no `ProdutoItem` e repassa pro orquestrador.
+- `ProdutosClient.tsx`: campo "NCM dos produtos novos" (default 9403.20.90), passa pro envio e pra geração
+  da planilha. Aviso na tela: vale só pros NOVOS (existentes mantêm o NCM), e evite 9999.99.99.
+- Testes: `ncm.test.ts` (normalização), +2 no `envioOmie.test.ts` (NCM custom e fallback), +1 no
+  `omieFile.test.ts` (coluna E com NCM custom).
+
+### Decisões importantes
+- **NCM só afeta produtos NOVOS**: os que já existem são pulados (pré-check), então mantêm o NCM atual.
+  Deixado explícito no aviso da tela.
+- **Nunca enviar NCM malformado**: entrada sem 8 dígitos cai no padrão em vez de mandar lixo pro Omie.
+- **9999.99.99 é permitido se digitarem**, mas a tela desencoraja (a SEFAZ rejeita na transferência).
+- **Não escrevi na Omie de produção pra "testar"**: o sandbox barrou e está certo — confirmação de
+  escrita (estrutura) fica pro reenvio do usuário ou com autorização explícita.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 158/158 (15 arquivos).
+
+### Pendências / próximos passos
+1. João: dar refresh no Omie e confirmar que a estrutura das submontagens aparece (deve aparecer).
+2. Confirmar o campo de NCM no próximo envio (digitar um NCM e ver que os produtos novos saem com ele).
+3. Segue valendo confirmar a captura automática de falha (item da entrada anterior) num envio que falhe.

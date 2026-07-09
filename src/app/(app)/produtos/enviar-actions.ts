@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { chamar } from "@/lib/omie";
 import { orquestrarEnvio, type EnvioResultado, type OutcomeEnvio } from "@/lib/produtos/envioOmie";
+import { normalizarNcm } from "@/lib/produtos/ncm";
 import { requestHeaders } from "@/lib/request";
 
 // Envio automático dos produtos da BOM ao Omie via API (REQUISITOS §6/§7).
@@ -44,6 +45,7 @@ const enviarInputSchema = z.object({
   estrutura: z.array(estruturaRelSchema),
   localEstoque: z.string().optional(),
   arquivoNome: z.string().optional(),
+  ncm: z.string().optional(),
 });
 
 export type EnviarAoOmieInput = z.infer<typeof enviarInputSchema>;
@@ -106,6 +108,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
   }
 
   const { estrutura, localEstoque, arquivoNome } = parsed.data;
+  const ncm = normalizarNcm(parsed.data.ncm);
   const novos = parsed.data.novos.filter((i) => i.status === "novo");
   if (novos.length === 0) {
     return {
@@ -133,7 +136,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       codigo: item.codigo,
       descricao: item.descricaoProduto,
       familia: item.familia,
-      ncm: "9403.20.90",
+      ncm,
       unidade: "UN",
       tipo: "04",
       localEstoque: local,
@@ -159,7 +162,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
   // 2. Orquestra o envio sequencial (famílias → produtos → estrutura).
   let resultado: EnvioResultado;
   try {
-    resultado = await orquestrarEnvio({ novos: parsed.data.novos, estrutura }, chamar);
+    resultado = await orquestrarEnvio({ novos: parsed.data.novos, estrutura, ncm }, chamar);
   } catch (erro) {
     await prisma.produtoImport.update({ where: { id: importRecord.id }, data: { status: "FALHA" } });
     const motivo = erro instanceof Error ? erro.message : String(erro);

@@ -11,6 +11,7 @@
 import type { EstruturaRel, Familia, ParsedItem } from "@/lib/bom/types";
 import type { ChamarOptions, OmiePayload } from "@/lib/omie/client";
 import { OmieBlocked, OmieCodeConflict, OmieDescriptionConflict, OmieDuplicate } from "@/lib/omie/errors";
+import { normalizarNcm } from "./ncm";
 
 // Assinatura mínima de `chamar` do client Omie (o real é compatível com esta).
 export type ChamarFn = (
@@ -22,10 +23,8 @@ export type ChamarFn = (
 
 const WRITE: ChamarOptions = { write: true };
 
-// Fixos confirmados pelo usuário (REQUISITOS §7/§8).
-// NCM: era 9999.99.99 (genérico), mas a SEFAZ rejeita como inexistente na nota
-// de transferência — trocado para 9403.20.90 em 07/07/2026 (pedido do Vitor).
-const NCM_FIXO = "9403.20.90";
+// Fixos confirmados pelo usuário (REQUISITOS §7/§8). O NCM deixou de ser fixo em
+// 09/07/2026: o usuário escolhe por envio na tela; `NCM_PADRAO` é só o default.
 const UNIDADE_FIXA = "UN";
 const TIPO_ITEM_FIXO = "04";
 
@@ -81,6 +80,9 @@ export interface EnvioResultado {
 export interface EnvioInput {
   novos: ParsedItem[];
   estrutura: EstruturaRel[];
+  // NCM escolhido pelo usuário para os produtos NOVOS deste envio. Ausente/inválido
+  // cai no NCM_PADRAO. Não afeta produtos que já existem (esses são pulados).
+  ncm?: string;
 }
 
 function semEspaco(codigo: string): string {
@@ -323,6 +325,7 @@ const LIMITE_SEQUENCIA_RISCO = 5;
 export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Promise<EnvioResultado> {
   const novos = input.novos.filter((i) => i.status === "novo");
   const recusados = input.novos.length - novos.length;
+  const ncm = normalizarNcm(input.ncm);
 
   const familias: FamiliaResultado[] = [];
   const produtos: ProdutoResultado[] = [];
@@ -454,7 +457,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       codigo: item.codigo,
       descricao: item.descricaoProduto,
       unidade: UNIDADE_FIXA,
-      ncm: NCM_FIXO,
+      ncm,
       tipoItem: TIPO_ITEM_FIXO,
       // Controle de lote sempre ativo (REQUISITOS §7). Campo confirmado na doc
       // da API de produtos: `produto_lote` ("S"/"N").

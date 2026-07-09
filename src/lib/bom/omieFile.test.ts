@@ -64,6 +64,11 @@ describe("omieFile (edição cirúrgica do template real)", () => {
     expect(v("C7")).toBe("CODIGO000000002");
   });
 
+  it("usa o NCM informado (normalizado para XXXX.XX.XX) na coluna E", () => {
+    const { bytes } = preencherProdutos(bytesTemplate(), [item("CODIGO000000001")], "94019000");
+    expect(lerCelulas(bytes)("E6")).toBe("9401.90.00");
+  });
+
   it("não sobrescreve linhas já preenchidas em uma segunda importação", () => {
     const primeira = preencherProdutos(bytesTemplate(), [item("AAAAAAAAAAAAAAA"), item("BBBBBBBBBBBBBBB")]);
     const segunda = preencherProdutos(primeira.bytes, [item("CCCCCCCCCCCCCCC")]);

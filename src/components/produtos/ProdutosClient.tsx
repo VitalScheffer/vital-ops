@@ -12,6 +12,7 @@ import {
   MinusCircle,
   Network,
   PencilLine,
+  Receipt,
   RotateCcw,
   Send,
   ShieldAlert,
@@ -29,6 +30,7 @@ import { enviarAoOmie } from "@/app/(app)/produtos/enviar-actions";
 import { criarReport } from "@/app/(app)/reports-actions";
 import { IDLE_FORM_STATE } from "@/lib/form";
 import type { OutcomeEnvio } from "@/lib/produtos/envioOmie";
+import { NCM_PADRAO } from "@/lib/produtos/ncm";
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
 import { parseBom, parseEstrutura } from "@/lib/bom/bomParser";
 import { baixarBlob } from "@/lib/bom/download";
@@ -264,6 +266,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   const [erroOmie, setErroOmie] = useState<string | null>(null);
 
   const [localEstoque, setLocalEstoque] = useState("");
+  const [ncm, setNcm] = useState(NCM_PADRAO);
 
   const [gerando, setGerando] = useState(false);
   const [erroGeracao, setErroGeracao] = useState<string | null>(null);
@@ -389,7 +392,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     setErroGeracao(null);
     try {
       const bytesBase = omieFile ? await lerBytesArquivo(omieFile) : await lerBytesTemplate();
-      const produtos = preencherProdutos(bytesBase, produtosEnvio);
+      const produtos = preencherProdutos(bytesBase, produtosEnvio, ncm);
 
       // Se houver estrutura pai/filho, preenche também a aba Omie_Produtos_Estrutura
       // no MESMO arquivo (encadeado sobre os bytes já com os produtos).
@@ -436,6 +439,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
         estrutura: estruturaEnvio,
         localEstoque,
         arquivoNome: bomFile?.name,
+        ncm,
       });
       setResultadoEnvio(resposta);
       if (!resposta.ok) {
@@ -596,6 +600,28 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
                 Destino: <span className="font-medium text-foreground">Omie</span> — os produtos são criados ou
                 atualizados na sua conta da Vital Scheffer (reenviar não duplica).
               </span>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-field/40 p-4">
+              <label htmlFor="ncm-padrao" className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Receipt className="h-4 w-4 text-primary" />
+                NCM dos produtos novos
+              </label>
+              <input
+                id="ncm-padrao"
+                type="text"
+                value={ncm}
+                onChange={(e) => setNcm(e.target.value)}
+                placeholder={NCM_PADRAO}
+                inputMode="numeric"
+                className="mt-2 w-full max-w-[12rem] rounded-xl border border-border bg-field px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+              />
+              <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                Vale só para os produtos <span className="font-medium text-foreground">novos</span> deste envio (os que já
+                existem no Omie mantêm o NCM atual). O Fiscal ajusta por peça depois, se precisar. Evite 9999.99.99 (a
+                SEFAZ rejeita na nota de transferência).
+              </p>
             </div>
 
             <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">

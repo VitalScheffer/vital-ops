@@ -112,6 +112,18 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     });
   });
 
+  it("usa o NCM informado (normalizado) nos produtos novos", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    await orquestrarEnvio({ novos: [item("A", null)], estrutura: [], ncm: "94019000" }, fn);
+    expect(calls.find((c) => c.call === "UpsertProduto")?.param).toMatchObject({ ncm: "9401.90.00" });
+  });
+
+  it("NCM ausente ou inválido cai no padrão 9403.20.90", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    await orquestrarEnvio({ novos: [item("A", null)], estrutura: [], ncm: "999" }, fn);
+    expect(calls.find((c) => c.call === "UpsertProduto")?.param).toMatchObject({ ncm: "9403.20.90" });
+  });
+
   it("omite codigo_familia quando o produto não tem família", async () => {
     const { fn, calls } = mockChamar(() => ({}));
     await orquestrarEnvio({ novos: [item("AAAAA XX001 CCCCC", null)], estrutura: [] }, fn);

@@ -1,6 +1,8 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import * as XLSX from "xlsx";
 
+import { normalizarNcm } from "@/lib/produtos/ncm";
+
 import type { EstruturaRel, ParsedItem } from "./types";
 
 const SHEET_NAME = "Omie_Produtos";
@@ -14,9 +16,7 @@ const LAST_DATA_ROW = 10005;
 // Caminho servido a partir de public/ (mesmo arquivo do omie-bom-converter).
 const TEMPLATE_URL = "/templates/Omie_Produtos_v1_9_5.xlsx";
 
-// NCM: era 9999.99.99 (genérico), mas a SEFAZ rejeita como inexistente na nota
-// de transferência — trocado para 9403.20.90 em 07/07/2026 (pedido do Vitor).
-const NCM_FIXO = "9403.20.90";
+// NCM: escolhido pelo usuário por envio (default em @/lib/produtos/ncm).
 const UNIDADE_FIXA = "UN";
 const TIPO_PRODUTO_FIXO = "04";
 
@@ -143,7 +143,9 @@ function formatarQtd(q: number | null): string {
 export function preencherProdutos(
   bytes: Uint8Array,
   itensNovos: ParsedItem[],
+  ncm?: string,
 ): { bytes: Uint8Array; resultado: ResultadoEscrita } {
+  const ncmFinal = normalizarNcm(ncm);
   const zip = unzipSync(bytes);
   const sheetPath = resolverCaminhoAba(zip, SHEET_NAME);
   let sheetXml = strFromU8(zip[sheetPath]);
@@ -160,7 +162,7 @@ export function preencherProdutos(
     const r = inicio + i;
     valores.set(`${COL_CODIGO}${r}`, item.codigo);
     valores.set(`${COL_DESCRICAO}${r}`, item.descricaoProduto);
-    valores.set(`${COL_NCM}${r}`, NCM_FIXO);
+    valores.set(`${COL_NCM}${r}`, ncmFinal);
     valores.set(`${COL_UNIDADE}${r}`, UNIDADE_FIXA);
     if (item.familia) valores.set(`${COL_FAMILIA}${r}`, item.familia);
     valores.set(`${COL_TIPO}${r}`, TIPO_PRODUTO_FIXO);
