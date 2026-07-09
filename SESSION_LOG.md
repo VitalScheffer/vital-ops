@@ -1503,3 +1503,35 @@ por código (`partesFamilia` fazia `split(" - ")` e mandava só a parte depois) 
 ### Pendências / próximos passos
 1. No próximo envio, as famílias (novas ou reenviadas) saem com a descrição = rótulo inteiro. Confirmar
    no Omie que aparece "SBM - SUBMONTAGEM" (e equivalentes) em vez de só "SUBMONTAGEM".
+
+## 2026-07-09 (continuação 7) — Verificação no Omie: produtos/estrutura OK em produção; famílias confirmadas pelo Victor
+
+### Resumo
+Victor pediu pra verificar como os novos ficaram no Omie. Li (só leitura). CONFIRMADO em produção:
+produtos certos e a ESTRUTURA funcionando (o fix do intMalha pegou de verdade).
+
+### Verificação (leitura real)
+- Produto CREHI SM001: descrição "CREHI SM001 I0POL - ALÇA DE MOVIMENTAÇÃO", NCM `9403.20.90`, unidade
+  `UN`, tipoItem `04`, `produto_lote: "S"`. Correto.
+- Estrutura SM001: 2 filhos (CREHI PC015 qtd 1, CREHI PC020 qtd 2). ANTES estava vazia (0). O intMalha
+  fez a malha subir pela API. Multinível OK em produção.
+- Famílias (via `descricao_familia` de cada produto): SBM = "SBM - SUBMONTAGEM"; PCF = "PEÇAS FABRICADAS";
+  COM = "COM - COMPONENTES COMERCIAIS". Inconsistentes entre si.
+
+### DESCOBERTA IMPORTANTE (não refazer o fix de família achando que é bug)
+As famílias JÁ EXISTEM no Omie (compartilhadas entre projetos) e o **`UpsertFamilia` NÃO reescreve a
+descrição de uma família existente** — prova: a COM está "COM - COMPONENTES COMERCIAIS", texto que o nosso
+código NUNCA manda (ele manda "COM - COMPONENTES"). Logo o fix da entrada anterior (nomeFamilia = rótulo
+inteiro) é NO-OP pras famílias que já existem; só valeria pra família nova (que praticamente não acontece,
+os 4 códigos já existem). Deixei o fix como está (inofensivo; o valor "SBM - SUBMONTAGEM" até bate com o
+estado atual do SBM). NÃO revertido.
+
+### Decisão do Victor
+Mostrei a tabela do estado atual das famílias e ele respondeu "assim tá certo". Ou seja: **não mexer nas
+famílias**. Os nomes ficam como estão no Omie (elas são geridas lá, não pelo nosso sync). Se algum dia
+quiserem padronizar, é via `AlterarFamilia` (escrita, com autorização) ou na mão no Omie, uma vez só.
+
+### Estado geral (fim do dia 09/07)
+Fluxo BOM→Omie funcionando ponta a ponta em produção: produtos (pré-check pula os que já existem, NCM por
+campo, controle de lote), estrutura/Multinível (intMalha + reenvio idempotente), captura automática de
+falha no report. Famílias confirmadas OK pelo Victor.
