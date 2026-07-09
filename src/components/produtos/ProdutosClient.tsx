@@ -125,7 +125,7 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
           <span>
             {resultado.bloqueado
               ? "O Omie bloqueou o envio temporariamente (proteção da API). Aguarde e tente novamente mais tarde."
-              : "O lote parou em um erro — os itens seguintes não foram enviados. Corrija o item marcado e reenvie."}
+              : "O envio parou por segurança antes de arriscar um bloqueio real do Omie — os itens seguintes não foram enviados."}
             {resultado.motivoInterrupcao ? ` Detalhe: ${resultado.motivoInterrupcao}` : ""}
           </span>
         </div>

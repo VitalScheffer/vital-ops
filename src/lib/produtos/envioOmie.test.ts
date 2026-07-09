@@ -396,6 +396,57 @@ describe("orquestrarEnvio — código já usado por outro id (reaproveita o cada
   });
 });
 
+describe("orquestrarEnvio — freio de segurança (sequência sem sucesso limpo pausa o envio)", () => {
+  it("pausa o lote após N respostas seguidas fora do sucesso limpo, sem marcar como bloqueio real", async () => {
+    const { fn } = mockChamar((rec) =>
+      rec.call === "UpsertProduto" ? new OmieDuplicate("já cadastrado") : {},
+    );
+    const novos = Array.from({ length: 6 }, (_, i) => item(`P${i + 1}`, null));
+    const res = await orquestrarEnvio({ novos, estrutura: [] }, fn);
+
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(false);
+    expect(res.motivoInterrupcao).toContain("pausado por segurança");
+    expect(res.produtos.slice(0, 5).every((p) => p.outcome === "ja_existia")).toBe(true);
+    expect(res.produtos[5].outcome).toBe("nao_enviado");
+  });
+
+  it("um sucesso no meio reseta a sequência e o envio não pausa", async () => {
+    let contador = 0;
+    const { fn } = mockChamar((rec) => {
+      if (rec.call !== "UpsertProduto") return {};
+      contador += 1;
+      return contador % 5 === 0 ? {} : new OmieDuplicate("já cadastrado");
+    });
+    const novos = Array.from({ length: 9 }, (_, i) => item(`P${i + 1}`, null));
+    const res = await orquestrarEnvio({ novos, estrutura: [] }, fn);
+
+    expect(res.interrompido).toBe(false);
+    expect(res.produtos).toHaveLength(9);
+  });
+
+  it("a sequência é compartilhada entre família e produto", async () => {
+    const { fn } = mockChamar((rec) => {
+      if (rec.call === "UpsertFamilia") return new OmieError("erro na família");
+      if (rec.call === "UpsertProduto") return new OmieDuplicate("já cadastrado");
+      return {};
+    });
+    const novos = [
+      item("AAAAA XX001 CCCCC", "COM - COMPONENTES"),
+      item("BBBBB XX002 CCCCC", "SBM - SUBMONTAGEM"),
+      item("CCCCC XX003 CCCCC", "PCF - PEÇAS FABRICADAS"),
+      item("P4", null),
+      item("P5", null),
+    ];
+    const res = await orquestrarEnvio({ novos, estrutura: [] }, fn);
+
+    // 3 famílias com falha (sequência 1-3) + 2 produtos duplicados (4-5) → pausa no 5º.
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(false);
+    expect(res.produtos[2].outcome).toBe("nao_enviado");
+  });
+});
+
 describe("orquestrarEnvio — recusa não-novos", () => {
   it("envia só os itens novo e conta os recusados", async () => {
     const { fn, calls } = mockChamar(() => ({}));

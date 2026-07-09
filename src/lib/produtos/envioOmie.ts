@@ -227,17 +227,32 @@ interface Interrupcao {
   motivo?: string;
 }
 
+// A Omie conta TODA resposta fora de sucesso limpo pro seu próprio contador de
+// banimento — inclusive duplicado/conflito, que pra nós é um outcome bom, mas
+// pra Omie ainda é uma resposta de erro (REQUISITOS §6: "resultado vazio =
+// erro, conta pro ban"; §7: reenviar estrutura já existente em massa "conta
+// como erro e pode bloquear"). Como nosso próprio reaproveitamento de conflito
+// faz uma leitura (ConsultarProduto/ListarProdutos) que costuma dar OK logo
+// em seguida, o breaker do client é resetado a cada vez — ele não enxerga essa
+// sequência de escritas ruins se acumulando. Por isso o orquestrador conta por
+// conta própria, bem abaixo do limite real da Omie (10 seguidos), e pausa o
+// envio antes de arriscar o bloqueio de verdade da chave.
+const LIMITE_SEQUENCIA_RISCO = 5;
+
 /**
  * Envia ao Omie os produtos "novos" de uma BOM e suas relações de estrutura,
  * garantindo as famílias antes. Idempotente: `Upsert*` atualiza no reenvio e
- * `OmieDuplicate` conta como sucesso. Conflito de descrição (peça padrão já
- * cadastrada sob outro código, ex. parafuso/dobradiça) é resolvido buscando e
- * reaproveitando o cadastro existente — não para o lote. Só `OmieBlocked`
- * (breaker/app_key realmente bloqueado) PARA o lote inteiro e marca o restante
- * como não enviado; qualquer outro erro (classificado ou não) é falha só
- * daquele item — o breaker do client já conta essas falhas e lança
- * `OmieBlocked` sozinho se acumular demais, então não há necessidade de o
- * orquestrador travar o lote de novo por conta própria.
+ * `OmieDuplicate` conta como sucesso. Conflito de descrição/código (peça
+ * padrão já cadastrada sob outro código/ID, ex. parafuso/dobradiça) é
+ * resolvido buscando e reaproveitando o cadastro existente — não para o lote.
+ * Só `OmieBlocked` (breaker/app_key realmente bloqueado) PARA o lote inteiro
+ * e marca o restante como não enviado; qualquer outro erro (classificado ou
+ * não) é falha só daquele item, e o orquestrador segue pros próximos. Além
+ * disso, uma SEQUÊNCIA de `LIMITE_SEQUENCIA_RISCO` respostas seguidas fora do
+ * sucesso limpo (falha, duplicado, conflito) pausa o envio por segurança —
+ * mesmo sem bloqueio explícito, a Omie conta essas respostas pro PRÓPRIO
+ * limite de banimento, e o breaker do client não enxerga isso sozinho (a
+ * leitura de resolução de conflito costuma dar OK e resetar o contador dele).
  */
 export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Promise<EnvioResultado> {
   const novos = input.novos.filter((i) => i.status === "novo");
@@ -252,6 +267,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // Estrutura usa isso pra referenciar o cadastro que realmente existe no Omie.
   const integracaoReal = new Map<string, string>();
   const interrupcao: Interrupcao = { interrompido: false, bloqueado: false };
+  let sequenciaRisco = 0;
 
   // Só bloqueio real (OmieBlocked) para o lote inteiro — qualquer outro erro
   // vira falha isolada do item, e o caller segue pros próximos.
@@ -260,6 +276,27 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     interrupcao.interrompido = true;
     interrupcao.bloqueado = true;
     interrupcao.motivo = mensagem(erro);
+  };
+
+  // Chamar depois de CADA resultado (família/produto/estrutura). Zera a
+  // sequência em sucesso limpo; qualquer outra coisa soma, e ao bater o limite
+  // pausa o envio por segurança (bloqueado fica false — não é um bloqueio real
+  // da Omie, é a nossa própria margem de segurança).
+  const registrarSequencia = (outcome: OutcomeEnvio) => {
+    if (interrupcao.interrompido) return;
+    if (outcome === "enviado") {
+      sequenciaRisco = 0;
+      return;
+    }
+    sequenciaRisco += 1;
+    if (sequenciaRisco >= LIMITE_SEQUENCIA_RISCO) {
+      interrupcao.interrompido = true;
+      interrupcao.motivo =
+        `Envio pausado por segurança: ${LIMITE_SEQUENCIA_RISCO} respostas seguidas do Omie fora do ` +
+        "sucesso direto (duplicado/conflito/falha). Isso também conta pro limite de bloqueio da " +
+        "própria Omie — paramos aqui pra não arriscar travar a chave de verdade. Revise os itens " +
+        "marcados e reenvie o restante em seguida.";
+    }
   };
 
   // 1. Famílias primeiro (COM/SBM/PCF/PCA) — garante o id antes dos produtos.
@@ -276,14 +313,17 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       const rawId = resp?.codigo;
       idPorFamilia.set(familia, rawId);
       familias.push({ familia, codFamilia, nomeFamilia, codigoFamilia: texto(rawId), outcome: "enviado" });
+      registrarSequencia("enviado");
     } catch (erro) {
       if (erro instanceof OmieDuplicate) {
         // Upsert raramente duplica; se acontecer, seguimos sem o id da família.
         idPorFamilia.set(familia, undefined);
         familias.push({ familia, codFamilia, nomeFamilia, outcome: "ja_existia" });
+        registrarSequencia("ja_existia");
         continue;
       }
       familias.push({ familia, codFamilia, nomeFamilia, outcome: "falha", motivo: mensagem(erro) });
+      registrarSequencia("falha");
       interromper(erro);
     }
   }
@@ -322,9 +362,11 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         outcome: "enviado",
         omieCodigoProduto: texto(resp?.codigo_produto),
       });
+      registrarSequencia("enviado");
     } catch (erro) {
       if (erro instanceof OmieDuplicate) {
         produtos.push({ codigo: item.codigo, descricao: item.descricaoProduto, outcome: "ja_existia" });
+        registrarSequencia("ja_existia");
         continue;
       }
       if (erro instanceof OmieDescriptionConflict) {
@@ -334,17 +376,17 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         // já pode estar em outro produto com ordem de produção ou saldo em
         // estoque. NÃO é sinal de risco de bloqueio do app_key: não para o lote.
         const codigoExistente = extrairCodigoConflitante(erro.message);
-        produtos.push(
-          await tratarConflito(
-            item,
-            erro,
-            codigoExistente,
-            resolverProdutoExistente,
-            chamar,
-            integracaoReal,
-            interromper,
-          ),
+        const resultado = await tratarConflito(
+          item,
+          erro,
+          codigoExistente,
+          resolverProdutoExistente,
+          chamar,
+          integracaoReal,
+          interromper,
         );
+        produtos.push(resultado);
+        registrarSequencia(resultado.outcome);
         continue;
       }
       if (erro instanceof OmieCodeConflict) {
@@ -353,17 +395,17 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         // mensagem do Omie cita o ID interno do cadastro existente em vez do
         // código, então a busca é por ConsultarProduto/codigo_produto.
         const idExistente = extrairIdConflitante(erro.message);
-        produtos.push(
-          await tratarConflito(
-            item,
-            erro,
-            idExistente,
-            resolverProdutoExistentePorId,
-            chamar,
-            integracaoReal,
-            interromper,
-          ),
+        const resultado = await tratarConflito(
+          item,
+          erro,
+          idExistente,
+          resolverProdutoExistentePorId,
+          chamar,
+          integracaoReal,
+          interromper,
         );
+        produtos.push(resultado);
+        registrarSequencia(resultado.outcome);
         continue;
       }
       produtos.push({
@@ -372,6 +414,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         outcome: "falha",
         motivo: mensagem(erro),
       });
+      registrarSequencia("falha");
       interromper(erro);
     }
   }
@@ -415,12 +458,15 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         WRITE,
       );
       estrutura.push({ ...chaves, outcome: "enviado" });
+      registrarSequencia("enviado");
     } catch (erro) {
       if (erro instanceof OmieDuplicate) {
         estrutura.push({ ...chaves, outcome: "ja_existia" });
+        registrarSequencia("ja_existia");
         continue;
       }
       estrutura.push({ ...chaves, outcome: "falha", motivo: mensagem(erro) });
+      registrarSequencia("falha");
       interromper(erro);
     }
   }
