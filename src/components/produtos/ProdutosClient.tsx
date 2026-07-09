@@ -26,6 +26,8 @@ import { FileDropzone } from "@/components/produtos/FileDropzone";
 import { PreviewTable } from "@/components/produtos/PreviewTable";
 import { registrarPlanilhaGerada } from "@/app/(app)/produtos/actions";
 import { enviarAoOmie } from "@/app/(app)/produtos/enviar-actions";
+import { criarReport } from "@/app/(app)/reports-actions";
+import { IDLE_FORM_STATE } from "@/lib/form";
 import type { OutcomeEnvio } from "@/lib/produtos/envioOmie";
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
 import { parseBom, parseEstrutura } from "@/lib/bom/bomParser";
@@ -208,6 +210,47 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
   );
 }
 
+// Anexo do report auto = mesmo teto do report manual (cabe na resposta serverless).
+const MAX_ANEXO_AUTO_REPORT = 4 * 1024 * 1024;
+
+// Houve algo que valha capturar pro suporte? (mesma regra do servidor `houveFalha`).
+function envioTeveFalha(estado: EnvioState): boolean {
+  const r = estado.resultado;
+  if (!r) return false;
+  if (r.interrompido) return true;
+  return (
+    r.familias.some((f) => f.outcome === "falha") ||
+    r.produtos.some((p) => p.outcome === "falha") ||
+    r.estrutura.some((e) => e.outcome === "falha")
+  );
+}
+
+// Detalhamento legível do que falhou — vira a mensagem do report automático, pra
+// o suporte cruzar com a planilha anexada sem abrir o banco.
+function mensagemFalhaEnvio(estado: EnvioState): string {
+  const r = estado.resultado;
+  if (!r) return "Falha no envio ao Omie.";
+  const linhas: string[] = [
+    "Registrado automaticamente: o envio ao Omie teve falha (planilha usada em anexo).",
+    `Resumo: ${r.totais.enviados} cadastrado(s), ${r.totais.jaExistiam} já existia(m), ` +
+      `${r.totais.falhas} falha(s), ${r.totais.naoEnviados} não enviado(s).`,
+  ];
+  if (r.interrompido) {
+    const causa = r.bloqueado ? "bloqueio do Omie" : "freio de segurança";
+    linhas.push(`Lote interrompido (${causa}): ${r.motivoInterrupcao ?? ""}`.trim());
+  }
+  for (const f of r.familias.filter((x) => x.outcome === "falha")) {
+    linhas.push(`Família ${f.familia}: ${f.motivo ?? "falha"}`);
+  }
+  for (const p of r.produtos.filter((x) => x.outcome === "falha")) {
+    linhas.push(`Produto ${p.codigo}: ${p.motivo ?? "falha"}`);
+  }
+  for (const e of r.estrutura.filter((x) => x.outcome === "falha")) {
+    linhas.push(`Estrutura ${e.codigoPai} → ${e.codigoFilho}: ${e.motivo ?? "falha"}`);
+  }
+  return linhas.join("\n").slice(0, 4000);
+}
+
 export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) {
   const [bomFile, setBomFile] = useState<File | null>(null);
   const [omieFile, setOmieFile] = useState<File | null>(null);
@@ -230,6 +273,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
   const [resultadoEnvio, setResultadoEnvio] = useState<EnvioState | null>(null);
+  const [autoReportado, setAutoReportado] = useState(false);
 
   // Guardas contra resultados fora de ordem: só o último pedido de leitura
   // (BOM ou Omie) tem permissão de escrever no estado.
@@ -385,6 +429,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     setEnviando(true);
     setErroEnvio(null);
     setResultadoEnvio(null);
+    setAutoReportado(false);
     try {
       const resposta = await enviarAoOmie({
         novos: produtosEnvio,
@@ -396,10 +441,33 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
       if (!resposta.ok) {
         setErroEnvio(resposta.erro ?? "Não foi possível enviar ao Omie.");
       }
+      // Captura automática pro suporte: em qualquer falha, cria um report com a
+      // planilha usada em anexo + o detalhamento dos erros. Best-effort: nunca
+      // atrapalha o envio já concluído.
+      if (envioTeveFalha(resposta)) {
+        void registrarFalhaComoReport(resposta);
+      }
     } catch (e) {
       setErroEnvio(e instanceof Error ? e.message : String(e));
     } finally {
       setEnviando(false);
+    }
+  }
+
+  async function registrarFalhaComoReport(estado: EnvioState) {
+    try {
+      const fd = new FormData();
+      fd.set("tipo", "PROBLEMA");
+      fd.set("titulo", `[Automático] Falha no envio ao Omie: ${bomFile?.name ?? "planilha"}`.slice(0, 120));
+      fd.set("mensagem", mensagemFalhaEnvio(estado));
+      fd.set("rota", "/produtos");
+      // Anexa a planilha usada, se couber no limite; se for grande demais, ainda
+      // registra o report (só sem o arquivo).
+      if (bomFile && bomFile.size <= MAX_ANEXO_AUTO_REPORT) fd.append("anexos", bomFile);
+      const res = await criarReport(IDLE_FORM_STATE, fd);
+      if (res.status === "success") setAutoReportado(true);
+    } catch {
+      // captura de erro não pode gerar outro erro na tela
     }
   }
 
@@ -600,6 +668,16 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
           )}
 
           {resultadoEnvio?.resultado && <EnvioResultadoView estado={resultadoEnvio} />}
+
+          {autoReportado && (
+            <div className="flex items-start gap-2 rounded-2xl bg-primary/5 px-4 py-3 text-sm text-foreground ring-1 ring-inset ring-primary/20">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                Registramos este envio automaticamente para o suporte (com a planilha usada e a lista de erros em
+                anexo), pra facilitar a análise. Você acompanha em “Reportar / acompanhar”.
+              </span>
+            </div>
+          )}
         </>
       )}
 

@@ -1294,3 +1294,46 @@ por ID interno (por integração falharia, é a limitação conhecida do víncul
    a API real de malha (só leitura foi). Acompanhar no teste do vínculo.
 3. Pedido do Victor (separado, ainda a fazer): permitir anexar CSV/XLS/XLSX/PDF no report, pra mandarem
    a planilha usada junto do erro e a gente cruzar mais fácil o que causou.
+
+## 2026-07-09 (continuação 2) — Captura automática de falha no envio (report com a planilha + os erros)
+
+### Resumo
+Pedido do Victor: quando um envio ao Omie dá erro, capturar tudo pra cruzar o que aconteceu com o
+que tinha na planilha. Descoberta: o anexo manual (CSV/XLS/XLSX/PDF) no report JÁ funcionava (o
+`accept` e a `criarReport` já aceitavam esses tipos, sem filtro de mime). Então o que faltava era a
+parte AUTOMÁTICA. Victor escolheu "automático em toda falha". Implementado no cliente: ao terminar um
+envio com falha, o `ProdutosClient` cria sozinho um report (best-effort) com a planilha usada em anexo
+e o detalhamento dos erros. `npx tsc --noEmit`, `npx eslint .` e `npx vitest run` verdes (150 testes,
+sem novos, é UI).
+
+### Implementação (`src/components/produtos/ProdutosClient.tsx`)
+- `envioTeveFalha(estado)`: espelha a regra do servidor (`houveFalha`) — interrompido OU qualquer
+  falha em família/produto/estrutura.
+- `mensagemFalhaEnvio(estado)`: monta o texto legível (resumo dos totais, motivo da interrupção se
+  houver, e a lista do que falhou com o motivo), limitado a 4000 chars.
+- `handleEnviar`: depois do envio, se `envioTeveFalha`, chama `registrarFalhaComoReport` (best-effort,
+  nunca atrapalha o envio já concluído).
+- `registrarFalhaComoReport`: monta um `FormData` (tipo PROBLEMA, título "[Automático] Falha no envio
+  ao Omie: <arquivo>", a mensagem acima, rota /produtos) e anexa o `bomFile` se couber em 4 MB; chama
+  a `criarReport` já existente. Nota de transparência na tela quando o report é criado.
+
+### Decisões importantes
+- **Reusar a `criarReport` (caminho multipart já provado em produção) em vez de mandar o arquivo pela
+  `enviarAoOmie`**: evita mexer na assinatura do envio e o problema de body-size-limit de Server Action;
+  o report já sobe arquivos de até 4 MB por esse caminho.
+- **Só dispara em falha real**: com a pré-checagem nova, reenvio de BOM já cadastrada vira tudo "já
+  existia" (sem falha) e NÃO gera report — então a captura automática não vira spam nos reenviios comuns.
+- **Best-effort**: erro ao criar o report é engolido (não pode quebrar a tela do envio).
+- **tipo PROBLEMA autorado pelo remetente** (não ERRO_SISTEMA): assim aparece tanto pro admin quanto pra
+  quem enviou, com rastreio de quem foi; o título "[Automático]" deixa claro que foi capturado sozinho.
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 150/150 (14 arquivos).
+
+### Pendências / próximos passos
+1. Anexo manual de planilha/PDF no report já funcionava (nada a fazer ali).
+2. Testar na prática: forçar um envio com falha e conferir que aparece um report novo em "Reportar /
+   acompanhar" com a planilha anexada e a lista de erros. Não deu pra exercer aqui (precisa de uma
+   falha real de envio); confirmar no uso.
+3. Se o volume de reports automáticos incomodar, dá pra deduplicar por arquivo+dia ou limitar aos casos
+   com falha de item (excluindo a pausa do freio). Reavaliar conforme o uso.
