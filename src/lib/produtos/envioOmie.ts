@@ -116,10 +116,14 @@ function mensagem(erro: unknown): string {
   return erro instanceof Error ? erro.message : String(erro);
 }
 
-// "SBM - SUBMONTAGEM" → { codFamilia: "SBM", nomeFamilia: "SUBMONTAGEM" }.
+// A família é gravada com a DESCRIÇÃO igual ao rótulo inteiro que aparece na
+// seleção ("SBM - SUBMONTAGEM"), a pedido do Vitor (09/07/2026) — antes gravava só
+// "SUBMONTAGEM". O código continua o prefixo curto ("SBM"), que é a chave estável do
+// Upsert (mudar o código/codInt criaria uma família NOVA em vez de atualizar a
+// existente). "SBM - SUBMONTAGEM" → { codFamilia: "SBM", nomeFamilia: "SBM - SUBMONTAGEM" }.
 function partesFamilia(familia: Familia): { codFamilia: string; nomeFamilia: string } {
-  const [cod, ...resto] = familia.split(" - ");
-  return { codFamilia: cod.trim(), nomeFamilia: resto.join(" - ").trim() };
+  const [cod] = familia.split(" - ");
+  return { codFamilia: cod.trim(), nomeFamilia: familia };
 }
 
 function familiasDistintas(itens: ParsedItem[]): Familia[] {

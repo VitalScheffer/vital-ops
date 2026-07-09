@@ -1473,3 +1473,33 @@ que eu matei proativamente. `npx tsc/eslint/vitest` verdes (163 testes; +2).
 1. Reenviar o CREHI: estrutura deve subir sem erro; reenviar de novo NÃO deve mais dar falha/pausa (as
    relações já existentes são puladas).
 2. Confirmação por ESCRITA na Omie segue dependendo de autorização (sandbox barra a chave de produção).
+
+## 2026-07-09 (continuação 6) — Família gravada com o rótulo inteiro na descrição (não só "SUBMONTAGEM")
+
+### Resumo
+Victor apontou que a família estava sendo cadastrada errado: gravava só "SUBMONTAGEM" na descrição, e
+ele quer o rótulo INTEIRO igual aparece na seleção ("SBM - SUBMONTAGEM"), pra todas as famílias. Confirmado
+por código (`partesFamilia` fazia `split(" - ")` e mandava só a parte depois) e por leitura real
+(`ConsultarEstrutura` do CREHI: `codFamilia: "SBM"`, `descrFamilia: "SUBMONTAGEM"`). Corrigido. `tsc`,
+`eslint`, `vitest` verdes (164 testes; +1).
+
+### Causa e correção (`src/lib/produtos/envioOmie.ts`)
+- `partesFamilia("SBM - SUBMONTAGEM")` devolvia `nomeFamilia: "SUBMONTAGEM"` (só o texto depois do " - ").
+  Agora devolve `nomeFamilia: "SBM - SUBMONTAGEM"` (o rótulo inteiro, igual o `Familia` do parser e igual a
+  planilha de backup já fazia — os dois caminhos estavam divergentes, agora batem).
+- O `codFamilia`/`codInt` continua o prefixo curto ("SBM"): é a chave estável do `UpsertFamilia`. Mudar o
+  código criaria uma família NOVA em vez de atualizar a existente. Reenviar agora ATUALIZA a descrição das
+  famílias já criadas (COM/SBM/PCF/PCA) pro rótulo inteiro.
+- Teste ajustado (nomeFamilia agora "SBM - SUBMONTAGEM") + 1 novo cobrindo outra família (COM).
+
+### Decisão
+- **Só a descrição vira o rótulo inteiro; o código continua curto.** Evita duplicar família (mudar a chave
+  criaria outra) e mantém o Upsert idempotente. Se o Victor quiser o código também com o texto inteiro, é
+  outra decisão (com o custo de recriar as famílias).
+
+### Comandos relevantes
+- `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 164/164 (15 arquivos).
+
+### Pendências / próximos passos
+1. No próximo envio, as famílias (novas ou reenviadas) saem com a descrição = rótulo inteiro. Confirmar
+   no Omie que aparece "SBM - SUBMONTAGEM" (e equivalentes) em vez de só "SUBMONTAGEM".

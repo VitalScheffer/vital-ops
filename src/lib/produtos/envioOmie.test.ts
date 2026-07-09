@@ -90,9 +90,17 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     expect(fam?.param).toMatchObject({
       codInt: "SBM",
       codFamilia: "SBM",
-      nomeFamilia: "SUBMONTAGEM",
+      // descrição = rótulo inteiro (igual aparece na seleção), não só "SUBMONTAGEM".
+      nomeFamilia: "SBM - SUBMONTAGEM",
       inativo: "N",
     });
+  });
+
+  it("grava a descrição = rótulo inteiro para todas as famílias (ex. COM - COMPONENTES)", async () => {
+    const { fn, calls } = mockChamar(() => ({ codigo: 1 }));
+    await orquestrarEnvio({ novos: [item("COMDB P0381 018AC", "COM - COMPONENTES")], estrutura: [] }, fn);
+    const fam = calls.find((c) => c.call === "UpsertFamilia");
+    expect(fam?.param).toMatchObject({ codFamilia: "COM", nomeFamilia: "COM - COMPONENTES" });
   });
 
   it("preenche o UpsertProduto com os fixos, código com/sem espaço e a família resolvida", async () => {
