@@ -608,6 +608,31 @@ describe("orquestrarEnvio — pré-checagem pula o que já existe (evita conflit
     expect(res.produtos[0].outcome).toBe("ja_existia");
   });
 
+  it("envia somente a estrutura entre cadastros existentes, sem exigir produto novo", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "MONTAGEM", codigo_produto: 700 },
+            { codigo: "SUBMONTAGEM", codigo_produto: 701 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") return { itens: [] };
+      return {};
+    });
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("MONTAGEM", "SUBMONTAGEM", 1)] }, fn);
+
+    expect(res.produtos).toEqual([]);
+    expect(res.estrutura[0].outcome).toBe("enviado");
+    expect(calls.some((c) => c.call === "UpsertProduto")).toBe(false);
+    expect(calls.find((c) => c.call === "IncluirEstrutura")?.param).toMatchObject({
+      idProduto: 700,
+      itemMalhaIncluir: [{ idProdMalha: 701 }],
+    });
+  });
+
   it("muitos produtos já existentes NÃO pausam o lote (skip não conta pro freio)", async () => {
     const codigos = Array.from({ length: 8 }, (_, i) => `E${i + 1}`);
     const { fn, calls } = mockChamar((rec) => {

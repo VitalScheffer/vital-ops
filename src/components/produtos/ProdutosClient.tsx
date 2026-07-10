@@ -32,7 +32,7 @@ import { IDLE_FORM_STATE } from "@/lib/form";
 import type { OutcomeEnvio } from "@/lib/produtos/envioOmie";
 import { NCM_PADRAO } from "@/lib/produtos/ncm";
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
-import { parseBom, parseEstrutura } from "@/lib/bom/bomParser";
+import { criarEstruturaDaMontagemDestino, parseBom, parseEstrutura } from "@/lib/bom/bomParser";
 import { baixarBlob } from "@/lib/bom/download";
 import {
   bytesParaBlob,
@@ -266,6 +266,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   const [erroOmie, setErroOmie] = useState<string | null>(null);
 
   const [localEstoque, setLocalEstoque] = useState("");
+  const [montagemDestinoCodigo, setMontagemDestinoCodigo] = useState("");
   const [ncm, setNcm] = useState(NCM_PADRAO);
 
   const [gerando, setGerando] = useState(false);
@@ -384,10 +385,18 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
 
   const resumo = useMemo(() => resumoProdutos(produtoReview), [produtoReview]);
   const produtosEnvio = useMemo(() => produtosParaEnvio(produtoReview), [produtoReview]);
-  const estruturaEnvio = useMemo(() => estruturaParaEnvio(estruturaReview), [estruturaReview]);
+  const estruturaEnvio = useMemo(() => {
+    const estruturaDaBom = estruturaParaEnvio(estruturaReview);
+    const estruturaDaMontagem = bomRows
+      ? criarEstruturaDaMontagemDestino(bomRows, montagemDestinoCodigo)
+      : [];
+    // A montagem recebe somente os itens de topo; as relações internas da BOM
+    // continuam intactas logo depois, preservando todos os níveis da estrutura.
+    return [...estruturaDaMontagem, ...estruturaDaBom];
+  }, [bomRows, estruturaReview, montagemDestinoCodigo]);
 
   async function handleGerar() {
-    if (produtosEnvio.length === 0) return;
+    if (produtosEnvio.length === 0 && estruturaEnvio.length === 0) return;
     setGerando(true);
     setErroGeracao(null);
     try {
@@ -428,7 +437,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   }
 
   async function handleEnviar() {
-    if (produtosEnvio.length === 0) return;
+    if (produtosEnvio.length === 0 && estruturaEnvio.length === 0) return;
     setEnviando(true);
     setErroEnvio(null);
     setResultadoEnvio(null);
@@ -438,6 +447,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
         novos: produtosEnvio,
         estrutura: estruturaEnvio,
         localEstoque,
+        montagemDestinoCodigo: montagemDestinoCodigo.trim() || undefined,
         arquivoNome: bomFile?.name,
         ncm,
       });
@@ -476,7 +486,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   }
 
   const ocupado = gerando || enviando;
-  const temSelecionados = produtosEnvio.length > 0;
+  const temSelecionados = produtosEnvio.length > 0 || estruturaEnvio.length > 0;
   const podeGerar = temSelecionados && !ocupado;
   const podeEnviar = temSelecionados && !ocupado;
 
@@ -563,6 +573,27 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
             />
           </section>
 
+          <section className="rounded-2xl border border-primary/25 bg-primary/5 p-4">
+            <label htmlFor="montagem-destino" className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Network className="h-4 w-4 text-primary" />
+              Código da montagem destino <span className="text-xs font-normal text-muted-foreground">(opcional)</span>
+            </label>
+            <input
+              id="montagem-destino"
+              type="text"
+              value={montagemDestinoCodigo}
+              onChange={(e) => setMontagemDestinoCodigo(e.target.value)}
+              placeholder="Ex.: MCPDS MT001 C0PTD"
+              className="mt-2 w-full rounded-xl border border-border bg-field px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+            />
+            <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              Informe o código de uma montagem que já existe no Omie. Ao enviar, os itens de topo da BOM entram nela e
+              as submontagens e peças abaixo mantêm a hierarquia da planilha. O sistema confere essa montagem antes de
+              fazer qualquer alteração.
+            </p>
+          </section>
+
           {estruturaReview.length > 0 && (
             <section className="space-y-4">
               <EstruturaPreview
@@ -633,12 +664,12 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
                   </span>
                 ) : temSelecionados ? (
                   <span>
-                    <strong className="text-foreground">{resumo.selecionados} produto(s)</strong> selecionado(s)
+                    <strong className="text-foreground">{resumo.selecionados} produto(s) novo(s)</strong> selecionado(s)
                     {estruturaEnvio.length > 0 ? ` e ${estruturaEnvio.length} relação(ões) de estrutura` : ""} prontos
                     para gerar ou enviar.
                   </span>
                 ) : (
-                  <span>Marque pelo menos um produto válido para gerar a planilha ou enviar ao Omie.</span>
+                  <span>Inclua uma estrutura ou marque pelo menos um produto válido para gerar a planilha ou enviar ao Omie.</span>
                 )}
               </div>
               <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">

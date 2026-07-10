@@ -150,3 +150,41 @@ export function parseEstrutura(rows: BomRow[]): EstruturaRel[] {
   }
   return rels;
 }
+
+/**
+ * Cria o primeiro nível de uma BOM dentro de uma montagem que JÁ existe no
+ * Omie. A hierarquia original é preservada por `parseEstrutura`: aqui entram
+ * apenas os itens de topo (Nº sem ponto), como filhos da montagem informada.
+ *
+ * O código da montagem é digitado pelo usuário porque o nome do arquivo não
+ * é uma fonte confiável de identidade. A existência desse pai é validada no
+ * servidor antes de qualquer escrita no Omie.
+ */
+export function criarEstruturaDaMontagemDestino(rows: BomRow[], codigoMontagem: string): EstruturaRel[] {
+  const codigoPai = codigoMontagem.trim();
+  if (!codigoPai) return [];
+
+  const chavePai = chaveCodigo(codigoPai);
+  const rels: EstruturaRel[] = [];
+
+  for (const row of rows) {
+    const numeroFilho = row.numero.trim();
+    if (!numeroFilho || numeroFilho.includes(".")) continue;
+
+    const info = extrairCodigo(row.peca.trim());
+    // Evita uma estrutura circular se a montagem destino também aparecer como
+    // a linha de topo da planilha.
+    if (!info || chaveCodigo(info.codigo) === chavePai) continue;
+
+    rels.push({
+      numeroPai: "MONTAGEM_DESTINO",
+      numeroFilho,
+      codigoPai,
+      codigoFilho: info.codigo,
+      descricaoFilho: info.descricao,
+      quantidade: row.quantidade,
+    });
+  }
+
+  return rels;
+}

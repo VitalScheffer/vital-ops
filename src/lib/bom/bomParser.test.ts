@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { BOM_TESTE_ROWS } from "./__fixtures__/bomTeste";
-import { DESCRICAO_MAX, parseBom, parseEstrutura } from "./bomParser";
+import { criarEstruturaDaMontagemDestino, DESCRICAO_MAX, parseBom, parseEstrutura } from "./bomParser";
 import type { BomRow } from "./types";
 
 function linha(peca: string, overrides: Partial<BomRow> = {}): BomRow {
@@ -122,5 +122,35 @@ describe("parseEstrutura — pai/filho pela numeração hierárquica (coluna Nº
   it("itens de topo (Nº sem ponto) não viram filhos", () => {
     expect(rels.some((x) => x.numeroFilho === "7")).toBe(false);
     expect(rels.every((x) => x.numeroFilho.includes("."))).toBe(true);
+  });
+});
+
+describe("criarEstruturaDaMontagemDestino", () => {
+  it("liga apenas os itens de topo à montagem existente e preserva a quantidade", () => {
+    const rels = criarEstruturaDaMontagemDestino(BOM_TESTE_ROWS, "MCPDS MT001 C0PTD");
+
+    expect(rels).toHaveLength(37);
+    expect(rels[0]).toMatchObject({
+      numeroPai: "MONTAGEM_DESTINO",
+      numeroFilho: "1",
+      codigoPai: "MCPDS MT001 C0PTD",
+      codigoFilho: "CREHS SM001 C0PTD",
+      quantidade: 1,
+    });
+    expect(rels.some((rel) => rel.numeroFilho.includes("."))).toBe(false);
+  });
+
+  it("não cria auto-referência quando a montagem destino aparece no topo da BOM", () => {
+    const rels = criarEstruturaDaMontagemDestino(
+      [
+        linha("MCPDS MT001 C0PTD R00 - MONTAGEM", { numero: "1" }),
+        linha("CREHS SM001 C0PTD R00 - SUBMONTAGEM", { numero: "2" }),
+      ],
+      "MCPDS MT001 C0PTD",
+    );
+
+    expect(rels).toEqual([
+      expect.objectContaining({ codigoPai: "MCPDS MT001 C0PTD", codigoFilho: "CREHS SM001 C0PTD" }),
+    ]);
   });
 });

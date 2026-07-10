@@ -44,6 +44,7 @@ const enviarInputSchema = z.object({
   novos: z.array(parsedItemSchema),
   estrutura: z.array(estruturaRelSchema),
   localEstoque: z.string().optional(),
+  montagemDestinoCodigo: z.string().trim().min(1).max(60).optional(),
   arquivoNome: z.string().optional(),
   ncm: z.string().optional(),
 });
@@ -92,6 +93,34 @@ function houveFalha(resultado: EnvioResultado): boolean {
   );
 }
 
+function chaveCodigo(codigo: string): string {
+  return codigo.replace(/\s+/g, "");
+}
+
+/**
+ * A montagem destino é sempre um cadastro preexistente: ela nunca deve entrar
+ * no fluxo de Upsert. Validamos com a mesma busca em lote já usada pelo
+ * orquestrador antes de criar o registro de import ou alterar qualquer produto.
+ */
+async function validarMontagemDestino(codigo: string): Promise<boolean> {
+  const resposta = await chamar("geral/produtos/", "ListarProdutos", {
+    pagina: 1,
+    registros_por_pagina: 100,
+    apenas_importado_api: "N",
+    filtrar_apenas_omiepdv: "N",
+    produtosPorCodigo: [{ codigo }],
+  });
+  const produtos = resposta?.produto_servico_cadastro;
+  if (!Array.isArray(produtos)) return false;
+
+  const chave = chaveCodigo(codigo);
+  return produtos.some((produto) => {
+    if (!produto || typeof produto !== "object") return false;
+    const codigoEncontrado = (produto as Record<string, unknown>).codigo;
+    return typeof codigoEncontrado === "string" && chaveCodigo(codigoEncontrado) === chave;
+  });
+}
+
 export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOmieResult> {
   const session = await auth();
   if (!session?.user?.email || !session.user.id) {
@@ -108,13 +137,32 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
   }
 
   const { estrutura, localEstoque, arquivoNome } = parsed.data;
+  const montagemDestinoCodigo = parsed.data.montagemDestinoCodigo || null;
   const ncm = normalizarNcm(parsed.data.ncm);
   const novos = parsed.data.novos.filter((i) => i.status === "novo");
-  if (novos.length === 0) {
+  if (novos.length === 0 && estrutura.length === 0) {
     return {
       ok: false,
-      erro: "Nenhum produto novo para enviar — os duplicados não são reenviados.",
+      erro: "Não há produto novo nem relação de estrutura para enviar.",
     };
+  }
+
+  if (montagemDestinoCodigo) {
+    try {
+      const existe = await validarMontagemDestino(montagemDestinoCodigo);
+      if (!existe) {
+        return {
+          ok: false,
+          erro: `A montagem destino \"${montagemDestinoCodigo}\" não foi encontrada no Omie. Confira o código antes de enviar.`,
+        };
+      }
+    } catch (erro) {
+      const motivo = erro instanceof Error ? erro.message : String(erro);
+      return {
+        ok: false,
+        erro: `Não foi possível validar a montagem destino no Omie: ${motivo}`,
+      };
+    }
   }
 
   const local = localEstoque?.trim() || null;
@@ -198,6 +246,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       interrompido: resultado.interrompido,
       bloqueado: resultado.bloqueado,
       motivoInterrupcao: resultado.motivoInterrupcao ?? null,
+      montagemDestinoCodigo,
       familias: resultado.familias.map((f) => ({ familia: f.familia, outcome: f.outcome })),
       // Detalhe das falhas (o quê + porquê) para o admin auditar sem abrir o banco.
       falhas: falhasDetalhadas(resultado),
