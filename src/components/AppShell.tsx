@@ -4,6 +4,7 @@ import {
   Boxes,
   HelpCircle,
   Home,
+  Layers,
   LogOut,
   Menu,
   ScrollText,
@@ -26,6 +27,7 @@ import type { NavIcon, PublicNavItem } from "@/lib/navigation";
 const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
   products: Boxes,
+  pranchas: Layers,
   users: Users,
   audit: ScrollText,
   settings: Settings,
