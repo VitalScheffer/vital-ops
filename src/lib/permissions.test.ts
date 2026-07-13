@@ -7,7 +7,7 @@ import {
 } from "@/lib/permissions";
 
 describe("buildRolePermissionsMap", () => {
-  it("sem linhas no banco, cai no padrão atual (ADMIN/GESTOR tudo, FUNCIONARIO só produtos)", () => {
+  it("sem linhas no banco, cai no padrão atual (ADMIN/GESTOR tudo, FUNCIONARIO só Produtos e Pranchas)", () => {
     expect(buildRolePermissionsMap([])).toEqual(DEFAULT_ROLE_PERMISSIONS);
   });
 
@@ -15,7 +15,7 @@ describe("buildRolePermissionsMap", () => {
     const map = buildRolePermissionsMap([
       { role: "GESTOR", module: "audit", enabled: false },
     ]);
-    expect(map.GESTOR).toEqual({ products: true, users: true, audit: false });
+    expect(map.GESTOR).toEqual({ products: true, pranchas: true, users: true, audit: false });
     expect(map.FUNCIONARIO).toEqual(DEFAULT_ROLE_PERMISSIONS.FUNCIONARIO);
   });
 
@@ -37,16 +37,18 @@ describe("buildRolePermissionsMap", () => {
   it("trava ADMIN em true mesmo se o banco disser o contrário", () => {
     const map = buildRolePermissionsMap([
       { role: "ADMIN", module: "audit", enabled: false },
+      { role: "ADMIN", module: "pranchas", enabled: false },
       { role: "ADMIN", module: "users", enabled: false },
       { role: "ADMIN", module: "products", enabled: false },
     ]);
-    expect(map.ADMIN).toEqual({ products: true, users: true, audit: true });
+    expect(map.ADMIN).toEqual({ products: true, pranchas: true, users: true, audit: true });
   });
 });
 
 describe("hasModuleAccess", () => {
   it("lê o mapa por papel e módulo", () => {
     expect(hasModuleAccess("FUNCIONARIO", "products", DEFAULT_ROLE_PERMISSIONS)).toBe(true);
+    expect(hasModuleAccess("FUNCIONARIO", "pranchas", DEFAULT_ROLE_PERMISSIONS)).toBe(true);
     expect(hasModuleAccess("FUNCIONARIO", "audit", DEFAULT_ROLE_PERMISSIONS)).toBe(false);
   });
 

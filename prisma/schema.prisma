@@ -139,7 +139,7 @@ model ReportAnexo {
 }
 
 // Permissões configuráveis por papel × módulo (item 3 da sessão de UI/RBAC).
-// Chave composta role+module. Módulos válidos: "products" | "users" | "audit"
+// Chave composta role+module. Módulos válidos: "products" | "pranchas" | "users" | "audit"
 // (validados em src/lib/permissions.ts, não aqui — mesmo raciocínio do String
 // sem enum explicado acima).
 // ADMIN é sempre tratado como true em código (src/lib/permissions.ts), mesmo

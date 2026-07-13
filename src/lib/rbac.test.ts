@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_ROLE_PERMISSIONS, type RolePermissionsMap } from "@/lib/permissions";
-import { canEditUser, canManageUsers, canViewAudit, wouldRemoveLastAdmin } from "@/lib/rbac";
+import { canEditUser, canManageUsers, canViewAudit, canViewPranchas, wouldRemoveLastAdmin } from "@/lib/rbac";
 
 const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 
@@ -49,6 +49,22 @@ describe("canManageUsers / canViewAudit (configuráveis por RolePermission)", ()
     };
     expect(canViewAudit("GESTOR", semAuditoria)).toBe(false);
     expect(canManageUsers("GESTOR", semAuditoria)).toBe(true);
+  });
+});
+
+describe("canViewPranchas (configurável por RolePermission)", () => {
+  it("por padrão todos os papéis acessam Pranchas", () => {
+    expect(canViewPranchas("ADMIN", DEFAULT)).toBe(true);
+    expect(canViewPranchas("GESTOR", DEFAULT)).toBe(true);
+    expect(canViewPranchas("FUNCIONARIO", DEFAULT)).toBe(true);
+  });
+
+  it("pode retirar Pranchas sem retirar Produtos", () => {
+    const semPranchas: RolePermissionsMap = {
+      ...DEFAULT,
+      GESTOR: { ...DEFAULT.GESTOR, pranchas: false },
+    };
+    expect(canViewPranchas("GESTOR", semPranchas)).toBe(false);
   });
 });
 

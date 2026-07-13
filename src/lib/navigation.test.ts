@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { visibleNavFor } from "@/lib/navigation";
 import { DEFAULT_ROLE_PERMISSIONS, type RolePermissionsMap } from "@/lib/permissions";
-import { canAssignRole, canManageUsers, canViewAudit } from "@/lib/rbac";
+import { canAssignRole, canManageUsers, canViewAudit, canViewPranchas } from "@/lib/rbac";
 
 const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 
@@ -37,10 +37,19 @@ describe("visibleNavFor", () => {
     expect(keys).toEqual(["home", "produtos", "pranchas", "usuarios"]);
   });
 
+  it("respeita permissões customizadas: Pranchas some sem afetar Produtos", () => {
+    const semPranchas: RolePermissionsMap = {
+      ...DEFAULT,
+      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
+    };
+    const keys = visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key);
+    expect(keys).toEqual(["home", "produtos"]);
+  });
+
   it("Configurações continua fora do menu de GESTOR mesmo com todos os módulos habilitados", () => {
     const tudoLiberado: RolePermissionsMap = {
       ...DEFAULT,
-      GESTOR: { products: true, users: true, audit: true },
+      GESTOR: { products: true, pranchas: true, users: true, audit: true },
     };
     const keys = visibleNavFor("GESTOR", tudoLiberado).map((item) => item.key);
     expect(keys).not.toContain("configuracoes");
@@ -53,6 +62,7 @@ describe("rbac", () => {
     expect(canManageUsers("GESTOR", DEFAULT)).toBe(true);
     expect(canManageUsers("FUNCIONARIO", DEFAULT)).toBe(false);
     expect(canViewAudit("FUNCIONARIO", DEFAULT)).toBe(false);
+    expect(canViewPranchas("FUNCIONARIO", DEFAULT)).toBe(true);
   });
 
   it("só ADMIN concede o papel ADMIN", () => {

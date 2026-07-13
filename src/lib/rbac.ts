@@ -20,6 +20,12 @@ export function canViewAudit(role: Role, permissions: RolePermissionsMap): boole
   return hasModuleAccess(role, "audit", permissions);
 }
 
+// Pranchas tem permissão própria para que o administrador possa liberar a
+// compilação de desenhos sem também conceder acesso ao módulo Produtos.
+export function canViewPranchas(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "pranchas", permissions);
+}
+
 // Só o ADMIN pode conceder o papel ADMIN — um Gestor não promove ninguém a dono.
 // Regra de segurança fixa em código, independente da tela de permissões.
 export function canAssignRole(actorRole: Role, targetRole: Role, permissions: RolePermissionsMap): boolean {

@@ -7,18 +7,18 @@ import type { Role } from "@/lib/contracts";
 // módulo NÃO importar `@/lib/db` — assim componentes cliente (que usam MODULES
 // e os tipos daqui) não arrastam o driver `pg` para o bundle do navegador.
 
-export const MODULES = ["products", "users", "audit"] as const;
+export const MODULES = ["products", "pranchas", "users", "audit"] as const;
 export type Module = (typeof MODULES)[number];
 
 export type RolePermissionsMap = Record<Role, Record<Module, boolean>>;
 
 // Comportamento hoje vigente, preservado como padrão: ADMIN e GESTOR têm tudo,
-// FUNCIONARIO só Produtos. Usado como seed E como fallback para qualquer
+// FUNCIONARIO só Produtos e Pranchas. Usado como seed E como fallback para qualquer
 // combinação papel×módulo ainda sem linha no banco.
 export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMap = {
-  ADMIN: { products: true, users: true, audit: true },
-  GESTOR: { products: true, users: true, audit: true },
-  FUNCIONARIO: { products: true, users: false, audit: false },
+  ADMIN: { products: true, pranchas: true, users: true, audit: true },
+  GESTOR: { products: true, pranchas: true, users: true, audit: true },
+  FUNCIONARIO: { products: true, pranchas: true, users: false, audit: false },
 };
 
 const ROLES: readonly Role[] = ["ADMIN", "GESTOR", "FUNCIONARIO"];

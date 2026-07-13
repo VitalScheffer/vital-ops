@@ -10,6 +10,7 @@ import { MODULES, type Module, type RolePermissionsMap } from "@/lib/permissions
 
 const MODULE_LABEL: Record<Module, string> = {
   products: "Produtos",
+  pranchas: "Pranchas",
   users: "Usuários e setores",
   audit: "Auditoria",
 };

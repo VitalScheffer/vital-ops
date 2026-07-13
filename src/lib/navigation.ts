@@ -24,7 +24,7 @@ const alwaysVisible = (): boolean => true;
 // admin se autoexcluir daqui, senão ninguém mais consegue reconfigurar nada).
 const adminOnly = (role: Role): boolean => role === "ADMIN";
 
-// Navegação: Início para todos; Produtos/Usuários/Auditoria seguem o módulo
+// Navegação: Início para todos; Produtos/Pranchas/Usuários/Auditoria seguem o módulo
 // configurado em RolePermission; Configurações é fixo para ADMIN.
 export const NAV_ITEMS: readonly NavItem[] = [
   {
@@ -49,8 +49,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Pranchas",
     description: "Junte os desenhos de um conjunto num PDF único pronto para imprimir.",
     icon: "pranchas",
-    // Mesmo público de engenharia do módulo Produtos.
-    visibleTo: (role, permissions) => hasModuleAccess(role, "products", permissions),
+    visibleTo: (role, permissions) => hasModuleAccess(role, "pranchas", permissions),
   },
   {
     key: "usuarios",

@@ -26,15 +26,18 @@ const USERS: SeedUser[] = [
 
 // Permissões padrão (item 3 — RolePermission): preserva o comportamento fixo
 // que existia antes da tela de configuração (ADMIN/GESTOR = tudo, FUNCIONARIO
-// só Produtos). Espelha DEFAULT_ROLE_PERMISSIONS de src/lib/permissions.ts.
+// só Produtos e Pranchas). Espelha DEFAULT_ROLE_PERMISSIONS de src/lib/permissions.ts.
 const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] = [
   { role: "ADMIN", module: "products", enabled: true },
+  { role: "ADMIN", module: "pranchas", enabled: true },
   { role: "ADMIN", module: "users", enabled: true },
   { role: "ADMIN", module: "audit", enabled: true },
   { role: "GESTOR", module: "products", enabled: true },
+  { role: "GESTOR", module: "pranchas", enabled: true },
   { role: "GESTOR", module: "users", enabled: true },
   { role: "GESTOR", module: "audit", enabled: true },
   { role: "FUNCIONARIO", module: "products", enabled: true },
+  { role: "FUNCIONARIO", module: "pranchas", enabled: true },
   { role: "FUNCIONARIO", module: "users", enabled: false },
   { role: "FUNCIONARIO", module: "audit", enabled: false },
 ];
