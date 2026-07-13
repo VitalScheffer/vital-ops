@@ -3,7 +3,7 @@ import { hasModuleAccess, type RolePermissionsMap } from "@/lib/permissions";
 import { canManageUsers, canViewAudit } from "@/lib/rbac";
 
 // Chaves de ícone (mapeadas para SVGs do lucide no componente cliente da barra).
-export type NavIcon = "home" | "products" | "users" | "audit" | "settings";
+export type NavIcon = "home" | "products" | "pranchas" | "users" | "audit" | "settings";
 
 export interface NavItem {
   key: string;
@@ -41,6 +41,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Produtos",
     description: "Converta a BOM do CAD na planilha de importação de produtos do Omie.",
     icon: "products",
+    visibleTo: (role, permissions) => hasModuleAccess(role, "products", permissions),
+  },
+  {
+    key: "pranchas",
+    href: "/pranchas",
+    label: "Pranchas",
+    description: "Junte os desenhos de um conjunto num PDF único pronto para imprimir.",
+    icon: "pranchas",
+    // Mesmo público de engenharia do módulo Produtos.
     visibleTo: (role, permissions) => hasModuleAccess(role, "products", permissions),
   },
   {

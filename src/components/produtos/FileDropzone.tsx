@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, FileSpreadsheet, Loader2, UploadCloud, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import type { DragEvent } from "react";
 
@@ -12,9 +13,22 @@ interface FileDropzoneProps {
   onChange: (file: File | null) => void;
   optional?: boolean;
   loading?: boolean;
+  // Texto e ícone opcionais para reuso fora do contexto de planilha (ex.: PDF).
+  loadingLabel?: string;
+  fileIcon?: LucideIcon;
 }
 
-export function FileDropzone({ label, hint, accept, file, onChange, optional, loading }: FileDropzoneProps) {
+export function FileDropzone({
+  label,
+  hint,
+  accept,
+  file,
+  onChange,
+  optional,
+  loading,
+  loadingLabel = "Lendo planilha...",
+  fileIcon: FileIcon = FileSpreadsheet,
+}: FileDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [arrastando, setArrastando] = useState(false);
 
@@ -83,14 +97,14 @@ export function FileDropzone({ label, hint, accept, file, onChange, optional, lo
         {loading ? (
           <>
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium text-primary">Lendo planilha...</p>
+            <p className="text-sm font-medium text-primary">{loadingLabel}</p>
             <p className="text-xs text-muted-foreground/70">Só um instante</p>
           </>
         ) : file ? (
           <>
             <CheckCircle2 className="h-8 w-8 text-success" />
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <FileSpreadsheet className="h-4 w-4 shrink-0 text-success" />
+              <FileIcon className="h-4 w-4 shrink-0 text-success" />
               <span className="max-w-[260px] truncate">{file.name}</span>
               <button
                 type="button"

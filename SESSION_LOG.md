@@ -1327,6 +1327,68 @@ sem novos, é UI).
 - **tipo PROBLEMA autorado pelo remetente** (não ERRO_SISTEMA): assim aparece tanto pro admin quanto pra
   quem enviou, com rastreio de quem foi; o título "[Automático]" deixa claro que foi capturado sozinho.
 
+## 2026-07-13 — Módulo Pranchas (compilar desenhos num PDF único)
+
+### Resumo
+Pedido do Lucas (via referência do protótipo local `pranchas-server`): criar no vital-ops uma tela
+igual à ideia do compilador de pranchas. Hoje o pessoal entra na pasta e baixa desenho por desenho; o
+objetivo é subir o BOM (o PDF com a lista de peças) e a pasta dos desenhos, o sistema casa cada peça
+pela versão/revisão e devolve um PDF único pronto para plotar. Diferença do protótipo: o vital-ops é
+web (Vercel) e NÃO enxerga a pasta de rede pelo servidor, então o usuário sobe a pasta e TODO o
+processamento roda no navegador. O usuário confirmou: tela nova, eles enviam a pasta, o arquivo
+principal é um PDF com os códigos "naquele padrão" (valores mudam).
+
+### Descoberta-chave (dados reais do BOM `C4MEC M01 R00 - MONTAGEM COMPLETA (CUSTO).pdf`)
+Num mesmo BOM convivem prefixos diferentes (`C4MEC`, `C3SM`, `C3SE`, `GDPM`) no formato
+`PREFIXO P## C## R##`. O regex fixo em `MDMI` do protótipo NÃO serve: o casamento é genérico por
+prefixo, e a chave de família inclui o prefixo (`C4MEC P05` ≠ `C3SM P05`). Itens comprados (parafuso,
+porca, atuador...) não têm o bloco `C##/R##` e por isso são naturalmente ignorados.
+
+### Arquivos criados
+- `src/lib/pranchas/codes.ts` — parsing/casamento puro (regex genérico de prefixo, chave de família,
+  modos exact/latest, status ok/new/old/warn/miss). + `codes.test.ts` (13 testes, verdes).
+- `src/lib/pranchas/pdf.ts` — client-only: `extrairTextoPdf` (pdfjs) e `juntarPdfs` (pd-lib, resiliente
+  a PDF ilegível). Importados dinamicamente (fora do bundle das outras telas / SSR).
+- `src/lib/pranchas/bom.ts` — lê o arquivo principal (PDF via pdfjs, ou .xls/.xlsx reusando o leitor do
+  módulo Produtos) e extrai os códigos + a chave do próprio conjunto.
+- `src/components/pranchas/FolderDropzone.tsx` — upload/arrastar a pasta (`webkitdirectory` + entries
+  API recursiva pra subpastas), só PDFs.
+- `src/components/pranchas/PranchasClient.tsx` — tela: 2 dropzones, opções (revisão exata/mais recente,
+  capa do BOM, incluir prancha do conjunto), tabela de casamento com status, barra de ação
+  (Compilar PDF / Imprimir).
+- `src/app/(app)/pranchas/page.tsx` — página (mesmo molde de produtos/page.tsx).
+- `public/pdf.worker.min.mjs` — worker do pdfjs (copiado de node_modules; recopiar ao atualizar pdfjs).
+
+### Arquivos alterados
+- `src/lib/navigation.ts` — novo NavItem `pranchas` (visível a quem tem o módulo Produtos) e ícone.
+- `src/components/AppShell.tsx` e `src/app/(app)/page.tsx` — ícone `Layers` nos dois mapas `ICONS`.
+- `src/components/produtos/FileDropzone.tsx` — props opcionais `loadingLabel` e `fileIcon` (retrocompat,
+  Produtos intacto) pra reusar o dropzone com PDF.
+- `package.json` — `pdf-lib` e `pdfjs-dist` adicionados.
+
+### Decisões importantes
+- **Tudo no navegador** (nada sobe pro servidor): casa com "cada um usa a pasta que quiser" e com o
+  Vercel não ver a rede. Merge com pdf-lib, leitura de texto do BOM com pdfjs.
+- **Casamento genérico por prefixo** com versão C + revisão R; chave de família = prefixo+tipo+num.
+- **Aceita PDF (padrão) e .xls/.xlsx** no arquivo principal (reusa o leitor do Produtos).
+- **Sem novo módulo de permissão**: reaproveita o gate do módulo `products` (mesmo público de
+  engenharia). Nada mexido em permissions.ts / matriz.
+- Worker do pdfjs servido de `/public` (com fallback pra thread principal se não carregar).
+
+### Verificação
+- `npx vitest run` (codes): 13/13. `npx tsc --noEmit`: OK. `eslint`: 0 erros. `npm run build`
+  (Turbopack): OK, rota `/pranchas` no output, bundling do pdfjs/pdf-lib sem erro.
+- End-to-end do núcleo (script temporário, já removido) contra o BOM real: pdfjs extraiu o texto, 50
+  códigos com os 4 prefixos, 0 comprados vazaram (todos P/M/SM), casamento exact 50/50, modo "mais
+  recente" pega a revisão nova, merge real de 3 pranchas = 3 páginas.
+
+### Pendências / próximos passos
+- Testar na mão no navegador com uma pasta real de desenhos C4MEC (o teste automatizado usou pasta
+  simulada, pois não havia os PDFs dos desenhos à mão).
+- Se um dia a impressão automática direto pra impressora for desejada, hoje é via navegador (botão
+  Imprimir). Não foi implementado envio server-side (a tela é 100% client).
+- Não commitado nesta sessão (aguardando validação do pessoal, conforme a mensagem do Lucas).
+
 ### Comandos relevantes
 - `npx tsc --noEmit` → 0. `npx eslint .` → 0. `npx vitest run` → 150/150 (14 arquivos).
 

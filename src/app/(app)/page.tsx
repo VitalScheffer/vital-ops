@@ -1,4 +1,4 @@
-import { ArrowRight, Boxes, Home, ScrollText, Settings, Users } from "lucide-react";
+import { ArrowRight, Boxes, Home, Layers, ScrollText, Settings, Users } from "lucide-react";
 import Link from "next/link";
 
 import { auth } from "@/lib/auth";
@@ -10,6 +10,7 @@ import { getRolePermissionsMap } from "@/lib/permissions.server";
 const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
   products: Boxes,
+  pranchas: Layers,
   users: Users,
   audit: ScrollText,
   settings: Settings,
