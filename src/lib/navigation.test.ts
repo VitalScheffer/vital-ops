@@ -7,19 +7,19 @@ import { canAssignRole, canManageUsers, canViewAudit } from "@/lib/rbac";
 const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 
 describe("visibleNavFor", () => {
-  it("FUNCIONARIO vê Início e Produtos (sem Usuários, Auditoria nem Configurações)", () => {
+  it("FUNCIONARIO vê Início, Produtos e Pranchas (sem Usuários, Auditoria nem Configurações)", () => {
     const keys = visibleNavFor("FUNCIONARIO", DEFAULT).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos"]);
+    expect(keys).toEqual(["home", "produtos", "pranchas"]);
   });
 
-  it("GESTOR vê Início, Produtos, Usuários e Auditoria (sem Configurações)", () => {
+  it("GESTOR vê Início, Produtos, Pranchas, Usuários e Auditoria (sem Configurações)", () => {
     const keys = visibleNavFor("GESTOR", DEFAULT).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "usuarios", "auditoria"]);
+    expect(keys).toEqual(["home", "produtos", "pranchas", "usuarios", "auditoria"]);
   });
 
   it("ADMIN vê todos os módulos, incluindo Configurações", () => {
     const keys = visibleNavFor("ADMIN", DEFAULT).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "usuarios", "auditoria", "configuracoes"]);
+    expect(keys).toEqual(["home", "produtos", "pranchas", "usuarios", "auditoria", "configuracoes"]);
   });
 
   it("itens expostos ao cliente não carregam função de visibilidade", () => {
@@ -34,7 +34,7 @@ describe("visibleNavFor", () => {
       GESTOR: { ...DEFAULT.GESTOR, audit: false },
     };
     const keys = visibleNavFor("GESTOR", semAuditoria).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "usuarios"]);
+    expect(keys).toEqual(["home", "produtos", "pranchas", "usuarios"]);
   });
 
   it("Configurações continua fora do menu de GESTOR mesmo com todos os módulos habilitados", () => {
