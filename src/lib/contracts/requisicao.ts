@@ -3,26 +3,38 @@ import { z } from "zod";
 export const requisicaoStatusSchema = z.enum(["PENDENTE", "CONFIRMADA", "RECUSADA"]);
 export type RequisicaoStatus = z.infer<typeof requisicaoStatusSchema>;
 
-export const requisicaoSchema = z.object({
-  id: z.string(),
-  numero: z.string(),
-  solicitanteId: z.string(),
-  sku: z.string(),
-  nome: z.string(),
-  quantidade: z.number(),
-  setorId: z.string(),
-  status: requisicaoStatusSchema,
-  gestorId: z.string().nullable().optional(),
-  confirmadaEm: z.string().nullable().optional(), // ISO-8601
-  criadoEm: z.string(), // ISO-8601
-});
-export type Requisicao = z.infer<typeof requisicaoSchema>;
+export const requisicaoItemStatusSchema = z.enum(["PENDENTE", "BAIXADO", "FALHA"]);
+export type RequisicaoItemStatus = z.infer<typeof requisicaoItemStatusSchema>;
 
-// Payload de criação (frontend → API), Fase 3.
-export const criarRequisicaoSchema = z.object({
-  sku: z.string().min(1),
-  nome: z.string().min(1),
+// Item do carrinho na criação (frontend → Server Action). A descrição vem do
+// Omie na validação do servidor, não do cliente.
+export const criarRequisicaoItemSchema = z.object({
+  sku: z.string().trim().min(1),
   quantidade: z.number().positive(),
+});
+export type CriarRequisicaoItemInput = z.infer<typeof criarRequisicaoItemSchema>;
+
+// Payload de criação: um pedido com VÁRIOS itens (decisão de 16/07/2026).
+// `solicitanteNome` é quem está pedindo de fato (pode diferir do usuário
+// logado — ex. terminal compartilhado no chão de fábrica).
+export const criarRequisicaoSchema = z.object({
+  solicitanteNome: z.string().trim().min(1).max(120),
   setorId: z.string().min(1),
+  observacao: z.string().trim().max(500).optional(),
+  itens: z.array(criarRequisicaoItemSchema).min(1).max(50),
 });
 export type CriarRequisicaoInput = z.infer<typeof criarRequisicaoSchema>;
+
+// Decisão do gestor sobre o pedido inteiro. O motivo é obrigatório na recusa
+// (validado na action, onde a mensagem de erro é amigável).
+export const decidirRequisicaoSchema = z.object({
+  id: z.string().min(1),
+  decisao: z.enum(["CONFIRMAR", "RECUSAR"]),
+  motivo: z.string().trim().max(500).optional(),
+});
+export type DecidirRequisicaoInput = z.infer<typeof decidirRequisicaoSchema>;
+
+// Número sequencial exibido como "REQ-0001" (o inteiro vem do autoincrement).
+export function formatarNumeroRequisicao(numero: number): string {
+  return `REQ-${String(numero).padStart(4, "0")}`;
+}

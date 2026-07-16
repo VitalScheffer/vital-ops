@@ -1,9 +1,17 @@
 import type { Role } from "@/lib/contracts";
 import { hasModuleAccess, type RolePermissionsMap } from "@/lib/permissions";
-import { canManageUsers, canViewAudit } from "@/lib/rbac";
+import { canManageUsers, canViewAudit, canViewBaixas, canViewRequisicoes } from "@/lib/rbac";
 
 // Chaves de ícone (mapeadas para SVGs do lucide no componente cliente da barra).
-export type NavIcon = "home" | "products" | "pranchas" | "users" | "audit" | "settings";
+export type NavIcon =
+  | "home"
+  | "products"
+  | "pranchas"
+  | "requisicoes"
+  | "baixas"
+  | "users"
+  | "audit"
+  | "settings";
 
 export interface NavItem {
   key: string;
@@ -50,6 +58,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description: "Junte os desenhos de um conjunto num PDF único pronto para imprimir.",
     icon: "pranchas",
     visibleTo: (role, permissions) => hasModuleAccess(role, "pranchas", permissions),
+  },
+  {
+    key: "requisicoes",
+    href: "/requisicoes",
+    label: "Requisições",
+    description: "Peça material ao estoque; o gestor confirma e a baixa sai sozinha.",
+    icon: "requisicoes",
+    visibleTo: canViewRequisicoes,
+  },
+  {
+    key: "baixas",
+    href: "/baixas",
+    label: "Baixa de estoque",
+    description: "Suba a planilha de matéria-prima (MAT) e dê baixa direto no Omie.",
+    icon: "baixas",
+    visibleTo: canViewBaixas,
   },
   {
     key: "usuarios",

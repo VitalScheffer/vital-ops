@@ -3,7 +3,15 @@
 // vê — já reflete RolePermission, sem duplicar a consulta ao banco aqui).
 // Dados puros (sem JSX) para serem filtráveis e testáveis; o ícone é uma chave
 // mapeada para um SVG do lucide no componente cliente.
-export type TutorialIcon = "welcome" | "roles" | "products" | "users" | "audit" | "reopen";
+export type TutorialIcon =
+  | "welcome"
+  | "roles"
+  | "products"
+  | "requisicoes"
+  | "baixas"
+  | "users"
+  | "audit"
+  | "reopen";
 
 export interface TutorialStep {
   key: string;
@@ -47,6 +55,28 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     ],
     icon: "products",
     visibleTo: (navKeys) => navKeys.has("produtos"),
+  },
+  {
+    key: "requisicoes",
+    title: "Requisições (pedir material ao estoque)",
+    body: [
+      "Precisa de material? Monte o pedido com os itens (código e quantidade), diga quem está pedindo e o setor.",
+      "O pedido ganha um número (REQ-0001) e vai para o gestor, que confirma ou recusa.",
+      "Quando o gestor confirma, a baixa no estoque do Omie acontece sozinha.",
+    ],
+    icon: "requisicoes",
+    visibleTo: (navKeys) => navKeys.has("requisicoes"),
+  },
+  {
+    key: "baixas",
+    title: "Baixa de estoque por planilha",
+    body: [
+      "Baixe o modelo, preencha os itens de matéria-prima (código, quantidade, pedido, NF, OP) e suba a planilha.",
+      "O sistema confere os códigos e o saldo no Omie antes de qualquer baixa.",
+      "Confirmou? A saída é lançada no Omie item a item, com o vínculo do pedido e da nota na observação.",
+    ],
+    icon: "baixas",
+    visibleTo: (navKeys) => navKeys.has("baixas"),
   },
   {
     key: "users",

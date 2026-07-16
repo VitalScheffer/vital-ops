@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
     // Scripts Node/CJS da revisão de PR (não são código da aplicação;
     // testados com `node --test .github/scripts/lib/*.test.js`).
     ".github/scripts/**",
+    // Worker minificado do pdfjs (vendor copiado de node_modules pro módulo
+    // Pranchas) — não é código nosso, não faz sentido lintar.
+    "public/pdf.worker.min.mjs",
   ]),
 ]);
 

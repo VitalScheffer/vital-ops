@@ -24,22 +24,34 @@ const USERS: SeedUser[] = [
   { email: "gestor@vitalscheffer.com.br", name: "Gestor", role: "GESTOR" },
 ];
 
-// Permissões padrão (item 3 — RolePermission): preserva o comportamento fixo
-// que existia antes da tela de configuração (ADMIN/GESTOR = tudo, FUNCIONARIO
-// só Produtos e Pranchas). Espelha DEFAULT_ROLE_PERMISSIONS de src/lib/permissions.ts.
+// Permissões padrão (item 3 — RolePermission). Espelha DEFAULT_ROLE_PERMISSIONS
+// de src/lib/permissions.ts: ADMIN/GESTOR = tudo; FUNCIONARIO = módulos
+// operacionais; FABRICA (chão de fábrica) = só Requisições.
 const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] = [
   { role: "ADMIN", module: "products", enabled: true },
   { role: "ADMIN", module: "pranchas", enabled: true },
+  { role: "ADMIN", module: "requisicoes", enabled: true },
+  { role: "ADMIN", module: "baixas", enabled: true },
   { role: "ADMIN", module: "users", enabled: true },
   { role: "ADMIN", module: "audit", enabled: true },
   { role: "GESTOR", module: "products", enabled: true },
   { role: "GESTOR", module: "pranchas", enabled: true },
+  { role: "GESTOR", module: "requisicoes", enabled: true },
+  { role: "GESTOR", module: "baixas", enabled: true },
   { role: "GESTOR", module: "users", enabled: true },
   { role: "GESTOR", module: "audit", enabled: true },
   { role: "FUNCIONARIO", module: "products", enabled: true },
   { role: "FUNCIONARIO", module: "pranchas", enabled: true },
+  { role: "FUNCIONARIO", module: "requisicoes", enabled: true },
+  { role: "FUNCIONARIO", module: "baixas", enabled: true },
   { role: "FUNCIONARIO", module: "users", enabled: false },
   { role: "FUNCIONARIO", module: "audit", enabled: false },
+  { role: "FABRICA", module: "products", enabled: false },
+  { role: "FABRICA", module: "pranchas", enabled: false },
+  { role: "FABRICA", module: "requisicoes", enabled: true },
+  { role: "FABRICA", module: "baixas", enabled: false },
+  { role: "FABRICA", module: "users", enabled: false },
+  { role: "FABRICA", module: "audit", enabled: false },
 ];
 
 async function main(): Promise<void> {

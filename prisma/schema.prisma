@@ -16,11 +16,12 @@ datasource db {
 //
 // Mantidos como String (sem enum nativo do Postgres) por simplicidade e para
 // não acoplar o schema a uma lista fechada de valores — a validação vive no
-// zod dos contratos (src/lib/contracts). Role: ADMIN | GESTOR | FUNCIONARIO.
+// zod dos contratos (src/lib/contracts). Role: ADMIN | GESTOR | FUNCIONARIO | FABRICA.
 // ImportStatus: RASCUNHO | ENVIANDO | CONCLUIDO | FALHA.
 // ProdutoItemStatus: NOVO | DUPLICADO | ERRO | ENVIADO | FALHA.
 // EstruturaStatus: PENDENTE | ENVIADO | FALHA.
 // RequisicaoStatus: PENDENTE | CONFIRMADA | RECUSADA.
+// RequisicaoItemStatus / BaixaItemStatus: PENDENTE | BAIXADO | FALHA.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,7 @@ model User {
   imports        ProdutoImport[]
   requisicoesFeitas    Requisicao[] @relation("Solicitante")
   requisicoesGeridas   Requisicao[] @relation("Gestor")
+  baixas               BaixaImport[] @relation("BaixaAutor")
   reports              Report[]     @relation("ReportAutor")
   reportsResolvidos    Report[]     @relation("ReportResolvedor")
 
@@ -213,43 +215,122 @@ model EstruturaItem {
 
 // ---------------------------------------------------------------------------
 // Módulo Requisições de fábrica (Fase 3)
+//
+// Fluxo: o solicitante monta um pedido com VÁRIOS itens (carrinho) → gera um
+// número sequencial (autoincrement do Postgres, sem race) → o gestor confirma
+// ou recusa o pedido inteiro → na confirmação, cada item vira uma baixa de
+// estoque no Omie (IncluirAjusteEstoque, saída no local padrão) e um
+// MovimentoEstoque. Falha de um item não desfaz os demais (resultado por item).
 // ---------------------------------------------------------------------------
 
 model Requisicao {
-  id            String   @id @default(cuid())
-  numero        String   @unique
-  solicitanteId String
-  sku           String
-  nome          String
-  quantidade    Decimal
-  setorId       String
-  status        String   @default("PENDENTE")
-  gestorId      String?
-  confirmadaEm  DateTime?
-  criadoEm      DateTime @default(now())
+  id              String   @id @default(cuid())
+  numero          Int      @unique @default(autoincrement())
+  solicitanteId   String
+  solicitanteNome String
+  setorId         String
+  observacao      String?
+  status          String   @default("PENDENTE")
+  gestorId        String?
+  motivoDecisao   String?
+  decididaEm      DateTime?
+  criadoEm        DateTime @default(now())
 
   solicitante User  @relation("Solicitante", fields: [solicitanteId], references: [id])
   gestor      User? @relation("Gestor", fields: [gestorId], references: [id], onDelete: SetNull)
   setor       Setor @relation(fields: [setorId], references: [id])
 
-  movimentos MovimentoEstoque[]
+  itens RequisicaoItem[]
 
   @@index([solicitanteId])
   @@index([setorId])
   @@index([status])
 }
 
-model MovimentoEstoque {
+model RequisicaoItem {
   id           String   @id @default(cuid())
   requisicaoId String
-  tipo         String
+  sku          String
+  descricao    String
   quantidade   Decimal
-  omieRef      String?
-  criadoEm     DateTime @default(now())
+  status       String   @default("PENDENTE")
+  motivoErro   String?
+  omieIdProd   String? // codigo_produto (id interno) resolvido na criação
+  omieRef      String? // id_ajuste devolvido pelo IncluirAjusteEstoque
+  baixadoEm    DateTime?
 
-  requisicao Requisicao @relation(fields: [requisicaoId], references: [id], onDelete: Cascade)
+  requisicao Requisicao         @relation(fields: [requisicaoId], references: [id], onDelete: Cascade)
+  movimentos MovimentoEstoque[]
 
   @@index([requisicaoId])
+  @@index([sku])
+}
+
+// ---------------------------------------------------------------------------
+// Módulo Baixa por planilha (matéria-prima MAT)
+//
+// O usuário sobe uma planilha (SKU, quantidade, pedido, NF, OP, solicitante),
+// a tela valida os códigos e o saldo contra o Omie, e a execução dá baixa
+// (saída) item a item no local padrão — pedido/NF/OP viram a observação do
+// movimento no Omie (o vínculo nota ↔ pedido pedido pelo Victor).
+// ---------------------------------------------------------------------------
+
+model BaixaImport {
+  id          String   @id @default(cuid())
+  autorId     String
+  arquivoNome String
+  solicitante String // quem solicitou a entrega (campo da tela)
+  status      String   @default("ENVIANDO")
+  totalItens  Int      @default(0)
+  criadoEm    DateTime @default(now())
+
+  autor User        @relation("BaixaAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  itens BaixaItem[]
+
+  @@index([autorId])
+  @@index([status])
+}
+
+model BaixaItem {
+  id         String   @id @default(cuid())
+  importId   String
+  sku        String
+  descricao  String?
+  quantidade Decimal
+  pedido     String?
+  notaFiscal String?
+  op         String?
+  status     String   @default("PENDENTE")
+  motivoErro String?
+  omieIdProd String?
+  omieRef    String? // id_ajuste devolvido pelo IncluirAjusteEstoque
+  baixadoEm  DateTime?
+
+  import     BaixaImport        @relation(fields: [importId], references: [id], onDelete: Cascade)
+  movimentos MovimentoEstoque[]
+
+  @@index([importId])
+  @@index([sku])
+}
+
+// Trilha dos movimentos de estoque efetivados no Omie (1 linha por baixa que
+// DEU CERTO). Aponta pro item de requisição OU pro item de baixa por planilha.
+model MovimentoEstoque {
+  id               String   @id @default(cuid())
+  tipo             String // SAIDA (por ora só baixamos)
+  sku              String
+  quantidade       Decimal
+  omieRef          String?
+  requisicaoItemId String?
+  baixaItemId      String?
+  criadoEm         DateTime @default(now())
+
+  requisicaoItem RequisicaoItem? @relation(fields: [requisicaoItemId], references: [id], onDelete: Cascade)
+  baixaItem      BaixaItem?      @relation(fields: [baixaItemId], references: [id], onDelete: Cascade)
+
+  @@index([requisicaoItemId])
+  @@index([baixaItemId])
+  @@index([sku])
 }
 
 // ---------------------------------------------------------------------------

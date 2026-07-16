@@ -15,8 +15,30 @@ describe("buildRolePermissionsMap", () => {
     const map = buildRolePermissionsMap([
       { role: "GESTOR", module: "audit", enabled: false },
     ]);
-    expect(map.GESTOR).toEqual({ products: true, pranchas: true, users: true, audit: false });
+    expect(map.GESTOR).toEqual({
+      products: true,
+      pranchas: true,
+      requisicoes: true,
+      baixas: true,
+      users: true,
+      audit: false,
+    });
     expect(map.FUNCIONARIO).toEqual(DEFAULT_ROLE_PERMISSIONS.FUNCIONARIO);
+  });
+
+  it("FABRICA por padrão só tem Requisições, mas o admin pode liberar mais", () => {
+    expect(buildRolePermissionsMap([]).FABRICA).toEqual({
+      products: false,
+      pranchas: false,
+      requisicoes: true,
+      baixas: false,
+      users: false,
+      audit: false,
+    });
+    const map = buildRolePermissionsMap([
+      { role: "FABRICA", module: "baixas", enabled: true },
+    ]);
+    expect(map.FABRICA.baixas).toBe(true);
   });
 
   it("permite habilitar um módulo extra para FUNCIONARIO", () => {
@@ -38,10 +60,19 @@ describe("buildRolePermissionsMap", () => {
     const map = buildRolePermissionsMap([
       { role: "ADMIN", module: "audit", enabled: false },
       { role: "ADMIN", module: "pranchas", enabled: false },
+      { role: "ADMIN", module: "requisicoes", enabled: false },
+      { role: "ADMIN", module: "baixas", enabled: false },
       { role: "ADMIN", module: "users", enabled: false },
       { role: "ADMIN", module: "products", enabled: false },
     ]);
-    expect(map.ADMIN).toEqual({ products: true, pranchas: true, users: true, audit: true });
+    expect(map.ADMIN).toEqual({
+      products: true,
+      pranchas: true,
+      requisicoes: true,
+      baixas: true,
+      users: true,
+      audit: true,
+    });
   });
 });
 

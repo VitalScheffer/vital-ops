@@ -3,3 +3,4 @@ export * from "./api";
 export * from "./user";
 export * from "./produto";
 export * from "./requisicao";
+export * from "./baixa";

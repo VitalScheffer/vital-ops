@@ -2,11 +2,13 @@
 
 import {
   Boxes,
+  ClipboardList,
   HelpCircle,
   Home,
   Layers,
   LogOut,
   Menu,
+  PackageMinus,
   ScrollText,
   Settings,
   Sparkles,
@@ -28,6 +30,8 @@ const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
   products: Boxes,
   pranchas: Layers,
+  requisicoes: ClipboardList,
+  baixas: PackageMinus,
   users: Users,
   audit: ScrollText,
   settings: Settings,
@@ -37,6 +41,7 @@ const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Administrador",
   GESTOR: "Gestor",
   FUNCIONARIO: "Funcionário",
+  FABRICA: "Fábrica",
 };
 
 interface ShellUser {

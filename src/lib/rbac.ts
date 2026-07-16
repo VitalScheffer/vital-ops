@@ -26,6 +26,29 @@ export function canViewPranchas(role: Role, permissions: RolePermissionsMap): bo
   return hasModuleAccess(role, "pranchas", permissions);
 }
 
+// Requisições de fábrica: quem tem o módulo pode SOLICITAR e acompanhar os
+// próprios pedidos (inclui o papel FABRICA, que só vê esta tela por padrão).
+export function canViewRequisicoes(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "requisicoes", permissions);
+}
+
+// Confirmar/recusar uma requisição (e disparar a baixa de estoque no Omie) é
+// decisão de GESTOR/ADMIN — regra fixa em código, igual ao canAssignRole: a
+// tela de permissões controla quem VÊ o módulo, não quem aprova.
+export function canDecideRequisicao(role: Role, permissions: RolePermissionsMap): boolean {
+  if (role !== "ADMIN" && role !== "GESTOR") {
+    return false;
+  }
+  return canViewRequisicoes(role, permissions);
+}
+
+// Baixa por planilha (matéria-prima MAT): escreve no estoque do Omie SEM passar
+// pelo gestor, então fica num módulo separado das Requisições — o admin decide
+// quais papéis podem.
+export function canViewBaixas(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "baixas", permissions);
+}
+
 // Só o ADMIN pode conceder o papel ADMIN — um Gestor não promove ninguém a dono.
 // Regra de segurança fixa em código, independente da tela de permissões.
 export function canAssignRole(actorRole: Role, targetRole: Role, permissions: RolePermissionsMap): boolean {

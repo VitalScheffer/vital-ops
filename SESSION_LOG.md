@@ -1597,3 +1597,103 @@ quiserem padronizar, é via `AlterarFamilia` (escrita, com autorização) ou na 
 Fluxo BOM→Omie funcionando ponta a ponta em produção: produtos (pré-check pula os que já existem, NCM por
 campo, controle de lote), estrutura/Multinível (intMalha + reenvio idempotente), captura automática de
 falha no report. Famílias confirmadas OK pelo Victor.
+
+## 2026-07-13 — Revalidação do report "CREHI MT005 i.xls"
+
+### Resumo
+Foi revisado o report automático que citava cinco falhas de `intMalha` em 09/07/2026, 14:14. A correção
+que envia esse campo entrou às 14:28 do mesmo dia e permanece no código atual. Nenhuma escrita foi feita
+no Omie nesta verificação.
+
+### Verificação
+- Leitura do arquivo `CREHI MT005 i.xls`: ele contém os pais e filhos indicados no report.
+- Leitura direta do Omie: os 8 produtos consultados existem e as 5 relações apontadas já existem nas
+  estruturas de `CREHI SM001 I0POL`, `CREHI SM002 I0POL` e `CREHI SM003 I0POL`.
+- `npx vitest run src/lib/produtos/envioOmie.test.ts` passou: 40/40, incluindo os cenários de `intMalha`.
+
+### Decisão
+Não há correção pendente nem reenvio necessário: o report é histórico e o estado atual da Omie está correto.
+
+## 2026-07-16 - Fase 3 completa: Requisicoes de fabrica + Baixa por planilha (MAT) + papel FABRICA
+
+### Resumo
+Pedido do Victor (3 frentes que na conversa se revelaram 2 modulos): (1) requisicao interna de
+produtos - funcionario pede material (SKU, quem pede, quantidade, setor), gera numero sequencial,
+gestor confirma/recusa e a confirmacao baixa o estoque no Omie sozinha; (2) baixa de estoque por
+planilha de materia-prima (MAT) com colunas pedido/produto/NF/quantidade/OP/solicitante - o
+"vinculo nota com pedido" vira a observacao do movimento no Omie; (3) papel novo FABRICA que ve SO
+a tela de Requisicoes. Verificada a API do Omie (developer.omie.com.br): baixa = IncluirAjusteEstoque
+(estoque/ajuste/, tipo SAI, origem AJU, motivo OPS, local padrao por omissao); saldo/CMC =
+ListarPosEstoque (estoque/consulta/, portado do nextstep); validacao de codigo = ListarProdutos em
+lote (ja provado em producao). `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (207 testes,
++48 novos) e `npm run build` verdes. Migration aplicada no Neon dev + seed.
+
+### Decisoes com o usuario (AskUserQuestion)
+- Modulo "NF <-> pedido" da mensagem original NAO e compra/venda: e a baixa por planilha (alguem
+  precisa de material, sobe a planilha, da baixa no que tem no estoque). Pedido/NF/OP sao
+  referencias que vao na observacao do ajuste.
+- Baixa no local de estoque PADRAO (Venda).
+- Requisicao MULTI-ITEM (carrinho) - 1 numero por pedido (REQ-0001, autoincrement do Postgres).
+- Papel novo chama FABRICA (label "Fabrica").
+
+### Arquivos criados
+- `src/lib/estoque/omieEstoque.ts` (+ `.test.ts`, 12 testes) - modulo PURO estilo envioOmie:
+  `buscarProdutosPorCodigo` (ListarProdutos em blocos de 50), `saldosPorCodigo` (ListarPosEstoque,
+  1 chamada, local padrao, devolve saldo+CMC), `baixarEstoque` (IncluirAjusteEstoque sequencial:
+  valor = CMC x qtd (campo obrigatorio), cod_int_ajuste = id do NOSSO item -> reenvio e duplicado
+  idempotente (nunca baixa 2x), valida saldo/codigo LOCALMENTE antes (falha local nao gasta chamada
+  nem conta pro freio), freio de sequencia de risco (5) igual envioOmie, OmieBlocked para o lote,
+  erro de lote_validade vira mensagem amigavel), `dataOmieHoje` (fuso Sao Paulo).
+- `src/app/(app)/requisicoes/` - `page.tsx` (guard por modulo; fila do gestor + form + meus pedidos)
+  e `actions.ts` (`criarRequisicao`: valida SKUs no Omie na criacao, guarda descricao/id interno;
+  `decidirRequisicao`: recusa exige motivo; confirmacao baixa item a item, persiste status por item
+  + MovimentoEstoque, requisicao so vira CONFIRMADA se nao interrompeu - interrompido mantem
+  PENDENTE e reconfirmar retoma so o restante).
+- `src/components/requisicoes/CriarRequisicaoForm.tsx` (carrinho com linhas dinamicas, reset por
+  "ajuste de estado no render") e `DecidirRequisicao.tsx` (confirmar/recusar com motivo).
+- `src/lib/baixas/planilha.ts` (+ `.test.ts`, 6 testes) - modelo .xlsx gerado no navegador e parser
+  tolerante (acha cabecalho, variacoes de coluna, qtd com virgula, erros por linha do Excel).
+- `src/app/(app)/baixas/` - `page.tsx` (guard + baixas recentes) e `actions.ts` (`conferirBaixa`
+  READ-only: codigos+saldos com consumo acumulado por SKU repetido; `executarBaixa`: persiste
+  BaixaImport/BaixaItem e baixa; `continuarBaixa`: retoma import interrompido so nos PENDENTES).
+- `src/components/baixas/BaixasClient.tsx` - fluxo baixar modelo -> subir -> conferencia automatica
+  -> executar -> resultado por item + botao "Continuar baixa" quando interrompido.
+- `src/lib/contracts/baixa.ts` - zod da baixa; `prisma/migrations/20260716121340_*`.
+
+### Arquivos alterados (principais)
+- `prisma/schema.prisma` - Requisicao reestruturada (numero Int autoincrement, solicitanteNome,
+  observacao, motivoDecisao, decididaEm) + RequisicaoItem novo; BaixaImport/BaixaItem novos;
+  MovimentoEstoque generalizado (sku, requisicaoItemId?/baixaItemId?). Tabelas antigas estavam
+  vazias (stub da Fase 3) - sem risco de dado perdido.
+- `src/lib/contracts/requisicao.ts` - multi-item (criarRequisicaoSchema com itens[1..50],
+  decidirRequisicaoSchema, formatarNumeroRequisicao). `user.ts` - roleSchema + FABRICA.
+- `src/lib/permissions.ts` - MODULES + "requisicoes"/"baixas"; DEFAULT_ROLE_PERMISSIONS com FABRICA
+  (so requisicoes) e FUNCIONARIO com os modulos operacionais. `src/lib/rbac.ts` -
+  canViewRequisicoes/canViewBaixas (configuraveis) e canDecideRequisicao (GESTOR/ADMIN, regra fixa).
+- `src/lib/navigation.ts` (2 itens novos), `AppShell.tsx`/`(app)/page.tsx` (icones ClipboardList/
+  PackageMinus, label/intro do papel FABRICA), `PermissionsMatrixForm.tsx` + `configuracoes/actions.ts`
+  (FABRICA editavel na matriz), forms de usuario (opcao Fabrica), `usuarios/page.tsx` (label).
+- `src/lib/tutorial.ts` + `Tutorial.tsx` (2 passos novos), `src/lib/changelog.ts` (entrada nova),
+  `docs/REQUISITOS.md` (Secao 2 papel FABRICA, Secao 4 modelo novo, Secao 6 calls de estoque),
+  `src/app/api/requisicoes/route.ts` (stub documenta que o fluxo vive em Server Actions),
+  `eslint.config.mjs` (ignora public/pdf.worker.min.mjs - vendor minificado do pdfjs que ja vinha
+  acusando 7 erros de lint pre-existentes), testes de navigation/permissions/tutorial atualizados.
+
+### Comandos relevantes
+- `npx prisma migrate dev --name requisicoes_multi_item_baixas` (Neon DEV us-east-1; producao
+  aplica via `prisma migrate deploy` no vercel-build) + `npx prisma generate` + `npm run db:seed`.
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 207/207 (18 arquivos).
+  `npm run build` -> OK (rotas /requisicoes e /baixas no output).
+
+### Pendencias / proximos passos
+1. NAO commitado/pushado ainda - push na master = deploy automatico; aguardando OK do Victor.
+2. NAO exercido contra a API real do Omie (sandbox barra escrita na chave compartilhada): o
+   IncluirAjusteEstoque real (campos confirmados so na doc), o valor do motivo "OPS" e o CMC do
+   ListarPosEstoque (campo nCMC). Primeiro teste real: criar uma requisicao de 1 item barato,
+   confirmar como gestor e conferir o movimento no Omie (Estoque -> Movimentacoes).
+3. Produto com CONTROLE DE LOTE nao baixa pela API sem lote_validade - o item falha com orientacao
+   de baixa manual. Se a maioria da MAT tiver lote, proxima iteracao: escolher lote (FIFO?) na tela.
+4. Rodar o seed em PRODUCAO (ou salvar as permissoes na tela /configuracoes) para criar as linhas
+   de RolePermission do papel FABRICA e dos modulos novos - sem isso os defaults em codigo ja
+   funcionam, mas a matriz na tela e que persiste.
+5. Criar os usuarios do chao de fabrica com papel FABRICA e validar o fluxo ponta a ponta na UI.

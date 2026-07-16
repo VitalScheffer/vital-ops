@@ -15,6 +15,7 @@ const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Administrador",
   GESTOR: "Gestor",
   FUNCIONARIO: "Funcionário",
+  FABRICA: "Fábrica",
 };
 
 function badgeClass(role: Role): string {

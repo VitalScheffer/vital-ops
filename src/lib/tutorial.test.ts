@@ -22,6 +22,16 @@ describe("tutorialStepsFor", () => {
     expect(keys).toEqual(["welcome", "roles", "products", "users", "audit", "reopen"]);
   });
 
+  it("Requisições no menu adiciona o passo do módulo (ex.: FABRICA padrão)", () => {
+    const keys = tutorialStepsFor(["home", "requisicoes"]).map((step) => step.key);
+    expect(keys).toEqual(["welcome", "roles", "requisicoes", "reopen"]);
+  });
+
+  it("Baixa de estoque no menu adiciona o passo do módulo", () => {
+    const keys = tutorialStepsFor(["home", "baixas"]).map((step) => step.key);
+    expect(keys).toEqual(["welcome", "roles", "baixas", "reopen"]);
+  });
+
   it("todo passo tem título e ao menos um parágrafo", () => {
     for (const step of tutorialStepsFor(["home", "produtos", "usuarios", "auditoria"])) {
       expect(step.title.length).toBeGreaterThan(0);

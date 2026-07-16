@@ -1,4 +1,14 @@
-import { ArrowRight, Boxes, Home, Layers, ScrollText, Settings, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Boxes,
+  ClipboardList,
+  Home,
+  Layers,
+  PackageMinus,
+  ScrollText,
+  Settings,
+  Users,
+} from "lucide-react";
 import Link from "next/link";
 
 import { auth } from "@/lib/auth";
@@ -11,6 +21,8 @@ const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
   products: Boxes,
   pranchas: Layers,
+  requisicoes: ClipboardList,
+  baixas: PackageMinus,
   users: Users,
   audit: ScrollText,
   settings: Settings,
@@ -20,6 +32,7 @@ const ROLE_INTRO: Record<Role, string> = {
   ADMIN: "Você tem acesso total: gestão de usuários, setores e auditoria.",
   GESTOR: "Você aprova, cadastra usuários do seu setor e acompanha a auditoria.",
   FUNCIONARIO: "Aqui ficam os módulos e cadastros disponíveis para você.",
+  FABRICA: "Peça material ao estoque e acompanhe seus pedidos por aqui.",
 };
 
 function firstName(name: string): string {

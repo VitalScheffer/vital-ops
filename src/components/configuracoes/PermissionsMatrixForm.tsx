@@ -11,18 +11,21 @@ import { MODULES, type Module, type RolePermissionsMap } from "@/lib/permissions
 const MODULE_LABEL: Record<Module, string> = {
   products: "Produtos",
   pranchas: "Pranchas",
+  requisicoes: "Requisições",
+  baixas: "Baixa de estoque",
   users: "Usuários e setores",
   audit: "Auditoria",
 };
 
 // ADMIN não entra na lista de papéis editáveis: acesso total é regra fixa em
 // código (não configurável), então nem aparece como checkbox editável aqui.
-const EDITABLE_ROLES = ["GESTOR", "FUNCIONARIO"] as const;
+const EDITABLE_ROLES = ["GESTOR", "FUNCIONARIO", "FABRICA"] as const;
 type EditableRole = (typeof EDITABLE_ROLES)[number];
 
 const ROLE_LABEL: Record<EditableRole, string> = {
   GESTOR: "Gestor",
   FUNCIONARIO: "Funcionário",
+  FABRICA: "Fábrica",
 };
 
 function fieldName(role: EditableRole, module: Module): string {

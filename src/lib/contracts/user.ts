@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-// Papéis (espelham o enum Role do Prisma).
-export const roleSchema = z.enum(["ADMIN", "GESTOR", "FUNCIONARIO"]);
+// Papéis (espelham os valores aceitos em User.role no Prisma). FABRICA é o
+// papel do chão de fábrica: por padrão vê SÓ o módulo Requisições (pedido de
+// material ao estoque) — decisão de 16/07/2026.
+export const roleSchema = z.enum(["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA"]);
 export type Role = z.infer<typeof roleSchema>;
 
 export const setorSchema = z.object({

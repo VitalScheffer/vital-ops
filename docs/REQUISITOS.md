@@ -35,6 +35,9 @@
 - `ADMIN` (dono): tudo + gestão de usuários/setores.
 - `GESTOR`: aprova requisições, cria usuários, vê auditoria do(s) seu(s) setor(es).
 - `FUNCIONARIO`: cria cadastros/requisições, vê o próprio.
+- `FABRICA` (16/07/2026): chão de fábrica — por padrão vê SÓ o módulo Requisições
+  (solicita e acompanha os próprios pedidos; não decide). Configurável na matriz
+  papel×módulo como os demais.
 - Acesso por **SETOR** (Engenharia, Fábrica, Almoxarifado, Fiscal…) via membership (tabela).
 - Limite fino por setor/função vem **depois** (Fase futura). Fase 1 = papel + setor básicos.
 
@@ -63,10 +66,20 @@ ProdutoItem   { id, importId, codigo, descricao, familia?, ncm, unidade, tipo, l
 EstruturaItem { id, importId, numeroPai, numeroFilho, codigoPai, codigoFilho, quantidade,
                 status(PENDENTE|ENVIADO|FALHA), motivoErro? }
 
-// Módulo Requisições (Fase 3)
-Requisicao    { id, numero @unique, solicitanteId, sku, nome, quantidade, setorId,
-                status(PENDENTE|CONFIRMADA|RECUSADA), gestorId?, confirmadaEm?, criadoEm }
-MovimentoEstoque { id, requisicaoId, tipo, quantidade, omieRef?, criadoEm }
+// Módulo Requisições (Fase 3 — reestruturado em 16/07/2026: pedido MULTI-ITEM)
+Requisicao     { id, numero Int @unique autoincrement, solicitanteId, solicitanteNome,
+                 setorId, observacao?, status(PENDENTE|CONFIRMADA|RECUSADA),
+                 gestorId?, motivoDecisao?, decididaEm?, criadoEm }
+RequisicaoItem { id, requisicaoId, sku, descricao, quantidade,
+                 status(PENDENTE|BAIXADO|FALHA), motivoErro?, omieIdProd?, omieRef?, baixadoEm? }
+
+// Módulo Baixa por planilha (matéria-prima MAT, 16/07/2026)
+BaixaImport { id, autorId, arquivoNome, solicitante, status(ENVIANDO|CONCLUIDO|FALHA),
+              totalItens, criadoEm }
+BaixaItem   { id, importId, sku, descricao?, quantidade, pedido?, notaFiscal?, op?,
+              status(PENDENTE|BAIXADO|FALHA), motivoErro?, omieIdProd?, omieRef?, baixadoEm? }
+
+MovimentoEstoque { id, tipo, sku, quantidade, omieRef?, requisicaoItemId?, baixaItemId?, criadoEm }
 
 // Cliente Omie (portado do nextstep — durabilidade importa)
 OmieCache     { chave @unique, resposta Json, expiraEm }          // TTL >= 60s, guarda ok/vazio
@@ -125,7 +138,18 @@ Fonte: `nextstep/docs/omie.md` + `nextstep/apps/omie/` (client, breaker, cache, 
     depois de um conflito de CÓDIGO confirmado (a mensagem do Omie já cita o ID interno do
     cadastro existente). Confirmado na doc oficial (`developer.omie.com.br`) que `codigo_produto`
     é aceito como chave principal pra localizar o produto (ver §7).
-  - (Fase 3) baixa de estoque — ver `nextstep/apps/omie/services/estoque.py` pro call certo.
+  - (Fase 3 — implementado 16/07/2026) estoque:
+    - `ListarPosEstoque` (`estoque/consulta/`) — READ, saldo + CMC de vários SKUs numa
+      chamada (`lista_produtos`, `codigo_local_estoque: 0` = local padrão). Portado do
+      `nextstep/apps/omie/services/estoque.py`.
+    - `IncluirAjusteEstoque` (`estoque/ajuste/`) — WRITE, a BAIXA: `id_prod`, `data`
+      (DD/MM/AAAA), `tipo:"SAI"`, `quan`, `valor` (CMC×qtd — campo obrigatório),
+      `motivo:"OPS"`, `origem:"AJU"`, `obs`; `codigo_local_estoque` omitido = local
+      PADRÃO (decisão do Victor). `cod_int_ajuste` = id do NOSSO item → reenvio é
+      duplicado idempotente (nunca baixa 2×). Produto com CONTROLE DE LOTE exige
+      `lote_validade` no ajuste — não enviamos (não temos o lote): o item falha com
+      orientação de baixa manual no Omie. Saldo é validado LOCALMENTE antes (saldo
+      insuficiente nem vira chamada — não gasta orçamento de ban).
 - **Idempotência**: `codigo_produto_integracao = nosso código` → estrutura referencia por `int...` sem consultar id interno.
 
 ## 7. Módulo Produtos — regras específicas (do usuário)
