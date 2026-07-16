@@ -95,20 +95,82 @@ export async function buscarProdutosPorCodigo(
 }
 
 // -----------------------------------------------------------------------------
-// Leitura: saldo por SKU (posição de estoque no local padrão)
+// Leitura: locais de estoque + saldo por SKU num local
 // -----------------------------------------------------------------------------
+
+// Local padrão: o `ListarPosEstoque` aceita `codigo_local_estoque: 0` como
+// atalho pro padrão, e o `IncluirAjusteEstoque` assume o padrão quando o campo
+// é omitido.
+export const LOCAL_PADRAO = "0";
+
+export interface LocalEstoque {
+  codigo: string; // codigo_local_estoque (id do Omie — pode passar de 2^31, fica String)
+  descricao: string;
+  padrao: boolean;
+}
+
+// Locais de estoque ativos da empresa da app_key (READ paginado, cache 1h —
+// mesma consulta do nextstep). A lista é dinâmica: NUNCA fixar códigos de
+// local em código (cada empresa/chave tem os seus).
+export async function listarLocaisEstoque(chamar: ChamarFn): Promise<LocalEstoque[]> {
+  const locais: LocalEstoque[] = [];
+  let pagina = 1;
+  for (;;) {
+    const resp = await chamar(
+      "estoque/local/",
+      "ListarLocaisEstoque",
+      { nPagina: pagina, nRegPorPagina: 50 },
+      { ttlSeconds: 3600 },
+    );
+    if (!resp) break;
+    const encontrados = resp.locaisEncontrados;
+    if (Array.isArray(encontrados)) {
+      for (const loc of encontrados as OmiePayload[]) {
+        if (loc.inativo === "S") continue;
+        const codigo = texto(loc.codigo_local_estoque);
+        if (!codigo) continue;
+        locais.push({
+          codigo,
+          descricao: texto(loc.descricao) ?? codigo,
+          padrao: loc.padrao === "S",
+        });
+      }
+    }
+    const totalPaginas = numero(resp.nTotPaginas) ?? 1;
+    if (pagina >= totalPaginas) break;
+    pagina += 1;
+  }
+  return locais;
+}
+
+// Nome do local pra histórico/auditoria (best-effort: lista cacheada por 1h;
+// se a leitura falhar, o registro fica só com o código).
+export async function nomeDoLocal(codigoLocal: string, chamar: ChamarFn): Promise<string | undefined> {
+  try {
+    const locais = await listarLocaisEstoque(chamar);
+    if (codigoLocal === LOCAL_PADRAO) {
+      return locais.find((local) => local.padrao)?.descricao;
+    }
+    return locais.find((local) => local.codigo === codigoLocal)?.descricao;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface SaldoEstoque {
   saldo: number;
   cmc: number; // custo médio contábil (vira o `valor` obrigatório do ajuste)
 }
 
-// `{SKU → saldo/CMC}` numa única chamada. `codigo_local_estoque: 0` = local
-// padrão — o MESMO local onde a baixa vai acontecer.
+// `{SKU → saldo/CMC}` numa única chamada, no local pedido (LOCAL_PADRAO = "0"
+// = local padrão). `cExibeTodos: "S"` é OBRIGATÓRIO aqui: com "N", um conjunto
+// de SKUs todo zerado no local vira fault "Não existem registros" (= EMPTY =
+// conta pro orçamento de ban); com "S" a resposta traz os zeros sem fault.
 export async function saldosPorCodigo(
   codigos: readonly string[],
   dataPosicao: string, // DD/MM/AAAA (o caller passa a data — módulo puro)
   chamar: ChamarFn,
+  codigoLocal: string = LOCAL_PADRAO,
 ): Promise<Map<string, SaldoEstoque>> {
   const unicos = [...new Set(codigos.map((c) => c.trim()).filter(Boolean))];
   const mapa = new Map<string, SaldoEstoque>();
@@ -117,8 +179,8 @@ export async function saldosPorCodigo(
     nPagina: 1,
     nRegPorPagina: Math.max(unicos.length, 50),
     dDataPosicao: dataPosicao,
-    cExibeTodos: "N",
-    codigo_local_estoque: 0,
+    cExibeTodos: "S",
+    codigo_local_estoque: Number(codigoLocal),
     lista_produtos: unicos.map((cCodigo) => ({ cCodigo })),
   });
   const produtos = resp?.produtos;
@@ -165,7 +227,10 @@ export interface ResultadoBaixa {
 export interface ContextoBaixa {
   data: string; // DD/MM/AAAA
   produtos: Map<string, ProdutoEstoque>; // de buscarProdutosPorCodigo
-  saldos: Map<string, SaldoEstoque>; // de saldosPorCodigo
+  saldos: Map<string, SaldoEstoque>; // de saldosPorCodigo (do MESMO local da baixa)
+  // Local de estoque da baixa. LOCAL_PADRAO/ausente = local padrão (campo
+  // omitido no IncluirAjusteEstoque).
+  codigoLocal?: string;
 }
 
 // Mensagem amigável pros erros comuns do ajuste. Produto com CONTROLE DE LOTE
@@ -240,12 +305,13 @@ export async function baixarEstoque(
         chave: item.chave,
         sku: item.sku,
         outcome: "falha",
-        motivo: `Saldo insuficiente no local padrão: disponível ${disponivel}, pedido ${item.quantidade}.`,
+        motivo: `Saldo insuficiente neste local de estoque: disponível ${disponivel}, pedido ${item.quantidade}.`,
       });
       continue;
     }
 
     const cmc = saldo?.cmc ?? 0;
+    const localEscolhido = ctx.codigoLocal && ctx.codigoLocal !== LOCAL_PADRAO ? ctx.codigoLocal : undefined;
     try {
       const resp = await chamar(
         "estoque/ajuste/",
@@ -260,6 +326,7 @@ export async function baixarEstoque(
           origem: "AJU",
           valor: Number((cmc * item.quantidade).toFixed(2)),
           obs: item.obs.slice(0, 500),
+          ...(localEscolhido ? { codigo_local_estoque: Number(localEscolhido) } : {}),
         },
         WRITE,
       );

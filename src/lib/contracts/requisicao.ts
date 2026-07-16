@@ -26,11 +26,17 @@ export const criarRequisicaoSchema = z.object({
 export type CriarRequisicaoInput = z.infer<typeof criarRequisicaoSchema>;
 
 // Decisão do gestor sobre o pedido inteiro. O motivo é obrigatório na recusa
-// (validado na action, onde a mensagem de erro é amigável).
+// (validado na action, onde a mensagem de erro é amigável). Na confirmação o
+// gestor escolhe o local de estoque de onde a baixa sai ("0"/ausente = padrão).
 export const decidirRequisicaoSchema = z.object({
   id: z.string().min(1),
   decisao: z.enum(["CONFIRMAR", "RECUSAR"]),
   motivo: z.string().trim().max(500).optional(),
+  localCodigo: z
+    .string()
+    .trim()
+    .regex(/^\d{1,15}$/)
+    .optional(),
 });
 export type DecidirRequisicaoInput = z.infer<typeof decidirRequisicaoSchema>;
 

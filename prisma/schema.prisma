@@ -233,6 +233,10 @@ model Requisicao {
   status          String   @default("PENDENTE")
   gestorId        String?
   motivoDecisao   String?
+  // Local de estoque escolhido pelo gestor na confirmação ("0"/null = padrão).
+  // Persistido pra retomada após interrupção sair do MESMO local.
+  localEstoqueCodigo String?
+  localEstoqueNome   String?
   decididaEm      DateTime?
   criadoEm        DateTime @default(now())
 
@@ -280,6 +284,10 @@ model BaixaImport {
   autorId     String
   arquivoNome String
   solicitante String // quem solicitou a entrega (campo da tela)
+  // Local de estoque da baixa ("0"/null = padrão) — o "Continuar baixa"
+  // retoma no MESMO local da execução original.
+  localEstoqueCodigo String?
+  localEstoqueNome   String?
   status      String   @default("ENVIANDO")
   totalItens  Int      @default(0)
   criadoEm    DateTime @default(now())

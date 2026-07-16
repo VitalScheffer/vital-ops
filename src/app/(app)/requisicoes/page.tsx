@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { formatarNumeroRequisicao } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
 import { prisma } from "@/lib/db";
+import { locaisDisponiveis } from "@/lib/estoque/estoque.server";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canDecideRequisicao, canViewRequisicoes } from "@/lib/rbac";
 
@@ -80,7 +81,7 @@ function ComoFunciona({ decide }: { decide: boolean }) {
       icon: PackageMinus,
       titulo: "4. Baixa automática no Omie",
       texto:
-        "Quando o gestor confirma, o sistema confere o saldo e lança a saída no estoque do Omie (local padrão), item por item. O resultado de cada item fica visível no pedido — ninguém precisa mexer no Omie na mão.",
+        "Quando o gestor confirma, ele escolhe o local de estoque, o sistema confere o saldo lá e lança a saída no Omie item por item. O resultado de cada item fica visível no pedido — ninguém precisa mexer no Omie na mão.",
     },
   ];
 
@@ -183,6 +184,9 @@ function CartaoRequisicao({
           {requisicao.status === "CONFIRMADA" ? "Confirmada" : "Recusada"}
           {requisicao.gestor ? ` por ${requisicao.gestor.name}` : null}
           {requisicao.decididaEm ? ` em ${formatarDataHora(requisicao.decididaEm)}` : null}
+          {requisicao.status === "CONFIRMADA" && requisicao.localEstoqueNome
+            ? ` — baixa no local ${requisicao.localEstoqueNome}`
+            : null}
           {requisicao.motivoDecisao ? ` — ${requisicao.motivoDecisao}` : null}
         </p>
       ) : null}
@@ -206,11 +210,12 @@ export default async function RequisicoesPage() {
   const decide = canDecideRequisicao(role, permissions);
   const userId = session!.user.id;
 
-  const [setores, minhas, pendentes, decididas] = await Promise.all([
+  const [setores, minhas, pendentes, decididas, locais] = await Promise.all([
     prisma.setor.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     buscarRequisicoes({ solicitanteId: userId }, 30),
     decide ? buscarRequisicoes({ status: "PENDENTE" }, 100, "asc") : Promise.resolve([]),
     decide ? buscarRequisicoes({ status: { not: "PENDENTE" } }, 15) : Promise.resolve([]),
+    decide ? locaisDisponiveis() : Promise.resolve([]),
   ]);
 
   return (
@@ -228,7 +233,7 @@ export default async function RequisicoesPage() {
       {decide ? (
         <Panel
           title={`Aguardando decisão (${pendentes.length})`}
-          description="Pedidos pendentes de todos os solicitantes, do mais antigo pro mais novo. Confirmar dá baixa no estoque do Omie (local padrão); recusar exige motivo."
+          description="Pedidos pendentes de todos os solicitantes, do mais antigo pro mais novo. Confirmar dá baixa no estoque do Omie no local que você escolher; recusar exige motivo."
         >
           {pendentes.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum pedido aguardando decisão.</p>
@@ -239,7 +244,13 @@ export default async function RequisicoesPage() {
                   key={requisicao.id}
                   requisicao={requisicao}
                   mostrarSolicitante
-                  acoes={<DecidirRequisicao requisicaoId={requisicao.id} />}
+                  acoes={
+                    <DecidirRequisicao
+                      requisicaoId={requisicao.id}
+                      locais={locais}
+                      localAtualCodigo={requisicao.localEstoqueCodigo ?? undefined}
+                    />
+                  }
                 />
               ))}
             </div>

@@ -11,9 +11,11 @@ import {
 } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
 import {
+  LOCAL_PADRAO,
   baixarEstoque,
   buscarProdutosPorCodigo,
   dataOmieHoje,
+  nomeDoLocal,
   saldosPorCodigo,
   type ItemBaixa,
   type ProdutoEstoque,
@@ -164,11 +166,13 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     id: formData.get("id"),
     decisao: formData.get("decisao"),
     motivo: String(formData.get("motivo") ?? "").trim() || undefined,
+    localCodigo: String(formData.get("localCodigo") ?? "").trim() || undefined,
   });
   if (!parsed.success) {
     return { status: "error", message: "Decisão inválida." };
   }
   const { id, decisao, motivo } = parsed.data;
+  const localCodigo = parsed.data.localCodigo ?? LOCAL_PADRAO;
 
   const requisicao = await prisma.requisicao.findUnique({
     where: { id },
@@ -235,7 +239,7 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
       const resolvidos = await buscarProdutosPorCodigo(semId, chamar);
       for (const [sku, produto] of resolvidos) produtos.set(sku, produto);
     }
-    saldos = await saldosPorCodigo(pendentes.map((item) => item.sku), dataOmieHoje(), chamar);
+    saldos = await saldosPorCodigo(pendentes.map((item) => item.sku), dataOmieHoje(), chamar, localCodigo);
   } catch (erro) {
     if (erro instanceof OmieBlocked) {
       return {
@@ -254,7 +258,19 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     obs,
   }));
 
-  const resultado = await baixarEstoque(itensBaixa, { data: dataOmieHoje(), produtos, saldos }, chamar);
+  // Persiste o local escolhido ANTES da baixa: numa interrupção, a tela mostra
+  // de onde a baixa parcial saiu e a reconfirmação sugere o mesmo local.
+  const localNome = await nomeDoLocal(localCodigo, chamar);
+  await prisma.requisicao.update({
+    where: { id },
+    data: { localEstoqueCodigo: localCodigo, localEstoqueNome: localNome },
+  });
+
+  const resultado = await baixarEstoque(
+    itensBaixa,
+    { data: dataOmieHoje(), produtos, saldos, codigoLocal: localCodigo },
+    chamar,
+  );
 
   // Reflete o resultado por item no banco + trilha de movimentos dos baixados.
   const agora = new Date();
@@ -325,9 +341,9 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     action: "requisicao.confirmar",
     entity: "Requisicao",
     entityId: id,
-    summary: `Confirmou a requisição ${numero}: ${baixados} item(ns) baixado(s) no estoque${falhas > 0 ? `, ${falhas} com falha` : ""}.`,
+    summary: `Confirmou a requisição ${numero}: ${baixados} item(ns) baixado(s) no estoque${localNome ? ` (local ${localNome})` : ""}${falhas > 0 ? `, ${falhas} com falha` : ""}.`,
     before: { status: "PENDENTE" },
-    after: { status: "CONFIRMADA", baixados, falhas },
+    after: { status: "CONFIRMADA", baixados, falhas, localEstoque: localNome ?? localCodigo },
     req: await requestHeaders(),
   });
 

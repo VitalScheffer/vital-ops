@@ -1771,3 +1771,56 @@ ar, atras da autenticacao).
 3. Opcional: salvar a tela /configuracoes uma vez (ou rodar seed em prod) pra persistir as linhas
    de RolePermission do papel FABRICA e dos modulos novos (os defaults em codigo ja funcionam).
 4. Criar os usuarios FABRICA do chao de fabrica.
+
+## 2026-07-16 (continuacao 2) - Seletor de LOCAL DE ESTOQUE nas baixas e na confirmacao do gestor
+
+### Resumo
+Pedido do Victor: poder selecionar o local de estoque "para ver qual que tem". Implementado nas
+duas telas: em /baixas o usuario escolhe o local ANTES de conferir - a conferencia re-consulta o
+saldo naquele local na hora (trocar o local re-confere, e assim se ve qual local tem o material)
+e a baixa sai do local escolhido; em /requisicoes o gestor escolhe o local no formulario de
+confirmar (a validacao de saldo e a baixa usam esse local). A lista de locais vem do
+ListarLocaisEstoque (estoque/local/, cache 1h) - DINAMICA por empresa/app_key, nada de codigo
+fixo. `tsc`, `eslint`, `vitest` (211, +4) e `npm run build` verdes. Migration aplicada no dev.
+
+### Detalhe tecnico importante (armadilha de ban evitada)
+`ListarPosEstoque` com `cExibeTodos:"N"` + filtro de SKUs zerados num local da fault "Nao existem
+registros" (= EMPTY = conta pro orcamento de banimento da Omie). A consulta de saldo passou a usar
+`cExibeTodos:"S"` SEMPRE (traz os zeros sem fault) - receita ja confirmada contra a API real no
+nextstep (memoria omie-estoque-listarposestoque). Isso tambem corrigiu um risco latente da versao
+anterior (que usava "N" no local padrao).
+
+### Arquivos alterados
+- `src/lib/estoque/omieEstoque.ts` - `listarLocaisEstoque` (paginado, so ativos, ttl 3600),
+  `nomeDoLocal` (best-effort), `LOCAL_PADRAO="0"`; `saldosPorCodigo` ganha `codigoLocal` e usa
+  `cExibeTodos:"S"`; `baixarEstoque` inclui `codigo_local_estoque` no IncluirAjusteEstoque quando
+  um local foi escolhido (omitido = padrao); mensagem de saldo insuficiente generalizada.
+- `prisma/schema.prisma` + migration `20260716131234_local_estoque_selecionavel` -
+  `localEstoqueCodigo/localEstoqueNome` (nullable) em Requisicao e BaixaImport (String: o id do
+  local pode passar de 2^31). Persistidos para o "Continuar baixa" retomar no MESMO local e para
+  historico ("Baixas recentes" ganhou coluna Local; cartao da requisicao mostra o local da baixa).
+- `src/lib/contracts/baixa.ts`/`requisicao.ts` - `localCodigo` (regex digitos) nos payloads.
+- `src/lib/estoque/estoque.server.ts` (novo) - `locaisDisponiveis()` server-only, best-effort
+  (sem credencial/Omie fora -> [] e o seletor some, tudo cai no padrao).
+- `src/app/(app)/baixas/actions.ts` - conferir/executar/continuar propagam o local; import
+  persiste codigo+nome; retomada usa o local persistido.
+- `src/app/(app)/requisicoes/actions.ts` - decidir aceita localCodigo; persiste local ANTES da
+  baixa (interrupcao mantem o local pra reconfirmacao); auditoria cita o local.
+- `src/components/baixas/BaixasClient.tsx` - select de local (default padrao) que RE-CONFERE ao
+  trocar; coluna "Saldo no local".
+- `src/components/requisicoes/DecidirRequisicao.tsx` - select "Local de estoque da baixa" no form
+  do gestor (default: local da tentativa anterior ou padrao).
+- Paginas requisicoes/baixas (locais via Promise.all, textos do "como funciona" e descricoes) e
+  `src/lib/tutorial.ts` atualizados pra citar a escolha do local.
+- Testes: +4 em omieEstoque.test.ts (cExibeTodos "S" + local especifico; codigo_local_estoque no
+  ajuste quando escolhido/omitido quando padrao; listarLocaisEstoque filtra inativos; nomeDoLocal).
+
+### Comandos
+- `npx prisma migrate dev --name local_estoque_selecionavel` + `npx prisma generate` (o migrate
+  nao regenerou o client sozinho - tsc acusou, generate resolveu).
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 211/211. `npm run build` -> OK.
+
+### Pendencias
+1. Commit local; push/deploy aguardando OK do Victor.
+2. O teste real de escrita no Omie continua pendente - agora vale testar tambem uma baixa num
+   local NAO-padrao e conferir no Omie em que local a saida caiu.

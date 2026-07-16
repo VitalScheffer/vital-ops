@@ -5,6 +5,8 @@ import {
   baixarEstoque,
   buscarProdutosPorCodigo,
   dataOmieHoje,
+  listarLocaisEstoque,
+  nomeDoLocal,
   saldosPorCodigo,
   type ChamarFn,
   type ContextoBaixa,
@@ -81,11 +83,46 @@ describe("saldosPorCodigo", () => {
     expect(mapa.get("MAT 002")).toEqual({ saldo: 0, cmc: 0 });
   });
 
+  it("consulta um local específico com cExibeTodos 'S' (zerado no local NÃO pode virar fault)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ produtos: [] });
+    await saldosPorCodigo(["MAT 001"], "16/07/2026", chamar, "8667075521");
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).toMatchObject({ codigo_local_estoque: 8667075521, cExibeTodos: "S" });
+  });
+
   it("lista vazia não chama o Omie", async () => {
     const chamar = vi.fn<ChamarFn>();
     const mapa = await saldosPorCodigo([], "16/07/2026", chamar);
     expect(chamar).not.toHaveBeenCalled();
     expect(mapa.size).toBe(0);
+  });
+});
+
+describe("listarLocaisEstoque / nomeDoLocal", () => {
+  const RESPOSTA = {
+    nTotPaginas: 1,
+    locaisEncontrados: [
+      { codigo_local_estoque: 111, descricao: "Local Padrão", padrao: "S" },
+      { codigo_local_estoque: 222, descricao: "Matéria-Prima", padrao: "N" },
+      { codigo_local_estoque: 333, descricao: "Desativado", inativo: "S" },
+    ],
+  };
+
+  it("lista os locais ativos com código/descrição/padrão", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA);
+    const locais = await listarLocaisEstoque(chamar);
+    expect(locais).toEqual([
+      { codigo: "111", descricao: "Local Padrão", padrao: true },
+      { codigo: "222", descricao: "Matéria-Prima", padrao: false },
+    ]);
+  });
+
+  it("nomeDoLocal resolve o padrão ('0') e um local pelo código; erro vira undefined", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA);
+    expect(await nomeDoLocal("0", chamar)).toBe("Local Padrão");
+    expect(await nomeDoLocal("222", chamar)).toBe("Matéria-Prima");
+    const quebrado = vi.fn<ChamarFn>().mockRejectedValue(new OmieError("fora do ar"));
+    expect(await nomeDoLocal("222", quebrado)).toBeUndefined();
   });
 });
 
@@ -116,6 +153,22 @@ describe("baixarEstoque", () => {
     });
     expect(resultado.itens[0]).toMatchObject({ outcome: "baixado", omieRef: "987" });
     expect(resultado.interrompido).toBe(false);
+    // Sem local escolhido, o campo é OMITIDO (Omie assume o local padrão).
+    expect(param).not.toHaveProperty("codigo_local_estoque");
+  });
+
+  it("com local escolhido, o ajuste leva codigo_local_estoque numérico", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 1 });
+    const ctx: ContextoBaixa = {
+      ...contexto(
+        { "MAT 001": { idProd: "111", descricao: "Fita" } },
+        { "MAT 001": { saldo: 10, cmc: 1 } },
+      ),
+      codigoLocal: "8667075521",
+    };
+    await baixarEstoque([ITEM], ctx, chamar);
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).toMatchObject({ codigo_local_estoque: 8667075521 });
   });
 
   it("código desconhecido e saldo insuficiente falham SEM chamar o Omie", async () => {

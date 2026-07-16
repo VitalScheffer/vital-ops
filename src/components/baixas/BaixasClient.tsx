@@ -11,8 +11,15 @@ import {
   type ResultadoExecucao,
 } from "@/app/(app)/baixas/actions";
 import { FileDropzone } from "@/components/produtos/FileDropzone";
+import { Select } from "@/components/ui/Select";
 import { gerarModeloXlsx, lerPlanilhaBaixa, type PlanilhaBaixa } from "@/lib/baixas/planilha";
 import { baixarBlob } from "@/lib/bom/download";
+
+export interface LocalOpcao {
+  codigo: string;
+  descricao: string;
+  padrao: boolean;
+}
 
 const inputClass =
   "rounded-lg border border-border bg-field px-3 py-2 text-sm text-card-foreground outline-none focus-visible:border-primary";
@@ -30,8 +37,18 @@ function outcomeClass(outcome: string): string {
   return "text-muted-foreground";
 }
 
-export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: string }) {
+interface BaixasClientProps {
+  defaultSolicitante: string;
+  // Locais de estoque da empresa (vem do servidor, cacheado). Vazio = seletor
+  // escondido e tudo acontece no local padrão.
+  locais: LocalOpcao[];
+}
+
+export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) {
   const [solicitante, setSolicitante] = useState(defaultSolicitante);
+  const [localCodigo, setLocalCodigo] = useState(
+    () => locais.find((local) => local.padrao)?.codigo ?? locais[0]?.codigo ?? "0",
+  );
   const [file, setFile] = useState<File | null>(null);
   const [lendo, setLendo] = useState(false);
   const [erroLeitura, setErroLeitura] = useState<string | null>(null);
@@ -53,13 +70,23 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
     );
   }
 
-  async function conferir(linhas: PlanilhaBaixa["linhas"], id: number) {
+  async function conferir(linhas: PlanilhaBaixa["linhas"], id: number, local: string) {
     setConferindo(true);
     try {
-      const resultado = await conferirBaixa({ itens: linhas });
+      const resultado = await conferirBaixa({ itens: linhas, localCodigo: local });
       if (reqId.current === id) setConferencia(resultado);
     } finally {
       if (reqId.current === id) setConferindo(false);
+    }
+  }
+
+  // Trocar o local re-confere a planilha na hora — é assim que dá pra "ver
+  // qual local tem" o material antes de baixar.
+  async function onLocalChange(novoLocal: string) {
+    setLocalCodigo(novoLocal);
+    setExecucao(null);
+    if (planilha && planilha.linhas.length > 0) {
+      await conferir(planilha.linhas, reqId.current, novoLocal);
     }
   }
 
@@ -78,7 +105,7 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
       if (reqId.current !== id) return;
       setPlanilha(lida);
       if (lida.linhas.length > 0) {
-        await conferir(lida.linhas, id);
+        await conferir(lida.linhas, id, localCodigo);
       }
     } catch (erro) {
       if (reqId.current === id) {
@@ -98,6 +125,7 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
         arquivoNome: file.name,
         solicitante: solicitante.trim(),
         itens: planilha.linhas,
+        localCodigo,
       });
       if (reqId.current === id) setExecucao(resultado);
     } finally {
@@ -153,6 +181,29 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
             className={inputClass}
           />
         </div>
+        {locais.length > 0 ? (
+          <div className="flex min-w-56 flex-col gap-1.5 sm:max-w-xs">
+            <label htmlFor="baixa-local" className="text-sm font-medium text-card-foreground">
+              Local de estoque
+            </label>
+            <Select
+              id="baixa-local"
+              value={localCodigo}
+              onChange={(e) => onLocalChange(e.target.value)}
+              disabled={conferindo || executando}
+            >
+              {locais.map((local) => (
+                <option key={local.codigo} className="bg-card text-foreground" value={local.codigo}>
+                  {local.descricao}
+                  {local.padrao ? " (padrão)" : ""}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              O saldo da conferência e a baixa usam este local. Troque para ver qual local tem o material.
+            </p>
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={baixarModelo}
@@ -207,7 +258,7 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
             </h3>
             <button
               type="button"
-              onClick={() => planilha && conferir(planilha.linhas, reqId.current)}
+              onClick={() => planilha && conferir(planilha.linhas, reqId.current, localCodigo)}
               disabled={conferindo}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-card-foreground transition-colors hover:bg-muted disabled:opacity-60"
             >
@@ -223,7 +274,7 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
                   <th className="px-3 py-2 font-medium">Código</th>
                   <th className="px-3 py-2 font-medium">Descrição (Omie)</th>
                   <th className="px-3 py-2 font-medium">Qtd</th>
-                  <th className="px-3 py-2 font-medium">Saldo</th>
+                  <th className="px-3 py-2 font-medium">Saldo no local</th>
                   <th className="px-3 py-2 font-medium">Situação</th>
                 </tr>
               </thead>

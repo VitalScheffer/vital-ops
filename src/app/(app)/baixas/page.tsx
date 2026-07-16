@@ -6,6 +6,7 @@ import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
 import { formatarDataHora } from "@/lib/datas";
 import { prisma } from "@/lib/db";
+import { locaisDisponiveis } from "@/lib/estoque/estoque.server";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewBaixas } from "@/lib/rbac";
 
@@ -37,13 +38,13 @@ function ComoFunciona() {
       icon: SearchCheck,
       titulo: "3. Confira antes de baixar",
       texto:
-        "O sistema consulta o Omie e mostra cada linha: se o código existe, a descrição real e o saldo disponível. Nada é baixado nesta etapa — é só conferência.",
+        "Escolha o local de estoque e o sistema consulta o Omie linha a linha: se o código existe, a descrição real e o saldo NAQUELE local. Troque o local pra ver qual tem o material — nada é baixado nesta etapa.",
     },
     {
       icon: PackageMinus,
       titulo: "4. Execute a baixa",
       texto:
-        "Ao confirmar, a saída é lançada no estoque do Omie (local padrão), item por item, com quem solicitou e o vínculo pedido/NF/OP na observação. Se algo interromper no meio, dá pra continuar de onde parou sem baixar nada duas vezes.",
+        "Ao confirmar, a saída é lançada no estoque do Omie no local escolhido, item por item, com quem solicitou e o vínculo pedido/NF/OP na observação. Se algo interromper no meio, dá pra continuar de onde parou sem baixar nada duas vezes.",
     },
   ];
 
@@ -73,14 +74,17 @@ export default async function BaixasPage() {
     return <Forbidden message="Você não tem permissão para acessar a Baixa de estoque." />;
   }
 
-  const recentes = await prisma.baixaImport.findMany({
-    orderBy: { criadoEm: "desc" },
-    take: 10,
-    include: {
-      autor: { select: { name: true } },
-      itens: { select: { status: true } },
-    },
-  });
+  const [recentes, locais] = await Promise.all([
+    prisma.baixaImport.findMany({
+      orderBy: { criadoEm: "desc" },
+      take: 10,
+      include: {
+        autor: { select: { name: true } },
+        itens: { select: { status: true } },
+      },
+    }),
+    locaisDisponiveis(),
+  ]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -98,7 +102,7 @@ export default async function BaixasPage() {
         title="Nova baixa"
         description="Baixe o modelo, preencha, suba o arquivo e confira antes de executar. A baixa sai no local de estoque padrão."
       >
-        <BaixasClient defaultSolicitante={session!.user.name ?? ""} />
+        <BaixasClient defaultSolicitante={session!.user.name ?? ""} locais={locais} />
       </Panel>
 
       <Panel title="Baixas recentes" description="Últimas planilhas processadas (de todos os usuários).">
@@ -112,6 +116,7 @@ export default async function BaixasPage() {
                   <th className="py-2 pr-3 font-medium">Arquivo</th>
                   <th className="py-2 pr-3 font-medium">Solicitante</th>
                   <th className="py-2 pr-3 font-medium">Quem subiu</th>
+                  <th className="py-2 pr-3 font-medium">Local</th>
                   <th className="py-2 pr-3 font-medium">Itens (baixados/total)</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 font-medium">Quando</th>
@@ -125,6 +130,9 @@ export default async function BaixasPage() {
                       <td className="py-2 pr-3 text-card-foreground">{importacao.arquivoNome}</td>
                       <td className="py-2 pr-3 text-card-foreground">{importacao.solicitante}</td>
                       <td className="py-2 pr-3 text-muted-foreground">{importacao.autor.name}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">
+                        {importacao.localEstoqueNome ?? "Padrão"}
+                      </td>
                       <td className="py-2 pr-3 text-card-foreground">
                         {baixados}/{importacao.totalItens}
                       </td>

@@ -16,16 +16,23 @@ export const baixaLinhaSchema = z.object({
 });
 export type BaixaLinha = z.infer<typeof baixaLinhaSchema>;
 
-// Conferência (leitura, sem escrever no Omie): resolve códigos e saldos.
+// Código do local de estoque no Omie ("0" = local padrão). Vem do
+// ListarLocaisEstoque — só dígitos; fica String porque o id pode passar de 2^31.
+export const localEstoqueCodigoSchema = z.string().trim().regex(/^\d{1,15}$/);
+
+// Conferência (leitura, sem escrever no Omie): resolve códigos e saldos no
+// local escolhido.
 export const conferirBaixaSchema = z.object({
   itens: z.array(baixaLinhaSchema).min(1).max(200),
+  localCodigo: localEstoqueCodigoSchema.optional(),
 });
 export type ConferirBaixaInput = z.infer<typeof conferirBaixaSchema>;
 
-// Execução da baixa (escreve no Omie item a item).
+// Execução da baixa (escreve no Omie item a item, no local escolhido).
 export const executarBaixaSchema = z.object({
   arquivoNome: z.string().trim().min(1).max(200),
   solicitante: z.string().trim().min(1).max(120),
   itens: z.array(baixaLinhaSchema).min(1).max(200),
+  localCodigo: localEstoqueCodigoSchema.optional(),
 });
 export type ExecutarBaixaInput = z.infer<typeof executarBaixaSchema>;

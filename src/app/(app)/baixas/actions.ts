@@ -7,9 +7,11 @@ import { auth } from "@/lib/auth";
 import { conferirBaixaSchema, executarBaixaSchema, type BaixaLinha } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
 import {
+  LOCAL_PADRAO,
   baixarEstoque,
   buscarProdutosPorCodigo,
   dataOmieHoje,
+  nomeDoLocal,
   saldosPorCodigo,
   type ItemBaixa,
   type ProdutoEstoque,
@@ -47,6 +49,7 @@ function mensagemOmieIndisponivel(erro: unknown): string {
   }
   return "Não consegui consultar o Omie agora. Tente novamente.";
 }
+
 
 export interface ConferenciaItem {
   sku: string;
@@ -106,12 +109,12 @@ export async function conferirBaixa(input: unknown): Promise<ResultadoConferenci
   if (!parsed.success) {
     return { ok: false, erro: "Planilha inválida: confira código e quantidade de cada linha.", itens: [] };
   }
-  const { itens } = parsed.data;
+  const { itens, localCodigo } = parsed.data;
 
   try {
     const skus = itens.map((item) => item.sku);
     const produtos = await buscarProdutosPorCodigo(skus, chamar);
-    const saldos = await saldosPorCodigo(skus, dataOmieHoje(), chamar);
+    const saldos = await saldosPorCodigo(skus, dataOmieHoje(), chamar, localCodigo ?? LOCAL_PADRAO);
     return { ok: true, itens: conferirItens(itens, produtos, saldos) };
   } catch (erro) {
     return { ok: false, erro: mensagemOmieIndisponivel(erro), itens: [] };
@@ -189,6 +192,7 @@ async function processarBaixa(
   importId: string,
   itens: ItemPersistido[],
   actor: Guarda,
+  codigoLocal: string,
   produtosPrecarregados?: Map<string, ProdutoEstoque>,
 ): Promise<ResultadoExecucao> {
   let produtos: Map<string, ProdutoEstoque>;
@@ -196,7 +200,7 @@ async function processarBaixa(
   try {
     const skus = itens.map((item) => item.sku);
     produtos = produtosPrecarregados ?? (await buscarProdutosPorCodigo(skus, chamar));
-    saldos = await saldosPorCodigo(skus, dataOmieHoje(), chamar);
+    saldos = await saldosPorCodigo(skus, dataOmieHoje(), chamar, codigoLocal);
   } catch (erro) {
     // O import fica ENVIANDO com os itens PENDENTE — o "Continuar baixa" da
     // tela retoma daqui (o importId volta mesmo com ok:false).
@@ -218,7 +222,11 @@ async function processarBaixa(
     obs: item.obs,
   }));
 
-  const resultado = await baixarEstoque(itensBaixa, { data: dataOmieHoje(), produtos, saldos }, chamar);
+  const resultado = await baixarEstoque(
+    itensBaixa,
+    { data: dataOmieHoje(), produtos, saldos, codigoLocal },
+    chamar,
+  );
 
   const agora = new Date();
   const porChave = new Map(itens.map((item) => [item.id, item]));
@@ -316,6 +324,7 @@ export async function executarBaixa(input: unknown): Promise<ResultadoExecucao> 
     return { ...vazio, erro: "Dados inválidos: confira o solicitante e as linhas da planilha." };
   }
   const { arquivoNome, solicitante, itens } = parsed.data;
+  const localCodigo = parsed.data.localCodigo ?? LOCAL_PADRAO;
 
   // Descrição/id interno pra gravar nos itens (leitura cacheada da conferência).
   let produtos: Map<string, ProdutoEstoque>;
@@ -330,6 +339,8 @@ export async function executarBaixa(input: unknown): Promise<ResultadoExecucao> 
       autorId: guarda.userId,
       arquivoNome,
       solicitante,
+      localEstoqueCodigo: localCodigo,
+      localEstoqueNome: await nomeDoLocal(localCodigo, chamar),
       status: "ENVIANDO",
       totalItens: itens.length,
       itens: {
@@ -349,7 +360,7 @@ export async function executarBaixa(input: unknown): Promise<ResultadoExecucao> 
 
   const persistidos = criado.itens.map((item) => itemPersistidoDe(arquivoNome, solicitante, item));
 
-  return processarBaixa(criado.id, persistidos, guarda, produtos);
+  return processarBaixa(criado.id, persistidos, guarda, localCodigo, produtos);
 }
 
 // Retoma um import interrompido (pausa de segurança/bloqueio do Omie): baixa
@@ -383,5 +394,6 @@ export async function continuarBaixa(importId: string): Promise<ResultadoExecuca
     itemPersistidoDe(importacao.arquivoNome, importacao.solicitante, item),
   );
 
-  return processarBaixa(importacao.id, persistidos, guarda);
+  // Retoma no MESMO local da execução original.
+  return processarBaixa(importacao.id, persistidos, guarda, importacao.localEstoqueCodigo ?? LOCAL_PADRAO);
 }
