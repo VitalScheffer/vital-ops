@@ -153,20 +153,53 @@ interface ItemPersistido {
   obs: string;
 }
 
+// Um BaixaItem do banco já carrega tudo que a observação precisa (pedido, NF,
+// OP) — mesma derivação para o import novo e para a retomada.
+interface BaixaItemDb {
+  id: string;
+  sku: string;
+  quantidade: unknown; // Prisma Decimal
+  descricao: string | null;
+  pedido: string | null;
+  notaFiscal: string | null;
+  op: string | null;
+}
+
+function itemPersistidoDe(arquivoNome: string, solicitante: string, item: BaixaItemDb): ItemPersistido {
+  return {
+    id: item.id,
+    sku: item.sku,
+    quantidade: Number(item.quantidade),
+    descricao: item.descricao,
+    obs: obsDoItem(arquivoNome, solicitante, {
+      sku: item.sku,
+      quantidade: Number(item.quantidade),
+      pedido: item.pedido ?? undefined,
+      notaFiscal: item.notaFiscal ?? undefined,
+      op: item.op ?? undefined,
+    }),
+  };
+}
+
 // Núcleo compartilhado entre executar (import novo) e continuar (import
 // interrompido): baixa os itens no Omie e reflete o resultado no banco.
+// `produtosPrecarregados` evita repetir o ListarProdutos quando o caller
+// acabou de resolver os códigos (executarBaixa).
 async function processarBaixa(
   importId: string,
   itens: ItemPersistido[],
   actor: Guarda,
+  produtosPrecarregados?: Map<string, ProdutoEstoque>,
 ): Promise<ResultadoExecucao> {
   let produtos: Map<string, ProdutoEstoque>;
   let saldos: Map<string, SaldoEstoque>;
   try {
     const skus = itens.map((item) => item.sku);
-    produtos = await buscarProdutosPorCodigo(skus, chamar);
+    produtos = produtosPrecarregados ?? (await buscarProdutosPorCodigo(skus, chamar));
     saldos = await saldosPorCodigo(skus, dataOmieHoje(), chamar);
   } catch (erro) {
+    // O import fica ENVIANDO com os itens PENDENTE — o "Continuar baixa" da
+    // tela retoma daqui (o importId volta mesmo com ok:false).
     return {
       ok: false,
       erro: mensagemOmieIndisponivel(erro),
@@ -230,7 +263,13 @@ async function processarBaixa(
   const falhas = saida.filter((i) => i.outcome === "falha").length;
   const naoBaixados = saida.filter((i) => i.outcome === "nao_baixado").length;
 
-  const statusImport = resultado.interrompido ? "ENVIANDO" : falhas > 0 ? "FALHA" : "CONCLUIDO";
+  // Status do import pelo estado REAL de TODOS os itens no banco (uma retomada
+  // sem falhas não pode "esconder" falhas de uma rodada anterior).
+  const [pendentesNoBanco, falhasNoBanco] = await Promise.all([
+    prisma.baixaItem.count({ where: { importId, status: "PENDENTE" } }),
+    prisma.baixaItem.count({ where: { importId, status: "FALHA" } }),
+  ]);
+  const statusImport = pendentesNoBanco > 0 ? "ENVIANDO" : falhasNoBanco > 0 ? "FALHA" : "CONCLUIDO";
   await prisma.baixaImport.update({ where: { id: importId }, data: { status: statusImport } });
 
   await audit({
@@ -308,25 +347,9 @@ export async function executarBaixa(input: unknown): Promise<ResultadoExecucao> 
     include: { itens: true },
   });
 
-  const persistidos: ItemPersistido[] = criado.itens.map((item) => {
-    const linha = itens.find(
-      (l) =>
-        l.sku === item.sku &&
-        l.quantidade === Number(item.quantidade) &&
-        (l.pedido ?? null) === item.pedido &&
-        (l.notaFiscal ?? null) === item.notaFiscal &&
-        (l.op ?? null) === item.op,
-    );
-    return {
-      id: item.id,
-      sku: item.sku,
-      quantidade: Number(item.quantidade),
-      descricao: item.descricao,
-      obs: obsDoItem(arquivoNome, solicitante, linha ?? { sku: item.sku, quantidade: Number(item.quantidade) }),
-    };
-  });
+  const persistidos = criado.itens.map((item) => itemPersistidoDe(arquivoNome, solicitante, item));
 
-  return processarBaixa(criado.id, persistidos, guarda);
+  return processarBaixa(criado.id, persistidos, guarda, produtos);
 }
 
 // Retoma um import interrompido (pausa de segurança/bloqueio do Omie): baixa
@@ -356,19 +379,9 @@ export async function continuarBaixa(importId: string): Promise<ResultadoExecuca
     return { ...vazio, erro: "Não há itens pendentes nesta importação." };
   }
 
-  const persistidos: ItemPersistido[] = importacao.itens.map((item) => ({
-    id: item.id,
-    sku: item.sku,
-    quantidade: Number(item.quantidade),
-    descricao: item.descricao,
-    obs: obsDoItem(importacao.arquivoNome, importacao.solicitante, {
-      sku: item.sku,
-      quantidade: Number(item.quantidade),
-      pedido: item.pedido ?? undefined,
-      notaFiscal: item.notaFiscal ?? undefined,
-      op: item.op ?? undefined,
-    }),
-  }));
+  const persistidos = importacao.itens.map((item) =>
+    itemPersistidoDe(importacao.arquivoNome, importacao.solicitante, item),
+  );
 
   return processarBaixa(importacao.id, persistidos, guarda);
 }

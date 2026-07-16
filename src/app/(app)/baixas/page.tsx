@@ -1,7 +1,10 @@
+import { Download, FileSpreadsheet, PackageMinus, SearchCheck } from "lucide-react";
+
 import { BaixasClient } from "@/components/baixas/BaixasClient";
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
+import { formatarDataHora } from "@/lib/datas";
 import { prisma } from "@/lib/db";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewBaixas } from "@/lib/rbac";
@@ -14,15 +17,49 @@ const STATUS_LABEL: Record<string, string> = {
   FALHA: "Com falhas",
 };
 
-function formatarData(data: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(data);
+// Passo a passo exibido no topo da tela — explica o fluxo inteiro pra quem
+// vai usar (e pra validação do processo com o time).
+function ComoFunciona() {
+  const passos = [
+    {
+      icon: Download,
+      titulo: "1. Baixe o modelo",
+      texto:
+        "Clique em \"Baixar modelo (.xlsx)\". Ele já vem com as colunas certas: Produto (código Omie), Quantidade e as referências Pedido, Nota Fiscal, OP e Solicitante.",
+    },
+    {
+      icon: FileSpreadsheet,
+      titulo: "2. Preencha e suba",
+      texto:
+        "Preencha uma linha por item de matéria-prima e arraste o arquivo pra cá. Código e quantidade são obrigatórios; pedido, NF e OP são opcionais e ficam registrados na movimentação do Omie.",
+    },
+    {
+      icon: SearchCheck,
+      titulo: "3. Confira antes de baixar",
+      texto:
+        "O sistema consulta o Omie e mostra cada linha: se o código existe, a descrição real e o saldo disponível. Nada é baixado nesta etapa — é só conferência.",
+    },
+    {
+      icon: PackageMinus,
+      titulo: "4. Execute a baixa",
+      texto:
+        "Ao confirmar, a saída é lançada no estoque do Omie (local padrão), item por item, com quem solicitou e o vínculo pedido/NF/OP na observação. Se algo interromper no meio, dá pra continuar de onde parou sem baixar nada duas vezes.",
+    },
+  ];
+
+  return (
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {passos.map((passo) => (
+        <div key={passo.titulo} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <passo.icon className="h-5 w-5" />
+          </span>
+          <h2 className="text-sm font-semibold text-card-foreground">{passo.titulo}</h2>
+          <p className="text-xs leading-relaxed text-muted-foreground">{passo.texto}</p>
+        </div>
+      ))}
+    </section>
+  );
 }
 
 // Baixa de estoque por planilha (matéria-prima MAT): sobe a planilha com os
@@ -54,6 +91,8 @@ export default async function BaixasPage() {
           nota fiscal, OP): o sistema confere o saldo e dá baixa direto no estoque do Omie.
         </p>
       </header>
+
+      <ComoFunciona />
 
       <Panel
         title="Nova baixa"
@@ -92,7 +131,7 @@ export default async function BaixasPage() {
                       <td className="py-2 pr-3 text-muted-foreground">
                         {STATUS_LABEL[importacao.status] ?? importacao.status}
                       </td>
-                      <td className="py-2 text-muted-foreground">{formatarData(importacao.criadoEm)}</td>
+                      <td className="py-2 text-muted-foreground">{formatarDataHora(importacao.criadoEm)}</td>
                     </tr>
                   );
                 })}

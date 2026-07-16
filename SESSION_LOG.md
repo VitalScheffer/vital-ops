@@ -1697,3 +1697,59 @@ lote (ja provado em producao). `npx tsc --noEmit`, `npx eslint .`, `npx vitest r
    de RolePermission do papel FABRICA e dos modulos novos - sem isso os defaults em codigo ja
    funcionam, mas a matriz na tela e que persiste.
 5. Criar os usuarios do chao de fabrica com papel FABRICA e validar o fluxo ponta a ponta na UI.
+
+## 2026-07-16 (continuacao) - Code review da entrega + "como funciona" nas telas e no tutorial
+
+### Resumo
+Victor pediu code review e uma explicacao clara na tela e no tutorial para validar o fluxo com o
+Daniel. Review (8 angulos, effort high) achou 10 pontos - 5 de correcao e 5 de limpeza - todos
+corrigidos na sequencia. Depois, as telas /requisicoes e /baixas ganharam um passo a passo
+"como funciona" no topo (4 cartoes numerados cada) e o tutorial foi atualizado (passo de papeis
+estava desatualizado; passos de Requisicoes/Baixas agora explicam o fluxo em 4 passos). `tsc`,
+`eslint`, `vitest` (207) e `npm run build` verdes.
+
+### Achados do review e correcoes
+1. excluirUsuario nao contava baixas no cheque de historico e BaixaImport e onDelete:Cascade -
+   excluir usuario apagaria em silencio o historico de baixas (BaixaImport -> BaixaItem ->
+   MovimentoEstoque). Corrigido: `baixas` no _count + mensagem.
+2. Status do BaixaImport considerava so as falhas da RODADA: apos "Continuar baixa" sem falhas
+   novas, import com falhas antigas virava CONCLUIDO. Corrigido: status derivado do estado REAL
+   dos itens no banco (count PENDENTE/FALHA).
+3. Falha de leitura (produtos/saldos) logo apos criar o import deixava ENVIANDO sem caminho de
+   retomada na UI. Corrigido: erro com importId agora mostra botao "Tentar de novo" (continuar).
+4. Botao de executar habilitado com 0 linhas ok na conferencia (criaria import 100% falha).
+   Corrigido: podeExecutar exige linhasOk > 0.
+5. Passo "roles" do tutorial desatualizado (nao citava Requisicoes/Baixas/Fabrica). Corrigido.
+6. Fila do gestor era desc + take 100 (starvation dos antigos). Corrigido: FIFO (asc).
+7. executarBaixa re-lia produtos dentro de processarBaixa (2x ListarProdutos). Corrigido:
+   processarBaixa aceita produtosPrecarregados.
+8. Matching fragil por 5 campos pra reconstruir a obs no executarBaixa. Corrigido: helper
+   itemPersistidoDe deriva a obs dos campos persistidos (igual continuarBaixa ja fazia).
+9. normalizarCabecalho/diacriticos em 3 copias (bomFile, planilha, omieEstoque). Extraido para
+   `src/lib/texto.ts` (semAcento + normalizarCabecalho); os 3 agora importam de la.
+10. formatarData duplicada em 2 paginas. Extraida para `src/lib/datas.ts` (formatarDataHora).
+
+### "Como funciona" (para validar com o Daniel)
+- /requisicoes: 4 cartoes no topo - 1. monte o pedido (carrinho, quem pede, setor); 2. pedido
+  ganha numero REQ-#### e entra na fila; 3. gestor confirma/recusa (recusa com motivo); 4. baixa
+  automatica no Omie item a item com situacao visivel. Texto do passo 3 muda se o usuario e gestor.
+- /baixas: 4 cartoes - 1. baixe o modelo; 2. preencha e suba (pedido/NF/OP viram observacao no
+  Omie); 3. conferencia no Omie sem baixar nada; 4. executar com retomada idempotente.
+- Tutorial (?): passos de Requisicoes e Baixas reescritos em "Passo 1..4"; passo de papeis agora
+  descreve FUNCIONARIO/FABRICA/GESTOR corretamente.
+
+### Incidente de encoding (resolvido)
+Um replace via PowerShell (Get-Content sem -Encoding) corrompeu o UTF-8 de requisicoes/page.tsx
+(mojibake). Arquivo reescrito por completo com o conteudo correto ja incluindo fila FIFO +
+formatarDataHora + secao ComoFunciona. Licao: nao usar Get-Content/Set-Content pra editar fonte
+UTF-8 no Windows PowerShell 5.1.
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 207/207. `npm run build` -> OK.
+
+### Pendencias
+1. Commit local feito; push segue aguardando OK do Victor (deploy automatico).
+2. Validacao com o Daniel: os textos "como funciona" das duas telas descrevem o fluxo pretendido?
+   Ajustes de texto sao baratos.
+3. Continuam as pendencias da entrada anterior (teste real de escrita no Omie, lote_validade,
+   seed/permissoes em producao).

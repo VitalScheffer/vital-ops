@@ -18,6 +18,7 @@
 
 import type { ChamarOptions, OmiePayload } from "@/lib/omie/client";
 import { OmieBlocked, OmieDuplicate } from "@/lib/omie/errors";
+import { semAcento } from "@/lib/texto";
 
 export type ChamarFn = (
   path: string,
@@ -165,21 +166,6 @@ export interface ContextoBaixa {
   data: string; // DD/MM/AAAA
   produtos: Map<string, ProdutoEstoque>; // de buscarProdutosPorCodigo
   saldos: Map<string, SaldoEstoque>; // de saldosPorCodigo
-}
-
-// Faixa Unicode dos diacríticos combinantes (mesma técnica do bomFile.ts:
-// comparação numérica pra não depender de como o editor grava esses bytes).
-const DIACRITICO_MIN = 768;
-const DIACRITICO_MAX = 879;
-
-function semAcento(s: string): string {
-  return Array.from(s.normalize("NFD"))
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      return code < DIACRITICO_MIN || code > DIACRITICO_MAX;
-    })
-    .join("")
-    .toLowerCase();
 }
 
 // Mensagem amigável pros erros comuns do ajuste. Produto com CONTROLE DE LOTE

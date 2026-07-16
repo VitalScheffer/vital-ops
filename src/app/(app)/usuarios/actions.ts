@@ -276,7 +276,7 @@ export async function excluirUsuario(_prev: FormState, formData: FormData): Prom
       role: true,
       active: true,
       _count: {
-        select: { imports: true, requisicoesFeitas: true, requisicoesGeridas: true },
+        select: { imports: true, requisicoesFeitas: true, requisicoesGeridas: true, baixas: true },
       },
     },
   });
@@ -299,13 +299,14 @@ export async function excluirUsuario(_prev: FormState, formData: FormData): Prom
   const temHistorico =
     target._count.imports > 0 ||
     target._count.requisicoesFeitas > 0 ||
-    target._count.requisicoesGeridas > 0;
+    target._count.requisicoesGeridas > 0 ||
+    target._count.baixas > 0;
   if (temHistorico) {
     return {
       status: "error",
       message:
-        "Este usuário tem histórico (importações ou requisições). Para preservar a auditoria, " +
-        "desative-o (Editar → desmarcar \"Usuário ativo\") em vez de excluir.",
+        "Este usuário tem histórico (importações, requisições ou baixas de estoque). Para preservar " +
+        "a auditoria, desative-o (Editar → desmarcar \"Usuário ativo\") em vez de excluir.",
     };
   }
 

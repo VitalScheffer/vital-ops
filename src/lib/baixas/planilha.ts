@@ -5,6 +5,7 @@
 import * as XLSX from "xlsx";
 
 import type { BaixaLinha } from "@/lib/contracts";
+import { normalizarCabecalho } from "@/lib/texto";
 
 // Cabeçalhos do modelo oficial. O parser é tolerante (reconhece variações e
 // qualquer ordem de colunas), mas o modelo é o caminho feliz.
@@ -26,20 +27,6 @@ export function gerarModeloXlsx(): Uint8Array {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Baixa");
   return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
-}
-
-// Faixa Unicode dos diacríticos combinantes (mesma técnica do bomFile.ts).
-const DIACRITICO_MIN = 768;
-const DIACRITICO_MAX = 879;
-
-function normalizarCabecalho(s: string): string {
-  const semAcento = Array.from(s.normalize("NFD"))
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      return code < DIACRITICO_MIN || code > DIACRITICO_MAX;
-    })
-    .join("");
-  return semAcento.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 const MAX_LINHAS_PROCURA_CABECALHO = 10;

@@ -112,7 +112,8 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
     try {
       const resultado = await continuarBaixa(execucao.importId);
       if (reqId.current === id) {
-        // Junta o que já tinha baixado antes com o resultado da retomada.
+        // Junta o que já tinha baixado antes com o resultado da retomada; num
+        // erro, preserva o importId pra manter o botão de retomar visível.
         setExecucao(
           resultado.ok
             ? {
@@ -123,7 +124,7 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
                   naoBaixados: resultado.totais.naoBaixados,
                 },
               }
-            : resultado,
+            : { ...resultado, importId: resultado.importId ?? execucao.importId },
         );
       }
     } finally {
@@ -133,8 +134,8 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
 
   const linhasOk = conferencia?.ok ? conferencia.itens.filter((item) => item.ok).length : 0;
   const linhasProblema = conferencia?.ok ? conferencia.itens.filter((item) => !item.ok).length : 0;
-  const podeExecutar =
-    !executando && !conferindo && !!planilha && planilha.linhas.length > 0 && solicitante.trim().length > 0;
+  // Sem NENHUMA linha ok não há o que baixar — evita registrar um import 100% falha.
+  const podeExecutar = !executando && !conferindo && linhasOk > 0 && solicitante.trim().length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -337,9 +338,22 @@ export function BaixasClient({ defaultSolicitante }: { defaultSolicitante: strin
               </div>
             </>
           ) : (
-            <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {execucao.erro}
-            </p>
+            <div className="flex flex-col gap-2">
+              <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                {execucao.erro}
+              </p>
+              {execucao.importId ? (
+                <button
+                  type="button"
+                  onClick={continuar}
+                  disabled={executando}
+                  className="inline-flex items-center gap-1.5 self-start rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  {executando ? "Tentando de novo…" : "Tentar de novo"}
+                </button>
+              ) : null}
+            </div>
           )}
         </section>
       ) : null}

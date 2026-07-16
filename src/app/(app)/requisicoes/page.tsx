@@ -1,9 +1,12 @@
+import { CheckCircle2, ClipboardList, PackageMinus, UserCheck } from "lucide-react";
+
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { CriarRequisicaoForm } from "@/components/requisicoes/CriarRequisicaoForm";
 import { DecidirRequisicao } from "@/components/requisicoes/DecidirRequisicao";
 import { auth } from "@/lib/auth";
 import { formatarNumeroRequisicao } from "@/lib/contracts";
+import { formatarDataHora } from "@/lib/datas";
 import { prisma } from "@/lib/db";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canDecideRequisicao, canViewRequisicoes } from "@/lib/rbac";
@@ -28,24 +31,15 @@ const ITEM_STATUS_LABEL: Record<string, string> = {
   FALHA: "falha",
 };
 
-function formatarData(data: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(data);
-}
-
 function formatarQuantidade(quantidade: unknown): string {
   return Number(quantidade).toLocaleString("pt-BR");
 }
 
 type RequisicaoComTudo = Awaited<ReturnType<typeof buscarRequisicoes>>[number];
 
-function buscarRequisicoes(where: object, take: number) {
+// A fila do gestor é FIFO ("asc": o pedido mais antigo primeiro, ninguém fica
+// pra trás); as listas de acompanhamento mostram o mais recente primeiro.
+function buscarRequisicoes(where: object, take: number, ordem: "asc" | "desc" = "desc") {
   return prisma.requisicao.findMany({
     where,
     include: {
@@ -54,9 +48,55 @@ function buscarRequisicoes(where: object, take: number) {
       solicitante: { select: { name: true, email: true } },
       gestor: { select: { name: true } },
     },
-    orderBy: { criadoEm: "desc" },
+    orderBy: { criadoEm: ordem },
     take,
   });
+}
+
+// Passo a passo exibido no topo da tela — a mesma explicação vale pro
+// solicitante (FABRICA/FUNCIONARIO) e pro gestor validarem o fluxo.
+function ComoFunciona({ decide }: { decide: boolean }) {
+  const passos = [
+    {
+      icon: ClipboardList,
+      titulo: "1. Monte o pedido",
+      texto:
+        "Informe quem está pedindo, o setor e os itens (código do produto no Omie + quantidade). Dá para pedir vários itens de uma vez, tipo um carrinho.",
+    },
+    {
+      icon: CheckCircle2,
+      titulo: "2. Pedido ganha um número",
+      texto:
+        "Ao enviar, o sistema confere se cada código existe no Omie e gera um número sequencial (ex.: REQ-0001). O pedido entra na fila do gestor como \"Aguardando gestor\".",
+    },
+    {
+      icon: UserCheck,
+      titulo: "3. Gestor confirma ou recusa",
+      texto: decide
+        ? "Você (gestor) vê a fila abaixo, do pedido mais antigo pro mais novo, e decide. Recusar exige um motivo, que o solicitante vê."
+        : "Só o gestor decide. Se recusar, o motivo aparece no seu pedido em \"Meus pedidos\".",
+    },
+    {
+      icon: PackageMinus,
+      titulo: "4. Baixa automática no Omie",
+      texto:
+        "Quando o gestor confirma, o sistema confere o saldo e lança a saída no estoque do Omie (local padrão), item por item. O resultado de cada item fica visível no pedido — ninguém precisa mexer no Omie na mão.",
+    },
+  ];
+
+  return (
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {passos.map((passo) => (
+        <div key={passo.titulo} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <passo.icon className="h-5 w-5" />
+          </span>
+          <h2 className="text-sm font-semibold text-card-foreground">{passo.titulo}</h2>
+          <p className="text-xs leading-relaxed text-muted-foreground">{passo.texto}</p>
+        </div>
+      ))}
+    </section>
+  );
 }
 
 function CartaoRequisicao({
@@ -81,7 +121,7 @@ function CartaoRequisicao({
             {STATUS_LABEL[requisicao.status] ?? requisicao.status}
           </span>
         </div>
-        <span className="text-xs text-muted-foreground">{formatarData(requisicao.criadoEm)}</span>
+        <span className="text-xs text-muted-foreground">{formatarDataHora(requisicao.criadoEm)}</span>
       </header>
 
       <p className="text-sm text-muted-foreground">
@@ -142,7 +182,7 @@ function CartaoRequisicao({
         <p className="text-xs text-muted-foreground">
           {requisicao.status === "CONFIRMADA" ? "Confirmada" : "Recusada"}
           {requisicao.gestor ? ` por ${requisicao.gestor.name}` : null}
-          {requisicao.decididaEm ? ` em ${formatarData(requisicao.decididaEm)}` : null}
+          {requisicao.decididaEm ? ` em ${formatarDataHora(requisicao.decididaEm)}` : null}
           {requisicao.motivoDecisao ? ` — ${requisicao.motivoDecisao}` : null}
         </p>
       ) : null}
@@ -169,7 +209,7 @@ export default async function RequisicoesPage() {
   const [setores, minhas, pendentes, decididas] = await Promise.all([
     prisma.setor.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     buscarRequisicoes({ solicitanteId: userId }, 30),
-    decide ? buscarRequisicoes({ status: "PENDENTE" }, 100) : Promise.resolve([]),
+    decide ? buscarRequisicoes({ status: "PENDENTE" }, 100, "asc") : Promise.resolve([]),
     decide ? buscarRequisicoes({ status: { not: "PENDENTE" } }, 15) : Promise.resolve([]),
   ]);
 
@@ -183,10 +223,12 @@ export default async function RequisicoesPage() {
         </p>
       </header>
 
+      <ComoFunciona decide={decide} />
+
       {decide ? (
         <Panel
           title={`Aguardando decisão (${pendentes.length})`}
-          description="Pedidos pendentes de todos os solicitantes. Confirmar dá baixa no estoque do Omie (local padrão)."
+          description="Pedidos pendentes de todos os solicitantes, do mais antigo pro mais novo. Confirmar dá baixa no estoque do Omie (local padrão); recusar exige motivo."
         >
           {pendentes.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum pedido aguardando decisão.</p>
@@ -205,11 +247,14 @@ export default async function RequisicoesPage() {
         </Panel>
       ) : null}
 
-      <Panel title="Novo pedido" description="Informe o código do produto no Omie (SKU), a quantidade e quem está pedindo.">
+      <Panel
+        title="Novo pedido"
+        description="Informe o código do produto no Omie (SKU), a quantidade e quem está pedindo. Pode adicionar quantos itens precisar antes de enviar."
+      >
         <CriarRequisicaoForm setores={setores} defaultNome={session!.user.name ?? ""} />
       </Panel>
 
-      <Panel title="Meus pedidos" description="Acompanhe aqui o andamento do que você pediu.">
+      <Panel title="Meus pedidos" description="Acompanhe aqui o andamento do que você pediu: aguardando gestor, confirmado (com a baixa item a item) ou recusado (com o motivo).">
         {minhas.length === 0 ? (
           <p className="text-sm text-muted-foreground">Você ainda não fez nenhum pedido.</p>
         ) : (

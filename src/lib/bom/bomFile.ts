@@ -1,23 +1,8 @@
 import * as XLSX from "xlsx";
 
+import { normalizarCabecalho } from "@/lib/texto";
 import type { BomRow } from "./types";
 import { lerXlsLegado } from "./xlsLegacy";
-
-// Faixa Unicode dos diacríticos combinantes (U+0300 a U+036F), usada para tirar
-// acento depois do normalize('NFD'). Comparação numérica em vez de regex com
-// caractere literal, pra não depender de como o editor grava esses bytes.
-const DIACRITICO_MIN = 768;
-const DIACRITICO_MAX = 879;
-
-function normalizarCabecalho(s: string): string {
-  const semAcento = Array.from(s.normalize("NFD"))
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      return code < DIACRITICO_MIN || code > DIACRITICO_MAX;
-    })
-    .join("");
-  return semAcento.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
 
 const MAX_LINHAS_PROCURA_CABECALHO = 20;
 
