@@ -70,6 +70,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const appUser = await syncUser(user.email, user.name);
         token.uid = appUser.id;
         token.role = appUser.role;
+        return token;
+      }
+      // Fora do login, RE-LÊ o papel do banco a cada request: trocar o papel
+      // de alguém em "Usuários e setores" vale imediatamente, sem exigir
+      // logout/login (o JWT antigo carregaria o papel velho por até 30 dias).
+      if (typeof token.email === "string" && token.email) {
+        const appUser = await prisma.user.findUnique({
+          where: { email: token.email },
+          select: { id: true, role: true },
+        });
+        if (appUser) {
+          token.uid = appUser.id;
+          token.role = appUser.role;
+        }
       }
       return token;
     },

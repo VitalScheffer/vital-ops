@@ -1933,3 +1933,60 @@ interrompe os grupos seguintes.
 ### Comandos
 - `npx prisma migrate dev --name local_por_item` + generate.
 - `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 219/219. `npm run build` -> OK.
+
+## 2026-07-16 (continuacao 7) - Daniel (fabrica@) aprovar as proprias requisicoes: e config, nao codigo
+
+### Resumo
+Victor perguntou se dava pra deixar o Daniel (fabrica@) aprovar as proprias solicitacoes em
+Requisicoes. Investigado: o codigo JA permite auto-aprovacao - `decidirRequisicao` so exige papel
+decisor (`canDecideRequisicao` = ADMIN | GESTOR | FABRICA_GESTOR) e a fila "Aguardando decisao"
+lista TODOS os pendentes, sem excluir os do proprio gestor. Nenhuma alteracao de codigo feita.
+
+### Diagnostico
+- O papel FABRICA_GESTOR (criado hoje, commit ea3cf66) ja esta em producao (push na master =
+  deploy automatico; origin/master inclui ea3cf66 e f3a8750).
+- O que falta e CONFIG em producao: fabrica@ ainda esta com papel FABRICA (so solicita).
+- Atencao: o papel vive no token JWT de login (`jwt` callback em `src/lib/auth.ts` so sincroniza
+  no sign-in). Depois de trocar o papel, o Daniel PRECISA sair e entrar de novo pra valer.
+
+### Como aplicar (producao - Victor, via UI)
+1. Usuarios e setores -> Editar fabrica@ -> Papel "Gestor da Fabrica (aprova Requisicoes)".
+2. Daniel faz logout e login de novo.
+3. Ele passa a ver "Aguardando decisao" com todos os pendentes (inclusive os dele) e decide.
+
+### Follow-up (mesma sessao): Victor trocou o papel e "nao foi"
+Victor aplicou o passo 1 (lista mostra fabrica@ = Gestor da Fabrica, Ativo) e o Daniel seguia
+sem conseguir aprovar. Verificado por eliminacao:
+- Deploy de producao OK: `vercel inspect` no deploy mais recente -> Ready, target production,
+  criado hoje 14:04 (depois do commit ea3cf66 das 13:53), alias vitalops.vitalscheffer.com.br.
+- Permissoes OK: `buildRolePermissionsMap` cai no default (requisicoes: true pro FABRICA_GESTOR)
+  mesmo sem linha no banco; ADMIN nao consegue desligar isso sem salvar a matriz explicitamente.
+- Causa restante: sessao JWT do Daniel ainda carrega o papel antigo (FABRICA). O `jwt` callback
+  em auth.ts so re-sincroniza o papel NO LOGIN (`if (user?.email)`), e o NextAuth mantem o token
+  por padrao ~30 dias. F5 nao resolve.
+Solucao passada ao Victor: Daniel clica em "Sair" (topo da tela) e entra de novo.
+Melhoria possivel (nao implementada, aguardando interesse): re-sincronizar o papel do banco a
+cada request no callback `jwt`, pra troca de papel valer sem relogin.
+
+### Pendencias / proximos passos
+- Nenhuma no codigo. Se quiserem no futuro BLOQUEAR auto-aprovacao (segregacao de funcoes),
+  ai sim seria codigo novo - hoje a auditoria registra quem confirmou cada pedido.
+
+### Follow-up 2: Daniel relogou e AINDA nao aprovava -> papel relido do banco a cada request
+Victor confirmou que o Daniel fez logout/login e continuou sem o painel de decisao. Sem acesso
+a producao pra inspecionar a sessao dele (extensao do Chrome desconectada), implementada a
+solucao definitiva que elimina a dependencia de relogin:
+- `src/lib/auth.ts` (callback `jwt`): fora do login, o papel (e o uid) passam a ser RELIDOS do
+  banco a cada request (`findUnique` por email, indice unico, custo desprezivel). Troca de papel
+  em "Usuarios e setores" vale na request seguinte pra qualquer sessao aberta, nova ou velha.
+  No login continua o `syncUser` (find-or-create) como antes.
+- O proxy (src/proxy.ts) usa so o authConfig edge-safe (sem esse callback), entao nada de
+  Prisma no edge.
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 219/219.
+- Commit local; push (= deploy automatico em producao) aguardando OK do Victor.
+
+### Checagens paralelas passadas ao Victor (se apos o deploy ainda falhar)
+1. Configuracoes -> matriz de permissoes: linha "Gestor da Fabrica" precisa ter "Requisicoes"
+   marcada (se alguem desmarcou e salvou, o Daniel perde o modulo inteiro, inclusive criar).
+2. Auditoria: conferir o "fabrica@... entrou na plataforma" mais recente (se o horario for
+   ANTERIOR a troca de papel, o relogin nao aconteceu de fato naquele dispositivo).
