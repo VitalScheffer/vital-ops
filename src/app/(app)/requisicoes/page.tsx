@@ -210,8 +210,9 @@ export default async function RequisicoesPage() {
   const decide = canDecideRequisicao(role, permissions);
   const userId = session!.user.id;
 
-  const [setores, minhas, pendentes, decididas, locais] = await Promise.all([
+  const [setores, membership, minhas, pendentes, decididas, locais] = await Promise.all([
     prisma.setor.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
+    prisma.userSetor.findFirst({ where: { userId }, select: { setorId: true } }),
     buscarRequisicoes({ solicitanteId: userId }, 30),
     decide ? buscarRequisicoes({ status: "PENDENTE" }, 100, "asc") : Promise.resolve([]),
     decide ? buscarRequisicoes({ status: { not: "PENDENTE" } }, 15) : Promise.resolve([]),
@@ -262,7 +263,11 @@ export default async function RequisicoesPage() {
         title="Novo pedido"
         description="Informe o código do produto no Omie (SKU), a quantidade e quem está pedindo. Pode adicionar quantos itens precisar antes de enviar."
       >
-        <CriarRequisicaoForm setores={setores} defaultNome={session!.user.name ?? ""} />
+        <CriarRequisicaoForm
+          setores={setores}
+          defaultNome={session!.user.name ?? ""}
+          defaultSetorId={membership?.setorId}
+        />
       </Panel>
 
       <Panel title="Meus pedidos" description="Acompanhe aqui o andamento do que você pediu: aguardando gestor, confirmado (com a baixa item a item) ou recusado (com o motivo).">

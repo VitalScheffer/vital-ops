@@ -54,6 +54,10 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "FABRICA", module: "audit", enabled: false },
 ];
 
+// Setores iniciais (REQUISITOS §2). Só cria se não existir — o admin pode
+// renomear/criar outros pela tela "Usuários e setores" sem o seed desfazer.
+const DEFAULT_SETORES = ["Fábrica", "Engenharia", "Almoxarifado", "Fiscal", "Administrativo"];
+
 async function main(): Promise<void> {
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
 
@@ -87,6 +91,14 @@ async function main(): Promise<void> {
     });
   }
   console.log("Seed: permissões padrão garantidas (RolePermission).");
+
+  // createMany + skipDuplicates: idempotente e numa query só (o upsert de
+  // Setor disparava P2028 "Transaction already closed" no Prisma 7 + pg).
+  await prisma.setor.createMany({
+    data: DEFAULT_SETORES.map((nome) => ({ nome })),
+    skipDuplicates: true,
+  });
+  console.log("Seed: setores padrão garantidos (Setor).");
 }
 
 main()

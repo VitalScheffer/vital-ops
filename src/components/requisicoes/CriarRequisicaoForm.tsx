@@ -12,6 +12,8 @@ import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
 interface CriarRequisicaoFormProps {
   setores: Setor[];
   defaultNome: string;
+  // Setor do próprio usuário (membership) — vem pré-selecionado.
+  defaultSetorId?: string;
 }
 
 interface LinhaItem {
@@ -33,7 +35,7 @@ function itensValidos(linhas: LinhaItem[]): { sku: string; quantidade: number }[
     .filter((item) => item.sku.length > 0 && Number.isFinite(item.quantidade) && item.quantidade > 0);
 }
 
-export function CriarRequisicaoForm({ setores, defaultNome }: CriarRequisicaoFormProps) {
+export function CriarRequisicaoForm({ setores, defaultNome, defaultSetorId }: CriarRequisicaoFormProps) {
   const [state, formAction, pending] = useActionState(criarRequisicao, IDLE_FORM_STATE);
   const [linhas, setLinhas] = useState<LinhaItem[]>([novaLinha(0)]);
   const [proximaKey, setProximaKey] = useState(1);
@@ -50,7 +52,8 @@ export function CriarRequisicaoForm({ setores, defaultNome }: CriarRequisicaoFor
   }
 
   const itens = itensValidos(linhas);
-  const podeEnviar = itens.length > 0 && !pending;
+  const semSetores = setores.length === 0;
+  const podeEnviar = itens.length > 0 && !pending && !semSetores;
 
   const atualizarLinha = (key: number, campo: "sku" | "quantidade", valor: string) => {
     setLinhas((atual) => atual.map((l) => (l.key === key ? { ...l, [campo]: valor } : l)));
@@ -86,16 +89,23 @@ export function CriarRequisicaoForm({ setores, defaultNome }: CriarRequisicaoFor
           <label htmlFor="req-setor" className="text-sm font-medium text-card-foreground">
             Setor
           </label>
-          <Select id="req-setor" name="setorId" required defaultValue="">
-            <option className="bg-card text-foreground" value="" disabled>
-              Escolha o setor
-            </option>
-            {setores.map((setor) => (
-              <option key={setor.id} className="bg-card text-foreground" value={setor.id}>
-                {setor.nome}
+          {semSetores ? (
+            <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              Nenhum setor cadastrado ainda. Peça a um Gestor ou Administrador para cadastrar os
+              setores na tela <span className="font-medium text-card-foreground">Usuários e setores</span>.
+            </p>
+          ) : (
+            <Select id="req-setor" name="setorId" required defaultValue={defaultSetorId ?? ""}>
+              <option className="bg-card text-foreground" value="" disabled>
+                Escolha o setor
               </option>
-            ))}
-          </Select>
+              {setores.map((setor) => (
+                <option key={setor.id} className="bg-card text-foreground" value={setor.id}>
+                  {setor.nome}
+                </option>
+              ))}
+            </Select>
+          )}
         </div>
       </div>
 

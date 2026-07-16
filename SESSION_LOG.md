@@ -1824,3 +1824,21 @@ anterior (que usava "N" no local padrao).
 1. Commit local; push/deploy aguardando OK do Victor.
 2. O teste real de escrita no Omie continua pendente - agora vale testar tambem uma baixa num
    local NAO-padrao e conferir no Omie em que local a saida caiu.
+
+## 2026-07-16 (continuacao 3) - Setor sem opcoes na tela de Requisicoes
+
+### Resumo
+Victor reportou que o select de Setor da requisicao nao mostrava nada. Causa: NENHUM setor
+cadastrado no banco (o select lista a tabela Setor, gerida em "Usuarios e setores", que estava
+vazia em producao). Tres correcoes: (1) estado vazio explicito no form (aviso orientando o
+gestor/admin a cadastrar setores, botao de enviar desabilitado) em vez de um select vazio;
+(2) pre-selecao do setor do proprio usuario (primeiro membership UserSetor) quando existir;
+(3) setores padrao no seed (Fabrica, Engenharia, Almoxarifado, Fiscal, Administrativo) -
+via createMany + skipDuplicates porque o upsert de Setor disparou P2028 "Transaction already
+closed" no Prisma 7 + Neon (aparentemente instabilidade de conexao; createMany e 1 query so).
+Seed rodado no dev (setores criados). `tsc`, `eslint`, `vitest` (211) verdes.
+
+### Producao
+O deploy leva o aviso/pre-selecao, mas os setores em PRODUCAO precisam ser criados: ou o
+admin cadastra na tela "Usuarios e setores", ou roda-se o seed contra o banco de producao
+(exige autorizacao/participacao do Victor - segredos de prod).
