@@ -28,6 +28,7 @@ import { chamar } from "@/lib/omie";
 import { OmieBlocked } from "@/lib/omie/errors";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canDecideRequisicao, canViewRequisicoes } from "@/lib/rbac";
+import { agruparPorLocal, localEfetivo } from "@/lib/requisicoes/locaisPorItem";
 import { requestHeaders } from "@/lib/request";
 
 function unauthenticated(): FormState {
@@ -236,13 +237,26 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
   }
   const semId = pendentes.filter((item) => !produtos.has(item.sku)).map((item) => item.sku);
 
-  let saldos;
+  // Local POR ITEM (opcional): o form do gestor pode mandar `localItem__<id>`
+  // pra cada item; sem escolha, o item herda o local do pedido.
+  const localPorItem = new Map(
+    pendentes.map((item) => [item.id, localEfetivo(formData.get(`localItem__${item.id}`), localCodigo)]),
+  );
+  const grupos = agruparPorLocal(pendentes, (item) => localPorItem.get(item.id) ?? localCodigo);
+
+  // Saldos POR LOCAL (uma leitura por local distinto, sequencial e cacheada).
+  const saldosPorLocal = new Map<string, Awaited<ReturnType<typeof saldosPorCodigo>>>();
   try {
     if (semId.length > 0) {
       const resolvidos = await buscarProdutosPorCodigo(semId, chamar);
       for (const [sku, produto] of resolvidos) produtos.set(sku, produto);
     }
-    saldos = await saldosPorCodigo(pendentes.map((item) => item.sku), dataOmieHoje(), chamar, localCodigo);
+    for (const [local, itensDoLocal] of grupos) {
+      saldosPorLocal.set(
+        local,
+        await saldosPorCodigo(itensDoLocal.map((item) => item.sku), dataOmieHoje(), chamar, local),
+      );
+    }
   } catch (erro) {
     if (erro instanceof OmieBlocked) {
       return {
@@ -254,34 +268,77 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
   }
 
   const obs = `Requisição ${numero} — solicitante: ${requisicao.solicitanteNome} (setor ${requisicao.setor.nome}). Confirmada por ${session.user.email}.`;
-  const itensBaixa: ItemBaixa[] = pendentes.map((item) => ({
-    chave: item.id,
-    sku: item.sku,
-    quantidade: Number(item.quantidade),
-    obs,
-  }));
 
-  // Persiste o local escolhido ANTES da baixa: numa interrupção, a tela mostra
+  // Persiste o local do PEDIDO antes da baixa: numa interrupção, a tela mostra
   // de onde a baixa parcial saiu e a reconfirmação sugere o mesmo local.
   const localNome = await nomeDoLocal(localCodigo, chamar);
   await prisma.requisicao.update({
     where: { id },
     data: { localEstoqueCodigo: localCodigo, localEstoqueNome: localNome },
   });
+  const nomesPorLocal = new Map<string, string | undefined>([[localCodigo, localNome]]);
+  for (const local of grupos.keys()) {
+    if (!nomesPorLocal.has(local)) {
+      nomesPorLocal.set(local, await nomeDoLocal(local, chamar));
+    }
+  }
 
-  const resultado = await baixarEstoque(
-    itensBaixa,
-    { data: dataOmieHoje(), produtos, saldos, codigoLocal: localCodigo },
-    chamar,
-  );
+  // Baixa por grupo de local, sequencial. Interrompeu num grupo (bloqueio ou
+  // pausa de segurança), os grupos seguintes nem começam: itens ficam
+  // pendentes pra próxima confirmação (idempotente).
+  const resultado: {
+    itens: { chave: string; sku: string; outcome: string; motivo?: string; omieRef?: string }[];
+    interrompido: boolean;
+    bloqueado: boolean;
+    motivoInterrupcao?: string;
+  } = { itens: [], interrompido: false, bloqueado: false };
+
+  for (const [local, itensDoLocal] of grupos) {
+    if (resultado.interrompido) {
+      for (const item of itensDoLocal) {
+        resultado.itens.push({
+          chave: item.id,
+          sku: item.sku,
+          outcome: "nao_baixado",
+          motivo: "Baixa interrompida antes de chegar neste item.",
+        });
+      }
+      continue;
+    }
+    const itensBaixa: ItemBaixa[] = itensDoLocal.map((item) => ({
+      chave: item.id,
+      sku: item.sku,
+      quantidade: Number(item.quantidade),
+      obs,
+    }));
+    const parcial = await baixarEstoque(
+      itensBaixa,
+      { data: dataOmieHoje(), produtos, saldos: saldosPorLocal.get(local) ?? new Map(), codigoLocal: local },
+      chamar,
+    );
+    resultado.itens.push(...parcial.itens);
+    if (parcial.interrompido) {
+      resultado.interrompido = true;
+      resultado.bloqueado = parcial.bloqueado;
+      resultado.motivoInterrupcao = parcial.motivoInterrupcao;
+    }
+  }
 
   // Reflete o resultado por item no banco + trilha de movimentos dos baixados.
   const agora = new Date();
   for (const item of resultado.itens) {
     if (item.outcome === "baixado" || item.outcome === "ja_baixado") {
+      const localDoItem = localPorItem.get(item.chave) ?? localCodigo;
       await prisma.requisicaoItem.update({
         where: { id: item.chave },
-        data: { status: "BAIXADO", motivoErro: null, omieRef: item.omieRef, baixadoEm: agora },
+        data: {
+          status: "BAIXADO",
+          motivoErro: null,
+          omieRef: item.omieRef,
+          baixadoEm: agora,
+          localEstoqueCodigo: localDoItem,
+          localEstoqueNome: nomesPorLocal.get(localDoItem),
+        },
       });
       const original = pendentes.find((p) => p.id === item.chave);
       if (item.outcome === "baixado" && original) {

@@ -261,6 +261,10 @@ model RequisicaoItem {
   motivoErro   String?
   omieIdProd   String? // codigo_produto (id interno) resolvido na criação
   omieRef      String? // id_ajuste devolvido pelo IncluirAjusteEstoque
+  // Local de onde a baixa DESTE item saiu (o gestor pode escolher por item;
+  // sem escolha, herda o local do pedido).
+  localEstoqueCodigo String?
+  localEstoqueNome   String?
   baixadoEm    DateTime?
 
   requisicao Requisicao         @relation(fields: [requisicaoId], references: [id], onDelete: Cascade)

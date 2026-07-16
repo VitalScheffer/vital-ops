@@ -1901,3 +1901,35 @@ pessoal do chao continua com papel "Fabrica (so Requisicoes)".
 
 ### Comandos
 - `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 216/216.
+
+## 2026-07-16 (continuacao 6) - Local POR ITEM (opcional) na confirmacao da requisicao
+
+### Resumo
+Victor aprovou a evolucao com a condicao de que o padrao continue sendo UM local pro pedido
+inteiro. Implementado: no form de decisao, o gestor (GESTOR/ADMIN/FABRICA_GESTOR) escolhe o local
+do pedido como antes e, opcionalmente, marca "Escolher o local por item" (aparece so em pedido com
+2+ itens pendentes) - cada item ganha um select com "Usar o local do pedido" (default) ou um local
+especifico. `tsc`, `eslint`, `vitest` (219, +3) e build verdes. Migration aplicada no dev.
+
+### Implementacao
+- `src/lib/requisicoes/locaisPorItem.ts` (+ .test.ts, 3 testes) - logica pura: `localEfetivo`
+  (valida o codigo do item, cai no local do pedido) e `agruparPorLocal` (preserva ordem).
+- `src/app/(app)/requisicoes/actions.ts` - decidir: le `localItem__<id>` do FormData por item
+  pendente; agrupa por local efetivo; UMA leitura de saldo POR LOCAL distinto (sequencial,
+  cExibeTodos "S"); baixa POR GRUPO sequencial (grupo interrompido -> grupos seguintes nem
+  comecam, itens ficam pendentes pra reconfirmar; idempotencia por cod_int_ajuste mantida);
+  item BAIXADO grava localEstoqueCodigo/Nome proprios.
+- `prisma/schema.prisma` + migration `20260716165954_local_por_item` - localEstoqueCodigo/Nome
+  (nullable) em RequisicaoItem.
+- `src/components/requisicoes/DecidirRequisicao.tsx` - checkbox opcional + select por item.
+- `src/app/(app)/requisicoes/page.tsx` - passa itens pendentes pro form; item baixado mostra
+  "local: X" na coluna Situacao.
+
+### Observacao de comportamento
+O freio de sequencia de risco zera entre grupos (cada grupo e uma chamada ao orquestrador);
+`OmieBlocked` continua parando tudo. Aceitavel: o limite da Omie e por metodo e o bloqueio real
+interrompe os grupos seguintes.
+
+### Comandos
+- `npx prisma migrate dev --name local_por_item` + generate.
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 219/219. `npm run build` -> OK.

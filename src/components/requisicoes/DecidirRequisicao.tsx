@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, X } from "lucide-react";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import { decidirRequisicao } from "@/app/(app)/requisicoes/actions";
 import { FormFeedback } from "@/components/FormFeedback";
@@ -17,21 +17,30 @@ export interface LocalOpcao {
   padrao: boolean;
 }
 
+export interface ItemPendenteOpcao {
+  id: string;
+  sku: string;
+}
+
 interface DecidirRequisicaoProps {
   requisicaoId: string;
   // Locais de estoque da empresa (vem do servidor, cacheado). Vazio = seletor
   // escondido e a baixa sai do local padrão.
   locais: LocalOpcao[];
+  // Itens ainda não baixados — usados na escolha OPCIONAL de local por item.
+  itens: ItemPendenteOpcao[];
   // Local já usado numa tentativa anterior (interrompida) — vira o default.
   localAtualCodigo?: string;
 }
 
 // Botões de decisão do gestor num pedido pendente. O `decisao` vem do botão
 // que submeteu (name/value do submitter entra no FormData). Confirmar dispara
-// a baixa no Omie NO LOCAL ESCOLHIDO — pode demorar alguns segundos num pedido
-// com muitos itens.
-export function DecidirRequisicao({ requisicaoId, locais, localAtualCodigo }: DecidirRequisicaoProps) {
+// a baixa no Omie no(s) local(is) escolhido(s) — o padrão é UM local pro
+// pedido inteiro; "Escolher o local por item" é opcional, pra pedido que
+// mistura material de estoques diferentes.
+export function DecidirRequisicao({ requisicaoId, locais, itens, localAtualCodigo }: DecidirRequisicaoProps) {
   const [state, formAction, pending] = useActionState(decidirRequisicao, IDLE_FORM_STATE);
+  const [porItem, setPorItem] = useState(false);
   const padrao = locais.find((local) => local.padrao)?.codigo;
   const localDefault = localAtualCodigo ?? padrao ?? "";
 
@@ -40,17 +49,55 @@ export function DecidirRequisicao({ requisicaoId, locais, localAtualCodigo }: De
       <input type="hidden" name="id" value={requisicaoId} />
 
       {locais.length > 0 ? (
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-card-foreground">
-          Local de estoque da baixa
-          <Select name="localCodigo" defaultValue={localDefault}>
-            {locais.map((local) => (
-              <option key={local.codigo} className="bg-card text-foreground" value={local.codigo}>
-                {local.descricao}
-                {local.padrao ? " (padrão)" : ""}
-              </option>
-            ))}
-          </Select>
-        </label>
+        <>
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-card-foreground">
+            Local de estoque da baixa
+            <Select name="localCodigo" defaultValue={localDefault}>
+              {locais.map((local) => (
+                <option key={local.codigo} className="bg-card text-foreground" value={local.codigo}>
+                  {local.descricao}
+                  {local.padrao ? " (padrão)" : ""}
+                </option>
+              ))}
+            </Select>
+          </label>
+
+          {itens.length > 1 ? (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-card-foreground">
+              <input
+                type="checkbox"
+                checked={porItem}
+                onChange={(e) => setPorItem(e.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              Escolher o local por item (para pedido com material de estoques diferentes)
+            </label>
+          ) : null}
+
+          {porItem ? (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
+              {itens.map((item) => (
+                <label
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-2 text-sm text-card-foreground"
+                >
+                  <span className="font-mono text-xs">{item.sku}</span>
+                  <Select name={`localItem__${item.id}`} defaultValue="" containerClassName="w-56">
+                    <option className="bg-card text-foreground" value="">
+                      Usar o local do pedido
+                    </option>
+                    {locais.map((local) => (
+                      <option key={local.codigo} className="bg-card text-foreground" value={local.codigo}>
+                        {local.descricao}
+                        {local.padrao ? " (padrão)" : ""}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <label className="flex flex-col gap-1.5 text-sm font-medium text-card-foreground">

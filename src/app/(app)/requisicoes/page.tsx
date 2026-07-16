@@ -170,6 +170,9 @@ function CartaoRequisicao({
                   >
                     {ITEM_STATUS_LABEL[item.status] ?? item.status}
                   </span>
+                  {item.status === "BAIXADO" && item.localEstoqueNome ? (
+                    <span className="block text-xs text-muted-foreground">local: {item.localEstoqueNome}</span>
+                  ) : null}
                   {item.motivoErro ? (
                     <span className="block text-xs text-muted-foreground">{item.motivoErro}</span>
                   ) : null}
@@ -250,6 +253,9 @@ export default async function RequisicoesPage() {
                     <DecidirRequisicao
                       requisicaoId={requisicao.id}
                       locais={locais}
+                      itens={requisicao.itens
+                        .filter((item) => item.status !== "BAIXADO")
+                        .map((item) => ({ id: item.id, sku: item.sku }))}
                       localAtualCodigo={requisicao.localEstoqueCodigo ?? undefined}
                     />
                   }
