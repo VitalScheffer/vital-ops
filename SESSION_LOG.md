@@ -1842,3 +1842,36 @@ Seed rodado no dev (setores criados). `tsc`, `eslint`, `vitest` (211) verdes.
 O deploy leva o aviso/pre-selecao, mas os setores em PRODUCAO precisam ser criados: ou o
 admin cadastra na tela "Usuarios e setores", ou roda-se o seed contra o banco de producao
 (exige autorizacao/participacao do Victor - segredos de prod).
+
+## 2026-07-16 (continuacao 4) - Report do fabrica@: deploy do seletor de local + relatorio PDF
+
+### Resumo
+Report em producao (fabrica@, /baixas): a baixa saia sempre do Estoque Padrao, mas o saldo do
+almoxarifado esta no Estoque de Materia-Prima -> itens falhavam com "saldo insuficiente". A
+solucao (seletor de local) JA ESTAVA pronta local e foi deployada agora (push dos 3 commits
+pendentes: seletor de local, fix de setores vazios, session log). Na sequencia, implementado o
+RELATORIO EM PDF das requisicoes pedido pelo Victor: o gestor escolhe o periodo e baixa o resumo
+(solicitado/aprovado/recusado, com itens e situacao). `tsc`, `eslint`, `vitest` (215, +4) e
+`npm run build` verdes.
+
+### Relatorio PDF (novo)
+- `src/lib/requisicoes/relatorio.ts` (+ .test.ts, 4 testes) - parte PURA: monta as linhas
+  (cabecalho com periodo/totais por status; um bloco por requisicao com numero REQ-####, status,
+  solicitante/setor/data, decisao com gestor/local/motivo e itens com situacao/erro).
+- `src/lib/requisicoes/relatorioPdf.ts` - client-only (pdf-lib ja era dependencia, mesmo esquema
+  do Pranchas): desenha as linhas em A4 com quebra de linha por largura e paginacao; textos
+  sanitizados pra WinAnsi (acentos pt-BR ok, caractere exotico vira "?").
+- `src/app/(app)/requisicoes/actions.ts` - `relatorioRequisicoes({de, ate})` (guard gestor/admin,
+  periodo em dia inteiro no fuso de Sao Paulo, ate 1000 registros, dados serializados).
+- `src/components/requisicoes/RelatorioRequisicoes.tsx` - painel "Relatorio (PDF)" na tela (so
+  gestor): De/Ate (default: mes atual) + botao que gera e baixa o PDF no navegador.
+
+### Orientacoes passadas ao Victor (configuracao, nao codigo)
+1. fabrica@ aprovar: editar o usuario em "Usuarios e setores" -> papel GESTOR (so gestor/admin
+   decide; regra fixa). Obs.: GESTOR ve os demais modulos conforme a matriz de Configuracoes.
+2. Pessoal do chao de fabrica: criar os usuarios com papel FABRICA (ve so Requisicoes).
+3. Setores em producao continuam vazios ate cadastrarem na tela (ou seed em prod autorizado).
+
+### Comandos
+- `git push` (deploy dos commits bd389af/514bd93/ae5b84e) e depois do relatorio PDF.
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 215/215. `npm run build` -> OK.

@@ -4,6 +4,7 @@ import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { CriarRequisicaoForm } from "@/components/requisicoes/CriarRequisicaoForm";
 import { DecidirRequisicao } from "@/components/requisicoes/DecidirRequisicao";
+import { RelatorioRequisicoes } from "@/components/requisicoes/RelatorioRequisicoes";
 import { auth } from "@/lib/auth";
 import { formatarNumeroRequisicao } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
@@ -289,6 +290,15 @@ export default async function RequisicoesPage() {
               <CartaoRequisicao key={requisicao.id} requisicao={requisicao} mostrarSolicitante />
             ))}
           </div>
+        </Panel>
+      ) : null}
+
+      {decide ? (
+        <Panel
+          title="Relatório (PDF)"
+          description="Baixe o resumo do período: o que foi solicitado, quem pediu, o que foi aprovado ou recusado e a situação de cada item."
+        >
+          <RelatorioRequisicoes />
         </Panel>
       ) : null}
     </div>

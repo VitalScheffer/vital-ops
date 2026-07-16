@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
@@ -9,6 +10,8 @@ import {
   decidirRequisicaoSchema,
   formatarNumeroRequisicao,
 } from "@/lib/contracts";
+import { formatarDataHora } from "@/lib/datas";
+import type { RequisicaoRelatorio } from "@/lib/requisicoes/relatorio";
 import { prisma } from "@/lib/db";
 import {
   LOCAL_PADRAO,
@@ -355,4 +358,75 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     };
   }
   return { status: "success", message: `Requisição ${numero} confirmada e estoque baixado no Omie.` };
+}
+
+// -----------------------------------------------------------------------------
+// Relatório (PDF gerado no navegador; aqui só saem os DADOS já serializados)
+// -----------------------------------------------------------------------------
+
+const relatorioSchema = z.object({
+  de: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+export interface DadosRelatorio {
+  ok: boolean;
+  erro?: string;
+  requisicoes: RequisicaoRelatorio[];
+}
+
+// Dados do relatório de requisições do período (gestor/admin). O período é
+// interpretado no fuso de São Paulo (dia inteiro, inclusive).
+export async function relatorioRequisicoes(input: unknown): Promise<DadosRelatorio> {
+  const session = await auth();
+  if (!session?.user?.email) {
+    return { ok: false, erro: "Sessão expirada. Entre novamente.", requisicoes: [] };
+  }
+  const permissions = await getRolePermissionsMap();
+  if (!canDecideRequisicao(session.user.role, permissions)) {
+    return { ok: false, erro: "Apenas Gestor ou Administrador gera o relatório.", requisicoes: [] };
+  }
+
+  const parsed = relatorioSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, erro: "Período inválido.", requisicoes: [] };
+  }
+  const { de, ate } = parsed.data;
+  const inicio = new Date(`${de}T00:00:00-03:00`);
+  const fim = new Date(`${ate}T23:59:59.999-03:00`);
+  if (!(inicio <= fim)) {
+    return { ok: false, erro: "A data inicial precisa ser antes da final.", requisicoes: [] };
+  }
+
+  const registros = await prisma.requisicao.findMany({
+    where: { criadoEm: { gte: inicio, lte: fim } },
+    include: {
+      itens: { orderBy: { sku: "asc" } },
+      setor: { select: { nome: true } },
+      gestor: { select: { name: true } },
+    },
+    orderBy: { numero: "asc" },
+    take: 1000,
+  });
+
+  const requisicoes: RequisicaoRelatorio[] = registros.map((req) => ({
+    numero: req.numero,
+    status: req.status,
+    solicitanteNome: req.solicitanteNome,
+    setor: req.setor.nome,
+    criadoEm: formatarDataHora(req.criadoEm),
+    gestor: req.gestor?.name ?? null,
+    decididaEm: req.decididaEm ? formatarDataHora(req.decididaEm) : null,
+    motivoDecisao: req.motivoDecisao,
+    localEstoqueNome: req.localEstoqueNome,
+    itens: req.itens.map((item) => ({
+      sku: item.sku,
+      descricao: item.descricao,
+      quantidade: Number(item.quantidade),
+      status: item.status,
+      motivoErro: item.motivoErro,
+    })),
+  }));
+
+  return { ok: true, requisicoes };
 }
