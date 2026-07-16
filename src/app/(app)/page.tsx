@@ -33,6 +33,7 @@ const ROLE_INTRO: Record<Role, string> = {
   GESTOR: "Você aprova, cadastra usuários do seu setor e acompanha a auditoria.",
   FUNCIONARIO: "Aqui ficam os módulos e cadastros disponíveis para você.",
   FABRICA: "Peça material ao estoque e acompanhe seus pedidos por aqui.",
+  FABRICA_GESTOR: "Os pedidos de material da fábrica chegam aqui para você confirmar ou recusar.",
 };
 
 function firstName(name: string): string {

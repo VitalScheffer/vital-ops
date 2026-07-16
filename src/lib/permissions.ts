@@ -14,16 +14,18 @@ export type RolePermissionsMap = Record<Role, Record<Module, boolean>>;
 
 // Padrões: ADMIN e GESTOR têm tudo; FUNCIONARIO tem os módulos operacionais
 // (Produtos, Pranchas, Requisições, Baixas) mas não Usuários/Auditoria; FABRICA
-// (chão de fábrica) vê SÓ Requisições. Usado como seed E como fallback para
-// qualquer combinação papel×módulo ainda sem linha no banco.
+// (chão de fábrica, só solicita) e FABRICA_GESTOR (aprova os pedidos) veem SÓ
+// Requisições. Usado como seed E como fallback para qualquer combinação
+// papel×módulo ainda sem linha no banco.
 export const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMap = {
   ADMIN: { products: true, pranchas: true, requisicoes: true, baixas: true, users: true, audit: true },
   GESTOR: { products: true, pranchas: true, requisicoes: true, baixas: true, users: true, audit: true },
   FUNCIONARIO: { products: true, pranchas: true, requisicoes: true, baixas: true, users: false, audit: false },
   FABRICA: { products: false, pranchas: false, requisicoes: true, baixas: false, users: false, audit: false },
+  FABRICA_GESTOR: { products: false, pranchas: false, requisicoes: true, baixas: false, users: false, audit: false },
 };
 
-const ROLES: readonly Role[] = ["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA"];
+const ROLES: readonly Role[] = ["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA", "FABRICA_GESTOR"];
 
 function isRole(value: string): value is Role {
   return (ROLES as readonly string[]).includes(value);
@@ -48,6 +50,7 @@ export function buildRolePermissionsMap(rows: readonly RolePermissionRow[]): Rol
     GESTOR: { ...DEFAULT_ROLE_PERMISSIONS.GESTOR },
     FUNCIONARIO: { ...DEFAULT_ROLE_PERMISSIONS.FUNCIONARIO },
     FABRICA: { ...DEFAULT_ROLE_PERMISSIONS.FABRICA },
+    FABRICA_GESTOR: { ...DEFAULT_ROLE_PERMISSIONS.FABRICA_GESTOR },
   };
 
   for (const row of rows) {

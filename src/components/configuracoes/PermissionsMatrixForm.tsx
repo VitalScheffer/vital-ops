@@ -19,13 +19,14 @@ const MODULE_LABEL: Record<Module, string> = {
 
 // ADMIN não entra na lista de papéis editáveis: acesso total é regra fixa em
 // código (não configurável), então nem aparece como checkbox editável aqui.
-const EDITABLE_ROLES = ["GESTOR", "FUNCIONARIO", "FABRICA"] as const;
+const EDITABLE_ROLES = ["GESTOR", "FUNCIONARIO", "FABRICA", "FABRICA_GESTOR"] as const;
 type EditableRole = (typeof EDITABLE_ROLES)[number];
 
 const ROLE_LABEL: Record<EditableRole, string> = {
   GESTOR: "Gestor",
   FUNCIONARIO: "Funcionário",
   FABRICA: "Fábrica",
+  FABRICA_GESTOR: "Gestor da Fábrica",
 };
 
 function fieldName(role: EditableRole, module: Module): string {

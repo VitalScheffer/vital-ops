@@ -25,6 +25,11 @@ describe("visibleNavFor", () => {
     expect(keys).toEqual(["home", "requisicoes"]);
   });
 
+  it("FABRICA_GESTOR também vê SÓ Início e Requisições", () => {
+    const keys = visibleNavFor("FABRICA_GESTOR", DEFAULT).map((item) => item.key);
+    expect(keys).toEqual(["home", "requisicoes"]);
+  });
+
   it("GESTOR vê tudo menos Configurações", () => {
     const keys = visibleNavFor("GESTOR", DEFAULT).map((item) => item.key);
     expect(keys).toEqual([
@@ -104,11 +109,12 @@ describe("rbac", () => {
     expect(canAssignRole("FUNCIONARIO", "FUNCIONARIO", DEFAULT)).toBe(false);
   });
 
-  it("requisições: todo mundo com o módulo solicita, mas só GESTOR/ADMIN decide", () => {
+  it("requisições: todo mundo com o módulo solicita, mas só GESTOR/ADMIN/FABRICA_GESTOR decide", () => {
     expect(canViewRequisicoes("FABRICA", DEFAULT)).toBe(true);
     expect(canViewRequisicoes("FUNCIONARIO", DEFAULT)).toBe(true);
     expect(canDecideRequisicao("ADMIN", DEFAULT)).toBe(true);
     expect(canDecideRequisicao("GESTOR", DEFAULT)).toBe(true);
+    expect(canDecideRequisicao("FABRICA_GESTOR", DEFAULT)).toBe(true);
     expect(canDecideRequisicao("FUNCIONARIO", DEFAULT)).toBe(false);
     expect(canDecideRequisicao("FABRICA", DEFAULT)).toBe(false);
   });

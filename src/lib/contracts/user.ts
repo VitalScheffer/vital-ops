@@ -1,9 +1,11 @@
 import { z } from "zod";
 
-// Papéis (espelham os valores aceitos em User.role no Prisma). FABRICA é o
-// papel do chão de fábrica: por padrão vê SÓ o módulo Requisições (pedido de
-// material ao estoque) — decisão de 16/07/2026.
-export const roleSchema = z.enum(["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA"]);
+// Papéis (espelham os valores aceitos em User.role no Prisma).
+// FABRICA = chão de fábrica: vê SÓ Requisições e apenas SOLICITA.
+// FABRICA_GESTOR = quem aprova os pedidos da fábrica (ex.: Daniel): também vê
+// SÓ Requisições por padrão, mas com a fila de decisão e o relatório PDF
+// (decisões de 16/07/2026).
+export const roleSchema = z.enum(["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA", "FABRICA_GESTOR"]);
 export type Role = z.infer<typeof roleSchema>;
 
 export const setorSchema = z.object({

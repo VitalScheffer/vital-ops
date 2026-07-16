@@ -1875,3 +1875,29 @@ RELATORIO EM PDF das requisicoes pedido pelo Victor: o gestor escolhe o periodo 
 ### Comandos
 - `git push` (deploy dos commits bd389af/514bd93/ae5b84e) e depois do relatorio PDF.
 - `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 215/215. `npm run build` -> OK.
+
+## 2026-07-16 (continuacao 5) - Papel GESTOR DA FABRICA (Daniel aprova vendo so Requisicoes) + alinhamento em /baixas
+
+### Resumo
+Victor reportou que o Daniel (fabrica@, papel Fabrica) nao via os pedidos do pessoal nem o PDF -
+comportamento correto do papel FABRICA (so solicita). Como Gestor comum daria ao Daniel acesso a
+tudo (users/audit/etc), criado o papel FABRICA_GESTOR ("Gestor da Fabrica"): ve SO Requisicoes
+(igual FABRICA) mas entra na regra fixa de decisao (canDecideRequisicao = ADMIN | GESTOR |
+FABRICA_GESTOR) - ve a fila "Aguardando decisao", confirma/recusa com local de estoque e baixa o
+relatorio PDF. Tambem corrigido o desalinhamento do seletor de local em /baixas (texto de ajuda
+movido pra baixo da linha de campos - commit 22630f5, ja deployado antes desta entrega).
+
+### Arquivos (papel novo - mesma lista do FABRICA)
+- contracts/user.ts (roleSchema), permissions.ts (ROLES + defaults: so requisicoes),
+  rbac.ts (DECIDING_ROLES), seed.ts (6 linhas novas), AppShell/usuarios/page (labels),
+  (app)/page.tsx (ROLE_INTRO), CreateUserForm/EditUserDialog (opcao "Gestor da Fabrica
+  (aprova Requisicoes)"), PermissionsMatrixForm + configuracoes/actions (EDITABLE_ROLES),
+  tutorial.ts (passo de papeis). Testes: navigation.test (nav do FABRICA_GESTOR + decisao).
+- Sem migration (role e String no banco).
+
+### Como aplicar (producao)
+Usuarios e setores -> Editar fabrica@ -> Papel "Gestor da Fabrica (aprova Requisicoes)". O
+pessoal do chao continua com papel "Fabrica (so Requisicoes)".
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 216/216.

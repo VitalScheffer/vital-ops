@@ -52,6 +52,12 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "FABRICA", module: "baixas", enabled: false },
   { role: "FABRICA", module: "users", enabled: false },
   { role: "FABRICA", module: "audit", enabled: false },
+  { role: "FABRICA_GESTOR", module: "products", enabled: false },
+  { role: "FABRICA_GESTOR", module: "pranchas", enabled: false },
+  { role: "FABRICA_GESTOR", module: "requisicoes", enabled: true },
+  { role: "FABRICA_GESTOR", module: "baixas", enabled: false },
+  { role: "FABRICA_GESTOR", module: "users", enabled: false },
+  { role: "FABRICA_GESTOR", module: "audit", enabled: false },
 ];
 
 // Setores iniciais (REQUISITOS §2). Só cria se não existir — o admin pode

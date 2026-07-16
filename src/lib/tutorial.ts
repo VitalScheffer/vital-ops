@@ -40,7 +40,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     body: [
       "Funcionário vê os módulos operacionais: Produtos, Pranchas, Requisições e Baixa de estoque.",
       "Fábrica é o papel do chão de fábrica: vê só Requisições, para pedir material ao estoque.",
-      "Gestor e Administrador veem também Usuários e Auditoria — e são os únicos que confirmam requisições.",
+      "Gestor da Fábrica também vê só Requisições, mas com a fila de aprovação: é ele quem confirma ou recusa os pedidos.",
+      "Gestor e Administrador veem também Usuários e Auditoria, e igualmente confirmam requisições.",
       "O menu à esquerda já mostra apenas o que o seu papel permite acessar (o Administrador ajusta isso em Configurações).",
     ],
     icon: "roles",

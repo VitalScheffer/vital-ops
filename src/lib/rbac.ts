@@ -33,10 +33,13 @@ export function canViewRequisicoes(role: Role, permissions: RolePermissionsMap):
 }
 
 // Confirmar/recusar uma requisição (e disparar a baixa de estoque no Omie) é
-// decisão de GESTOR/ADMIN — regra fixa em código, igual ao canAssignRole: a
-// tela de permissões controla quem VÊ o módulo, não quem aprova.
+// decisão de GESTOR/ADMIN/FABRICA_GESTOR — regra fixa em código, igual ao
+// canAssignRole: a tela de permissões controla quem VÊ o módulo, não quem
+// aprova. FABRICA_GESTOR (ex.: Daniel) aprova mesmo vendo só Requisições.
+const DECIDING_ROLES: readonly Role[] = ["ADMIN", "GESTOR", "FABRICA_GESTOR"];
+
 export function canDecideRequisicao(role: Role, permissions: RolePermissionsMap): boolean {
-  if (role !== "ADMIN" && role !== "GESTOR") {
+  if (!DECIDING_ROLES.includes(role)) {
     return false;
   }
   return canViewRequisicoes(role, permissions);

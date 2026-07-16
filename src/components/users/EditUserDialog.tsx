@@ -170,6 +170,9 @@ function EditUserModal({
                 <option className="bg-card text-foreground" value="FABRICA">
                   Fábrica (só Requisições)
                 </option>
+                <option className="bg-card text-foreground" value="FABRICA_GESTOR">
+                  Gestor da Fábrica (aprova Requisições)
+                </option>
                 <option className="bg-card text-foreground" value="GESTOR">
                   Gestor
                 </option>

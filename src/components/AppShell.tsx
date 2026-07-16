@@ -42,6 +42,7 @@ const ROLE_LABEL: Record<Role, string> = {
   GESTOR: "Gestor",
   FUNCIONARIO: "Funcionário",
   FABRICA: "Fábrica",
+  FABRICA_GESTOR: "Gestor da Fábrica",
 };
 
 interface ShellUser {

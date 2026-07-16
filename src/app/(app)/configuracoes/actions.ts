@@ -13,7 +13,7 @@ import { requestHeaders } from "@/lib/request";
 // Papéis editáveis pela tela — ADMIN nunca aparece aqui: acesso total é regra
 // fixa em código (src/lib/permissions.ts trava ADMIN=true em todo módulo),
 // então não há como um admin se autoexcluir de nada por esta tela.
-const EDITABLE_ROLES = ["GESTOR", "FUNCIONARIO", "FABRICA"] as const;
+const EDITABLE_ROLES = ["GESTOR", "FUNCIONARIO", "FABRICA", "FABRICA_GESTOR"] as const;
 
 function fieldName(role: string, module: Module): string {
   return `perm__${role}__${module}`;
