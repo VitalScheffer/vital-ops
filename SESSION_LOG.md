@@ -1753,3 +1753,21 @@ UTF-8 no Windows PowerShell 5.1.
    Ajustes de texto sao baratos.
 3. Continuam as pendencias da entrada anterior (teste real de escrita no Omie, lote_validade,
    seed/permissoes em producao).
+
+## 2026-07-16 (deploy) - Push pra master + deploy automatico no Vercel
+
+### Resumo
+Com o OK do Victor, push dos commits cb7b787 + 5721ffb pra master. Deploy automatico do Vercel
+concluido (status Ready, ~2min, target production, alias vitalops.vitalscheffer.com.br). A
+migration `20260716121340_requisicoes_multi_item_baixas` rodou no build (vercel-build =
+prisma migrate deploy). Smoke test: /requisicoes, /baixas e / respondem 307 pro login (rotas no
+ar, atras da autenticacao).
+
+### Pendencias
+1. Validar os textos "como funciona" com o Daniel e o fluxo ponta a ponta na UI de producao.
+2. Primeiro teste REAL de escrita no Omie: requisicao de 1 item barato -> confirmar como gestor ->
+   conferir a movimentacao no Omie (Estoque -> Movimentacoes). Atencao a produto com controle de
+   lote (falha orientando baixa manual - limitacao conhecida).
+3. Opcional: salvar a tela /configuracoes uma vez (ou rodar seed em prod) pra persistir as linhas
+   de RolePermission do papel FABRICA e dos modulos novos (os defaults em codigo ja funcionam).
+4. Criar os usuarios FABRICA do chao de fabrica.
