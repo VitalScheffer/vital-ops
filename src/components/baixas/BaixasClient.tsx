@@ -199,9 +199,6 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
                 </option>
               ))}
             </Select>
-            <p className="text-xs text-muted-foreground">
-              O saldo da conferência e a baixa usam este local. Troque para ver qual local tem o material.
-            </p>
           </div>
         ) : null}
         <button
@@ -213,6 +210,12 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
           Baixar modelo (.xlsx)
         </button>
       </div>
+
+      {locais.length > 0 ? (
+        <p className="-mt-4 text-xs text-muted-foreground">
+          O saldo da conferência e a baixa usam o local escolhido. Troque o local para ver qual tem o material.
+        </p>
+      ) : null}
 
       <FileDropzone
         label="Planilha de baixa preenchida"
