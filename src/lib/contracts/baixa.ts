@@ -4,8 +4,10 @@ export const baixaItemStatusSchema = z.enum(["PENDENTE", "BAIXADO", "FALHA"]);
 export type BaixaItemStatus = z.infer<typeof baixaItemStatusSchema>;
 
 // Uma linha da planilha de baixa (matéria-prima MAT) já parseada no cliente.
-// Pedido, nota fiscal e OP são referências que viram a observação do movimento
-// no Omie (vínculo nota ↔ pedido); não são validadas contra o Omie.
+// Pedido, nota fiscal, OP e observação são referências que viram a observação do
+// movimento no Omie (vínculo nota ↔ pedido, finalidade do consumo); não são
+// validadas contra o Omie. `observacao` é o campo livre de finalidade/motivo
+// (ex.: "consumo na produção", "OP 1234") pedido pela fábrica.
 export const baixaLinhaSchema = z.object({
   sku: z.string().trim().min(1),
   quantidade: z.number().positive(),
@@ -13,6 +15,7 @@ export const baixaLinhaSchema = z.object({
   notaFiscal: z.string().trim().max(60).optional(),
   op: z.string().trim().max(60).optional(),
   solicitante: z.string().trim().max(120).optional(),
+  observacao: z.string().trim().max(300).optional(),
 });
 export type BaixaLinha = z.infer<typeof baixaLinhaSchema>;
 

@@ -219,7 +219,7 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
 
       <FileDropzone
         label="Planilha de baixa preenchida"
-        hint="Excel (.xlsx ou .xls) com as colunas do modelo: Produto (código Omie) e Quantidade — Pedido, NF, OP e Solicitante são opcionais."
+        hint="Excel (.xlsx ou .xls) com as colunas do modelo: Produto (código Omie) e Quantidade — Pedido, NF, OP, Solicitante e Observação (finalidade/motivo) são opcionais. A Observação vai para o movimento no Omie."
         accept=".xlsx,.xls"
         file={file}
         onChange={onFileChange}

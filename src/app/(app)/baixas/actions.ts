@@ -143,7 +143,12 @@ export interface ResultadoExecucao {
 }
 
 function obsDoItem(arquivoNome: string, solicitante: string, item: BaixaLinha): string {
-  const partes = [`Baixa por planilha ${arquivoNome}`, `solicitante: ${item.solicitante ?? solicitante}`];
+  // A finalidade/observação livre vai NA FRENTE (é o que o pessoal quer ver como
+  // motivo do consumo no Omie); o rastro (arquivo, solicitante, pedido/NF/OP)
+  // segue atrás.
+  const partes: string[] = [];
+  if (item.observacao) partes.push(item.observacao);
+  partes.push(`Baixa por planilha ${arquivoNome}`, `solicitante: ${item.solicitante ?? solicitante}`);
   if (item.pedido) partes.push(`pedido ${item.pedido}`);
   if (item.notaFiscal) partes.push(`NF ${item.notaFiscal}`);
   if (item.op) partes.push(`OP ${item.op}`);
@@ -168,6 +173,7 @@ interface BaixaItemDb {
   pedido: string | null;
   notaFiscal: string | null;
   op: string | null;
+  observacao: string | null;
 }
 
 function itemPersistidoDe(arquivoNome: string, solicitante: string, item: BaixaItemDb): ItemPersistido {
@@ -182,6 +188,7 @@ function itemPersistidoDe(arquivoNome: string, solicitante: string, item: BaixaI
       pedido: item.pedido ?? undefined,
       notaFiscal: item.notaFiscal ?? undefined,
       op: item.op ?? undefined,
+      observacao: item.observacao ?? undefined,
     }),
   };
 }
@@ -356,6 +363,7 @@ export async function executarBaixa(input: unknown): Promise<ResultadoExecucao> 
           pedido: item.pedido,
           notaFiscal: item.notaFiscal,
           op: item.op,
+          observacao: item.observacao,
           omieIdProd: produtos.get(item.sku)?.idProd,
         })),
       },

@@ -317,6 +317,10 @@ model BaixaItem {
   pedido     String?
   notaFiscal String?
   op         String?
+  // Finalidade/motivo livre da planilha (ex.: "consumo na produção") — entra na
+  // observação do movimento no Omie. Persistido para o "Continuar baixa"
+  // reconstruir a mesma observação.
+  observacao String?
   status     String   @default("PENDENTE")
   motivoErro String?
   omieIdProd String?

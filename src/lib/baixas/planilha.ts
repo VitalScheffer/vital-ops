@@ -16,14 +16,15 @@ export const COLUNAS_MODELO = [
   "Nota Fiscal",
   "OP",
   "Solicitante",
+  "Observação (finalidade / motivo)",
 ] as const;
 
-const LINHA_EXEMPLO = ["MAT 001 EXEMPLO", 2, "PED-123", "NF 456", "OP-789", "Fulano da Silva"];
+const LINHA_EXEMPLO = ["MAT 001 EXEMPLO", 2, "PED-123", "NF 456", "OP-789", "Fulano da Silva", "Consumo na produção"];
 
 // Bytes de um .xlsx novo com o cabeçalho do modelo + uma linha de exemplo.
 export function gerarModeloXlsx(): Uint8Array {
   const ws = XLSX.utils.aoa_to_sheet([[...COLUNAS_MODELO], LINHA_EXEMPLO]);
-  ws["!cols"] = [{ wch: 28 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 24 }];
+  ws["!cols"] = [{ wch: 28 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 32 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Baixa");
   return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
@@ -38,6 +39,7 @@ interface Colunas {
   notaFiscal: number;
   op: number;
   solicitante: number;
+  observacao: number;
 }
 
 function acharColunas(linha: string[]): Colunas | null {
@@ -53,6 +55,9 @@ function acharColunas(linha: string[]): Colunas | null {
     notaFiscal: linha.findIndex((c) => c.includes("notafiscal") || c === "nf" || c === "nota"),
     op: linha.findIndex((c) => c === "op" || c.includes("ordemdeproducao") || c.includes("ordemproducao")),
     solicitante: linha.findIndex((c) => c.includes("solicit") || c.includes("quempediu")),
+    observacao: linha.findIndex(
+      (c) => c.includes("observacao") || c.includes("finalidade") || c.includes("motivo") || c === "obs",
+    ),
   };
 }
 
@@ -134,6 +139,7 @@ export async function lerPlanilhaBaixa(file: File): Promise<PlanilhaBaixa> {
       notaFiscal: celulaTexto(linha, colunas.notaFiscal),
       op: celulaTexto(linha, colunas.op),
       solicitante: celulaTexto(linha, colunas.solicitante),
+      observacao: celulaTexto(linha, colunas.observacao),
     });
   }
 

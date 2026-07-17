@@ -37,8 +37,12 @@
   --danger-dim: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
+/* Paleta escura. Aplica em dois casos (mesmas variáveis):
+   1) preferência do sistema é escuro E o usuário NÃO forçou claro no botão;
+   2) o usuário forçou escuro no botão (data-theme="dark").
+   Sem `data-theme` = segue o sistema (comportamento antigo). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
 
     --background: #0c1418;
@@ -61,6 +65,36 @@
     --danger: #e06a6a;
     --danger-dim: rgba(224, 106, 106, 0.14);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #0c1418;
+  --foreground: #e6edf0;
+  --card: #111c22;
+  --card-foreground: #e6edf0;
+  --muted: #16242b;
+  --muted-foreground: #8b9aa1;
+  --border: rgba(255, 255, 255, 0.1);
+  --field-bg: rgba(0, 0, 0, 0.2);
+
+  --primary: var(--vs-turquesa);
+  --primary-foreground: #04262b;
+  --accent: var(--vs-turquesa);
+
+  --success: var(--vs-turquesa);
+  --success-dim: rgba(19, 182, 168, 0.14);
+  --warning: #e0a83a;
+  --warning-dim: rgba(224, 168, 58, 0.14);
+  --danger: #e06a6a;
+  --danger-dim: rgba(224, 106, 106, 0.14);
+}
+
+/* Forçar claro (data-theme="light") = a paleta clara do :root já vale; o
+   :not([data-theme="light"]) acima impede o escuro do sistema de sobrepor. */
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 @theme inline {

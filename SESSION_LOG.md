@@ -2075,3 +2075,52 @@ Quatro pedidos do Victor/Daniel a partir das falhas na "Baixa de estoque":
 - A conferencia (tela da Baixa) checa so o saldo TOTAL, nao por lote; a alocacao FEFO acontece na
   execucao. Se um produto tiver saldo total mas os lotes nao cobrirem (ex. reserva), a conferencia
   diz "ok" e a execucao mostra a falha do item. Aceitavel; evita chamadas extras na conferencia.
+
+## 2026-07-17 (cont.) — Finalidade do consumo na baixa + botao de tema claro/escuro
+
+### Resumo
+Duas demandas: (1) sugestao da fabrica (fabrica@) em /baixas: um campo livre de finalidade/motivo
+na planilha que caia automaticamente na observacao do movimento no Omie; (2) o admin perguntou onde
+esta o botao de trocar tema claro/escuro (nao existia; o app so seguia o prefers-color-scheme).
+`npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (233) e `npx next build` verdes.
+NAO deployado ainda (aguardando OK, no padrao "code review antes do push" da sessao anterior).
+
+### 1) Campo "Observacao (finalidade / motivo)" na baixa por planilha
+Obs.: a OP JA caia na observacao do Omie hoje (a planilha tem coluna OP e o obsDoItem ja montava
+"...OP <x>"). O que faltava era um campo LIVRE de finalidade (o "CONSUMO FABRICA" do exemplo).
+- `src/lib/contracts/baixa.ts`: `observacao` (opcional, max 300) no baixaLinhaSchema.
+- `src/lib/baixas/planilha.ts`: coluna "Observacao (finalidade / motivo)" no modelo/exemplo;
+  acharColunas reconhece observacao/finalidade/motivo/obs; le a celula.
+- `prisma/schema.prisma` + migration `20260717150000_baixa_item_observacao`: BaixaItem.observacao
+  (persistido pra o "Continuar baixa" reconstruir a MESMA observacao do Omie).
+- `src/app/(app)/baixas/actions.ts`: obsDoItem poe a observacao NA FRENTE (o motivo que o pessoal
+  quer ver), seguido do rastro (arquivo/solicitante/pedido/NF/OP); persiste no create; BaixaItemDb
+  e itemPersistidoDe levam observacao.
+- `src/components/baixas/BaixasClient.tsx`: dica atualizada. Teste novo no parser.
+- Decisao: obrigatorio na planilha continua SKU + Quantidade (quantidade e essencial pra baixa);
+  todo o resto (pedido/NF/OP/solicitante/observacao) opcional. A observacao livre lidera a obs.
+
+### 2) Botao de tema claro/escuro (topo)
+- `src/app/globals.css`: paleta escura agora aplica em `:root:not([data-theme="light"])` sob o
+  media query (sistema escuro, a menos que o usuario force claro) E em `:root[data-theme="dark"]`
+  (forcado). `data-theme="light"` so seta color-scheme (a paleta clara do :root ja vale). Sem
+  data-theme = segue o sistema (comportamento antigo preservado). O `@theme inline` faz as
+  utilities lerem as vars em runtime, entao trocar `--background` etc. re-tematiza tudo.
+- `src/app/layout.tsx`: script inline (THEME_INIT) aplica o data-theme salvo ANTES do paint (sem
+  piscar) + `suppressHydrationWarning` no <html> (o script mexe no atributo antes da hidratacao).
+- `src/components/ThemeToggle.tsx` (novo): cicla Automatico -> Claro -> Escuro; grava "light"/"dark"
+  (ou remove) em localStorage 'vs-theme' e seta data-theme. Le o modo com `useSyncExternalStore`
+  (hidratacao segura, sem setState em efeito, reage a storage/evento proprio). Icone Monitor/Sun/Moon.
+- `src/components/AppShell.tsx`: <ThemeToggle /> ao lado do tutorial no header.
+
+### Comandos
+- `npx prisma generate` (campo novo, sem tocar banco). `npx tsc --noEmit` -> 0. `npx eslint .` -> 0.
+  `npx vitest run` -> 233/233. `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- **APLICAR A MIGRATION** `20260717150000_baixa_item_observacao` (aditiva, coluna TEXT): aplica
+  sozinha no proximo deploy (vercel-build roda migrate deploy). Sem aplicar, a tela de Baixas quebra
+  (o client Prisma ja espera BaixaItem.observacao). A migration da arquivada (sessao anterior) ja foi.
+- Ainda sem teste real contra o Omie: confirmar que a `obs` composta (com a observacao livre na
+  frente) cabe/aparece direito no movimento (o campo e cortado em 500 chars antes de enviar).
+- Login (/login) nao tem o botao de tema (nao usa o AppShell); o tema ainda se aplica la por CSS.

@@ -7,14 +7,21 @@ export const metadata: Metadata = {
   description: "Plataforma interna de operações da Vital Scheffer.",
 };
 
+// Aplica o tema salvo (claro/escuro forçado no botão) ANTES do primeiro paint,
+// pra não piscar. Sem valor salvo, nada é setado e o app segue o sistema.
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('vs-theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="pt-BR" className="h-full antialiased" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col">
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        {children}
+      </body>
     </html>
   );
 }

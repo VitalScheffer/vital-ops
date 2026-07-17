@@ -29,6 +29,22 @@ describe("lerPlanilhaBaixa", () => {
     ]);
   });
 
+  it("lê a coluna Observação (finalidade/motivo) e reconhece variações do cabeçalho", async () => {
+    const modelo = arquivoDe([
+      [...COLUNAS_MODELO],
+      ["MAT 001", 2, "", "", "", "", "Consumo na produção"],
+    ]);
+    const { linhas } = await lerPlanilhaBaixa(modelo);
+    expect(linhas[0].observacao).toBe("Consumo na produção");
+
+    const variacao = arquivoDe([
+      ["SKU", "Qtd", "Finalidade"],
+      ["MAT 002", 1, "Manutenção"],
+    ]);
+    const { linhas: outras } = await lerPlanilhaBaixa(variacao);
+    expect(outras[0].observacao).toBe("Manutenção");
+  });
+
   it("reconhece variações de cabeçalho (SKU/Qtd/N.F.) em qualquer ordem", async () => {
     const file = arquivoDe([
       ["Qtd", "SKU", "N.F."],
