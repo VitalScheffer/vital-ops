@@ -3,7 +3,7 @@
 import { Loader2, Search } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { buscarProdutosOmie } from "@/app/(app)/requisicoes/actions";
+import { buscarProdutosOmie, saldoDoProduto } from "@/app/(app)/requisicoes/actions";
 import type { ProdutoResumo } from "@/lib/estoque/omieEstoque";
 
 const inputClass =
@@ -31,8 +31,20 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [ativo, setAtivo] = useState(-1);
+  // Saldo do Omie do produto escolhido (mostrado ao lado da descrição).
+  const [saldo, setSaldo] = useState<number | null>(null);
+  const [saldoSku, setSaldoSku] = useState("");
+  const [saldoCarregando, setSaldoCarregando] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reqId = useRef(0);
+  const saldoReq = useRef(0);
+
+  function limparSaldo() {
+    saldoReq.current++;
+    setSaldo(null);
+    setSaldoSku("");
+    setSaldoCarregando(false);
+  }
 
   async function buscar(termo: string) {
     const id = ++reqId.current;
@@ -67,11 +79,22 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
     timer.current = setTimeout(() => buscar(termo), DEBOUNCE_MS);
   }
 
-  function escolher(produto: ProdutoResumo) {
+  async function escolher(produto: ProdutoResumo) {
     onPick(produto.codigo, produto.descricao);
     setAberto(false);
     setResultados([]);
     setAtivo(-1);
+    // Saldo do Omie ao lado (best-effort: se falhar, só não mostra o número).
+    const id = ++saldoReq.current;
+    setSaldoSku(produto.codigo);
+    setSaldo(null);
+    setSaldoCarregando(true);
+    try {
+      const resultado = await saldoDoProduto(produto.codigo);
+      if (saldoReq.current === id) setSaldo(resultado.ok ? (resultado.saldo ?? null) : null);
+    } finally {
+      if (saldoReq.current === id) setSaldoCarregando(false);
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -105,6 +128,7 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
           value={value}
           onChange={(e) => {
             onChange(e.target.value);
+            limparSaldo();
             agendarBusca(e.target.value);
           }}
           onKeyDown={onKeyDown}
@@ -121,7 +145,16 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
         </span>
       </div>
 
-      {descricao ? <p className="mt-1 truncate text-xs text-muted-foreground">{descricao}</p> : null}
+      {descricao ? (
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          {descricao}
+          {saldoSku === value && (saldoCarregando || saldo !== null) ? (
+            <span className="ml-1 font-medium text-card-foreground">
+              · estoque no Omie: {saldoCarregando ? "…" : (saldo ?? 0).toLocaleString("pt-BR")}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
 
       {aberto ? (
         <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-border bg-card shadow-lg">

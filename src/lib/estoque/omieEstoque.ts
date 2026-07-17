@@ -139,9 +139,48 @@ export async function buscarProdutosPorDescricao(
     if (texto(registro.bloqueado)?.toUpperCase() === "S") continue;
     const codigo = texto(registro.codigo);
     if (!codigo) continue;
-    saida.push({ codigo, descricao: texto(registro.descricao) ?? "" });
+    const descricao = texto(registro.descricao) ?? "";
+    // Convenção manual da empresa: produto descontinuado ganha o prefixo
+    // "INATIVO1-"/"INATIVO-" na DESCRIÇÃO (o cadastro segue ativo no Omie, então
+    // o campo `inativo` não pega). Fora da busca.
+    if (semAcento(descricao).trimStart().startsWith("inativo")) continue;
+    saida.push({ codigo, descricao });
   }
   return saida;
+}
+
+export interface SaldoProduto {
+  saldo: number; // soma de nSaldo em TODOS os locais
+}
+
+// Saldo TOTAL (todos os locais) de um ou mais SKUs numa chamada. `lista_local_estoque:
+// "TODOS"` traz uma linha por (produto × local); somamos nSaldo por código. `cExibeTodos:
+// "S"` evita a armadilha "conjunto zerado = fault". Usado pra mostrar o estoque ao lado do
+// produto escolhido na requisição.
+export async function saldoTotalPorCodigo(
+  codigos: readonly string[],
+  dataPosicao: string,
+  chamar: ChamarFn,
+): Promise<Map<string, number>> {
+  const unicos = [...new Set(codigos.map((c) => c.trim()).filter(Boolean))];
+  const mapa = new Map<string, number>();
+  if (unicos.length === 0) return mapa;
+  const resp = await chamar("estoque/consulta/", "ListarPosEstoque", {
+    nPagina: 1,
+    nRegPorPagina: Math.max(unicos.length * 8, 50),
+    dDataPosicao: dataPosicao,
+    cExibeTodos: "S",
+    lista_local_estoque: "TODOS",
+    lista_produtos: unicos.map((cCodigo) => ({ cCodigo })),
+  });
+  const produtos = resp?.produtos;
+  if (!Array.isArray(produtos)) return mapa;
+  for (const p of produtos as OmiePayload[]) {
+    const codigo = texto(p.cCodigo);
+    if (!codigo) continue;
+    mapa.set(codigo, (mapa.get(codigo) ?? 0) + (numero(p.nSaldo) ?? 0));
+  }
+  return mapa;
 }
 
 // -----------------------------------------------------------------------------

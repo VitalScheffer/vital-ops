@@ -14,6 +14,16 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-17",
+    title: "Relatório em PDF com a marca, saldo do Omie na requisição e ajustes",
+    items: [
+      "Relatório de Requisições em PDF ficou mais bonito e legível: cabeçalho com a logo e o nome Vital Scheffer, resumo do período e os itens em tabela, com rodapé e paginação.",
+      "Na busca de produto da requisição, ao escolher um item aparece ao lado o estoque total no Omie (somando todos os locais).",
+      "A busca de produto deixou de mostrar itens marcados como \"INATIVO\" na descrição (além dos já inativos no cadastro do Omie).",
+      "Corrigida a piscada de alguns elementos ao trocar o tema claro/escuro.",
+    ],
+  },
+  {
+    date: "2026-07-17",
     title: "Finalidade do consumo na baixa por planilha e botão de tema claro/escuro",
     items: [
       'Baixa por planilha: nova coluna "Observação (finalidade / motivo)". O que você escrever nela (ex.: "consumo na produção", a OP ou o motivo) vai direto para a observação do movimento no Omie, sem precisar digitar na mão lá depois. Continua opcional (baixe o modelo atualizado na tela).',

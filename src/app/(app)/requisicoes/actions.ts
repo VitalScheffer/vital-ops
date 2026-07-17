@@ -21,6 +21,7 @@ import {
   dataOmieHoje,
   lotesPorCodigo,
   nomeDoLocal,
+  saldoTotalPorCodigo,
   saldosPorCodigo,
   type ItemBaixa,
   type LoteDisponivel,
@@ -85,6 +86,30 @@ export async function buscarProdutosOmie(termo: string): Promise<ResultadoBuscaP
       return { ok: false, erro: "O Omie está indisponível agora. Tente em instantes.", produtos: [] };
     }
     return { ok: false, erro: "Não consegui buscar no Omie agora. Tente de novo.", produtos: [] };
+  }
+}
+
+export interface ResultadoSaldoProduto {
+  ok: boolean;
+  saldo?: number; // total em todos os locais do Omie
+}
+
+// Saldo total (todos os locais) de um produto — mostrado ao lado do item depois
+// que o solicitante escolhe na busca. Best-effort: erro/Omie fora → ok:false (a
+// UI só não mostra o número, não atrapalha o pedido).
+export async function saldoDoProduto(sku: string): Promise<ResultadoSaldoProduto> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false };
+  const permissions = await getRolePermissionsMap();
+  if (!canViewRequisicoes(session.user.role, permissions)) return { ok: false };
+  const codigo = String(sku ?? "").trim();
+  if (!codigo || !omieConfigurado()) return { ok: false };
+  try {
+    const saldos = await saldoTotalPorCodigo([codigo], dataOmieHoje(), chamar);
+    const saldo = saldos.get(codigo);
+    return saldo === undefined ? { ok: false } : { ok: true, saldo };
+  } catch {
+    return { ok: false };
   }
 }
 

@@ -5,7 +5,6 @@ import { useState } from "react";
 
 import { relatorioRequisicoes } from "@/app/(app)/requisicoes/actions";
 import { baixarBlob } from "@/lib/bom/download";
-import { montarLinhasRelatorio } from "@/lib/requisicoes/relatorio";
 
 const inputClass =
   "rounded-lg border border-border bg-field px-3 py-2 text-sm text-card-foreground outline-none focus-visible:border-primary";
@@ -50,9 +49,12 @@ export function RelatorioRequisicoes() {
         dateStyle: "short",
         timeStyle: "short",
       }).format(new Date());
-      const linhas = montarLinhasRelatorio(dados.requisicoes, { de: isoParaBR(de), ate: isoParaBR(ate) }, geradoEm);
       const { gerarRelatorioPdf } = await import("@/lib/requisicoes/relatorioPdf");
-      const bytes = await gerarRelatorioPdf(linhas);
+      const bytes = await gerarRelatorioPdf(
+        dados.requisicoes,
+        { de: isoParaBR(de), ate: isoParaBR(ate) },
+        geradoEm,
+      );
       baixarBlob(
         new Blob([bytes as BlobPart], { type: "application/pdf" }),
         `Relatorio_Requisicoes_${de}_a_${ate}.pdf`,

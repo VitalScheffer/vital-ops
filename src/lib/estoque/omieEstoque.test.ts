@@ -5,11 +5,13 @@ import {
   alocarLotesFEFO,
   baixarEstoque,
   buscarProdutosPorCodigo,
+  buscarProdutosPorDescricao,
   consultarLotes,
   dataOmieHoje,
   listarLocaisEstoque,
   lotesPorCodigo,
   nomeDoLocal,
+  saldoTotalPorCodigo,
   saldosPorCodigo,
   type ChamarFn,
   type ContextoBaixa,
@@ -311,6 +313,56 @@ describe("baixarEstoque", () => {
     const resultado = await baixarEstoque([ITEM], ctx, chamar);
     expect(resultado.itens[0].outcome).toBe("falha");
     expect(resultado.itens[0].motivo).toContain("controle de lote");
+  });
+});
+
+describe("buscarProdutosPorDescricao", () => {
+  it("filtra por descrição e descarta inativos, bloqueados e prefixo INATIVO na descrição", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      produto_servico_cadastro: [
+        { codigo: "P1", descricao: "Folha de lixa grão 220" },
+        { codigo: "P2", descricao: "INATIVO1-Papel higiênico folha dupla", inativo: "N" },
+        { codigo: "P3", descricao: "Etiqueta folha", inativo: "S" },
+        { codigo: "P4", descricao: "Folha bloqueada", bloqueado: "S" },
+        { codigo: "P5", descricao: "INATIVO-Folha antiga" },
+      ],
+    });
+    const produtos = await buscarProdutosPorDescricao("folha", chamar);
+    const [path, call, param] = chamar.mock.calls[0];
+    expect(path).toBe("geral/produtos/");
+    expect(call).toBe("ListarProdutos");
+    expect(param).toMatchObject({ filtrar_apenas_descricao: "%folha%" });
+    expect(produtos.map((p) => p.codigo)).toEqual(["P1"]);
+  });
+
+  it("termo com menos de 2 caracteres não chama o Omie", async () => {
+    const chamar = vi.fn<ChamarFn>();
+    expect(await buscarProdutosPorDescricao("f", chamar)).toEqual([]);
+    expect(chamar).not.toHaveBeenCalled();
+  });
+});
+
+describe("saldoTotalPorCodigo", () => {
+  it("soma nSaldo de todos os locais por código (lista_local_estoque TODOS)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      produtos: [
+        { cCodigo: "MAT 001", nSaldo: 10 },
+        { cCodigo: "MAT 001", nSaldo: 5 }, // outro local
+        { cCodigo: "MAT 002", nSaldo: 3 },
+      ],
+    });
+    const mapa = await saldoTotalPorCodigo(["MAT 001", "MAT 002"], "16/07/2026", chamar);
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).toMatchObject({ lista_local_estoque: "TODOS", cExibeTodos: "S" });
+    expect(mapa.get("MAT 001")).toBe(15);
+    expect(mapa.get("MAT 002")).toBe(3);
+  });
+
+  it("lista vazia não chama o Omie", async () => {
+    const chamar = vi.fn<ChamarFn>();
+    const mapa = await saldoTotalPorCodigo([], "16/07/2026", chamar);
+    expect(chamar).not.toHaveBeenCalled();
+    expect(mapa.size).toBe(0);
   });
 });
 

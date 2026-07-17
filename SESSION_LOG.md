@@ -2124,3 +2124,61 @@ Obs.: a OP JA caia na observacao do Omie hoje (a planilha tem coluna OP e o obsD
 - Ainda sem teste real contra o Omie: confirmar que a `obs` composta (com a observacao livre na
   frente) cabe/aparece direito no movimento (o campo e cortado em 500 chars antes de enviar).
 - Login (/login) nao tem o botao de tema (nao usa o AppShell); o tema ainda se aplica la por CSS.
+
+## 2026-07-17 (cont. 2) — Relatorio PDF com marca, saldo do Omie na requisicao, filtro INATIVO e piscada do tema
+
+### Resumo
+Rodada de ajustes pedidos pelo admin e pela fabrica: (1) piscada ao trocar tema; (2) PDF do
+relatorio mais bonito + logo/Vital Scheffer; (3) busca da requisicao nao mostrar produtos
+"INATIVO"; (4) mostrar o saldo do Omie ao lado do produto escolhido. tsc/eslint/vitest(240)/build
+verdes. Commit + push (deploy) feitos ao final (o admin autorizou).
+
+### 1) Piscada ao trocar de tema
+- `src/components/ThemeToggle.tsx`: `aplicarSemPisca` injeta um `<style>` com
+  `*{transition:none !important}` durante a troca, aplica o data-theme, forca um reflow
+  (getComputedStyle) e remove o style no proximo requestAnimationFrame. Sem isso, os ~58 usos de
+  `transition-colors`/etc. animavam a cor por ~0,15s na troca (o "borrao"/piscada).
+
+### 2) Relatorio PDF com a marca (reescrito)
+- `src/lib/requisicoes/relatorio.ts`: virou so a parte PURA (rotulos + `resumoRelatorio`);
+  removidos `montarLinhasRelatorio`/`LinhaRelatorio` (o desenho agora consome os dados
+  estruturados direto).
+- `src/lib/requisicoes/relatorioPdf.ts`: reescrito. Faixa de cabecalho petroleo com a LOGO da
+  Vital (desenhada com `drawSvgPath`+`drawCircle`, mesmos tracos do VitalLogo, em try/catch) +
+  "Vital Scheffer" / "Vital Ops" / titulo / periodo. Resumo com os totais, um bloco por
+  requisicao (faixa com REQ + status colorido), tabela de itens (Codigo/Descricao/Qtd/Situacao,
+  situacao colorida, motivo da falha em vermelho), quebras de pagina com cabecalho compacto e
+  rodape "Vital Scheffer - Vital Ops - Pagina i de N". Encoding WinAnsi preservado (paraWinAnsi).
+- `src/components/requisicoes/RelatorioRequisicoes.tsx`: chama a nova assinatura
+  `gerarRelatorioPdf(requisicoes, periodo, geradoEm)`.
+- Testes: `relatorio.test.ts` reescrito (resumo + rotulos); novo `relatorioPdf.test.ts` (smoke:
+  gera PDF valido %PDF-, periodo vazio, e caso com char fora do WinAnsi + varias paginas).
+  NAO deu pra conferir o PDF no navegador (extensao do Chrome desconectada) - so os smoke tests.
+
+### 3) Busca da requisicao: fora os "INATIVO" da descricao
+- O screenshot do admin mostrou produtos tipo "INATIVO1-PAPEL HIGIENICO..." aparecendo: eles NAO
+  estao com `inativo="S"` no Omie, tem o prefixo "INATIVO1-"/"INATIVO-" na DESCRICAO (convencao
+  manual da empresa). `buscarProdutosPorDescricao` agora tambem descarta quem a descricao
+  (sem acento) comeca com "inativo" (alem de inativo="S"/bloqueado="S", que ja filtrava).
+
+### 4) Saldo do Omie ao lado do produto escolhido
+- `src/lib/estoque/omieEstoque.ts`: `saldoTotalPorCodigo` (ListarPosEstoque com
+  `lista_local_estoque: "TODOS"` + soma `nSaldo` por `cCodigo` = total de todos os locais; robusto
+  a 1 linha por produto x local).
+- `src/app/(app)/requisicoes/actions.ts`: action `saldoDoProduto(sku)` (best-effort; erro = ok:false).
+- `src/components/requisicoes/ProdutoSkuField.tsx`: ao ESCOLHER um produto, busca o saldo e mostra
+  "- estoque no Omie: N" ao lado da descricao (limpa ao digitar de novo; guarda de corrida por ref).
+  Decisao: saldo APOS a selecao (1 chamada, sem risco de paginacao/cap) em vez de por resultado da
+  busca (N produtos x locais poderia estourar a pagina). Da pra mover pra busca depois se quiserem.
+
+### Comandos
+- `npx prisma generate`. `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 240/240
+  (21 arquivos). `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- Confirmar no Omie real: se `lista_local_estoque: "TODOS"` traz mesmo todos os locais (o total do
+  saldo depende disso); testar com um produto de saldo conhecido. Se vier so o padrao, a soma fica
+  subestimada e a gente troca a abordagem.
+- Conferir o visual do PDF (nao exercido no navegador nesta sessao).
+- Se quiserem o saldo TAMBEM na lista de resultados da busca (nao so apos escolher), da pra fazer
+  (custa 1 leitura a mais por busca e precisa cuidar de paginacao com muitos produtos).

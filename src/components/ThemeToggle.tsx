@@ -31,6 +31,20 @@ function aplicar(modo: Modo): void {
   else el.removeAttribute("data-theme");
 }
 
+// Troca o tema SEM piscar: corta as transições de CSS de todos os elementos
+// durante a troca (senão cada `transition-colors`/etc. anima a cor por ~0,15s,
+// o que aparece como piscada/borrão), aplica o tema de uma vez e reativa as
+// transições no quadro seguinte (hover etc. voltam a animar normalmente).
+function aplicarSemPisca(modo: Modo): void {
+  const style = document.createElement("style");
+  style.textContent = "*,*::before,*::after{transition:none !important;}";
+  document.head.appendChild(style);
+  aplicar(modo);
+  // Força o navegador a recalcular/pintar já com o tema novo e sem transição.
+  window.getComputedStyle(document.body).getPropertyValue("background-color");
+  requestAnimationFrame(() => style.remove());
+}
+
 // useSyncExternalStore: lê o modo atual sem quebrar a hidratação (o servidor
 // renderiza "sistema" e o cliente reconcilia pro valor real) e sem setState em
 // efeito. Reage a mudanças em outra aba (storage) e nesta aba (evento próprio).
@@ -58,7 +72,7 @@ export function ThemeToggle() {
     } catch {
       // localStorage indisponível (aba privada etc.): aplica só nesta sessão.
     }
-    aplicar(novo);
+    aplicarSemPisca(novo);
     window.dispatchEvent(new Event("vs-theme-change"));
   }
 
