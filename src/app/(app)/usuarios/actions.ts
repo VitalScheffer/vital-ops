@@ -367,3 +367,61 @@ export async function createSetor(_prev: FormState, formData: FormData): Promise
   revalidatePath("/usuarios");
   return { status: "success", message: `Setor ${created.nome} criado com sucesso.` };
 }
+
+const deleteSetorSchema = z.object({ id: z.string().trim().min(1) });
+
+// Exclusão de setor (ADMIN/GESTOR). Bloqueia se houver requisições ligadas a ele
+// (a FK barra e a auditoria precisa do vínculo); as associações de usuários
+// (UserSetor) somem em cascata. Não é "hard delete" de nada com histórico.
+export async function excluirSetor(_prev: FormState, formData: FormData): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user?.email) {
+    return unauthenticated();
+  }
+
+  const permissions = await getRolePermissionsMap();
+  if (!canManageUsers(session.user.role, permissions)) {
+    return { status: "error", message: "Você não tem permissão para excluir setores." };
+  }
+
+  const parsed = deleteSetorSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) {
+    return { status: "error", message: "Setor inválido." };
+  }
+  const { id } = parsed.data;
+
+  const target = await prisma.setor.findUnique({
+    where: { id },
+    select: { id: true, nome: true, _count: { select: { requisicoes: true, membros: true } } },
+  });
+  if (!target) {
+    return { status: "error", message: "Setor não encontrado." };
+  }
+  if (target._count.requisicoes > 0) {
+    return {
+      status: "error",
+      message: `O setor "${target.nome}" tem requisições ligadas a ele e não pode ser excluído (preserva o histórico). Renomeie-o se precisar.`,
+    };
+  }
+
+  try {
+    await prisma.setor.delete({ where: { id } });
+  } catch {
+    // Corrida rara (uma requisição passou a usar o setor entre a checagem e o
+    // delete) → a FK barra. Mensagem amigável em vez de erro 500.
+    return { status: "error", message: `Não consegui excluir o setor "${target.nome}" — pode ter passado a ser usado. Tente de novo.` };
+  }
+
+  await audit({
+    actor: { id: session.user.id, email: session.user.email },
+    action: "setor.delete",
+    entity: "Setor",
+    entityId: id,
+    summary: `Excluiu o setor ${target.nome}.`,
+    before: { nome: target.nome, membros: target._count.membros },
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/usuarios");
+  return { status: "success", message: `Setor ${target.nome} excluído.` };
+}

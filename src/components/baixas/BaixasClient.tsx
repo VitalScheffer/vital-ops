@@ -15,7 +15,7 @@ import { FileDropzone } from "@/components/produtos/FileDropzone";
 import { Select } from "@/components/ui/Select";
 import { gerarModeloXlsx, lerPlanilhaBaixa, type PlanilhaBaixa } from "@/lib/baixas/planilha";
 import { baixarBlob } from "@/lib/bom/download";
-import type { BaixaLinha } from "@/lib/contracts";
+import type { BaixaLinha, Role } from "@/lib/contracts";
 
 export interface LocalOpcao {
   codigo: string;
@@ -46,9 +46,14 @@ interface BaixasClientProps {
   // Locais de estoque da empresa (vem do servidor, cacheado). Vazio = seletor
   // escondido e tudo acontece no local padrão.
   locais: LocalOpcao[];
+  role: Role;
 }
 
-export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) {
+// Só gestor (e admin) vê o alerta de estoque mínimo na conferência.
+const PAPEIS_MINIMO: readonly Role[] = ["ADMIN", "GESTOR", "FABRICA_GESTOR"];
+
+export function BaixasClient({ defaultSolicitante, locais, role }: BaixasClientProps) {
+  const mostrarMinimo = PAPEIS_MINIMO.includes(role);
   const [modo, setModo] = useState<Modo>("planilha");
   const [solicitante, setSolicitante] = useState(defaultSolicitante);
   const [localCodigo, setLocalCodigo] = useState(
@@ -370,7 +375,14 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
                     </td>
                     <td className="px-3 py-2">
                       {item.ok ? (
-                        <span className="text-primary">ok ✓</span>
+                        <>
+                          <span className="text-primary">ok ✓</span>
+                          {mostrarMinimo && item.abaixoDoMinimo ? (
+                            <span className="block text-xs text-warning">
+                              fica abaixo do mínimo ({item.estoqueMinimo?.toLocaleString("pt-BR")}) — repor
+                            </span>
+                          ) : null}
+                        </>
                       ) : (
                         <span className="text-destructive">{item.motivo}</span>
                       )}

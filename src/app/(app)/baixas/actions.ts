@@ -1,5 +1,6 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { audit } from "@/lib/audit";
@@ -14,9 +15,12 @@ import {
   dataOmieHoje,
   lotesPorCodigo,
   nomeDoLocal,
+  reverterBaixa,
   saldoTotalPorCodigo,
   saldosPorCodigo,
+  type AlocacaoLote,
   type ItemBaixa,
+  type ItemReversao,
   type LoteDisponivel,
   type ProdutoEstoque,
   type ProdutoResumo,
@@ -147,6 +151,10 @@ export interface ConferenciaItem {
   saldo?: number;
   ok: boolean;
   motivo?: string;
+  // Estoque mínimo do Omie e se a baixa deixa o produto ABAIXO dele (mostrado só
+  // para gestor). 0/ausente = sem mínimo definido.
+  estoqueMinimo?: number;
+  abaixoDoMinimo?: boolean;
 }
 
 export interface ResultadoConferencia {
@@ -168,7 +176,9 @@ function conferirItens(
     if (!produto) {
       return { sku: item.sku, quantidade: item.quantidade, ok: false, motivo: "Código não encontrado no Omie." };
     }
-    const saldo = saldos.get(item.sku)?.saldo ?? 0;
+    const dados = saldos.get(item.sku);
+    const saldo = dados?.saldo ?? 0;
+    const estoqueMinimo = dados?.estoqueMinimo ?? 0;
     const usado = consumido.get(item.sku) ?? 0;
     const disponivel = saldo - usado;
     if (disponivel < item.quantidade) {
@@ -182,7 +192,16 @@ function conferirItens(
       };
     }
     consumido.set(item.sku, usado + item.quantidade);
-    return { sku: item.sku, quantidade: item.quantidade, descricao: produto.descricao, saldo, ok: true };
+    const restante = disponivel - item.quantidade;
+    return {
+      sku: item.sku,
+      quantidade: item.quantidade,
+      descricao: produto.descricao,
+      saldo,
+      ok: true,
+      estoqueMinimo,
+      abaixoDoMinimo: estoqueMinimo > 0 && restante < estoqueMinimo,
+    };
   });
 }
 
@@ -342,7 +361,16 @@ async function processarBaixa(
     if (item.outcome === "baixado" || item.outcome === "ja_baixado") {
       await prisma.baixaItem.update({
         where: { id: item.chave },
-        data: { status: "BAIXADO", motivoErro: null, omieRef: item.omieRef, baixadoEm: agora },
+        data: {
+          status: "BAIXADO",
+          motivoErro: null,
+          omieRef: item.omieRef,
+          baixadoEm: agora,
+          // Guarda o custo e os lotes SÓ na baixa nova (ja_baixado já tem do
+          // envio anterior) — base do relatório de consumo e do estorno.
+          ...(item.custoUnitario !== undefined ? { custoUnitario: item.custoUnitario } : {}),
+          ...(item.lotes ? { loteConsumido: item.lotes as unknown as Prisma.InputJsonValue } : {}),
+        },
       });
       if (item.outcome === "baixado" && original) {
         await prisma.movimentoEstoque.create({
@@ -496,4 +524,120 @@ export async function continuarBaixa(importId: string): Promise<ResultadoExecuca
 
   // Retoma no MESMO local da execução original.
   return processarBaixa(importacao.id, persistidos, guarda, importacao.localEstoqueCodigo ?? LOCAL_PADRAO);
+}
+
+// --- Estorno (reverter uma baixa) --------------------------------------------
+
+// Lê o loteConsumido (Json do banco) de volta para a alocação de lote.
+function parseLotes(valor: unknown): AlocacaoLote[] | undefined {
+  if (!Array.isArray(valor)) return undefined;
+  const saida: AlocacaoLote[] = [];
+  for (const item of valor) {
+    if (!item || typeof item !== "object") continue;
+    const registro = item as Record<string, unknown>;
+    const nIdLote = registro.nIdLote != null ? String(registro.nIdLote) : "";
+    const quantidade = Number(registro.quantidade);
+    if (nIdLote && Number.isFinite(quantidade)) saida.push({ nIdLote, quantidade });
+  }
+  return saida.length > 0 ? saida : undefined;
+}
+
+export interface ResultadoEstorno {
+  ok: boolean;
+  erro?: string;
+  mensagem?: string;
+  estornados: number;
+  falhas: number;
+}
+
+// Estorna uma baixa: lança a ENTRADA compensatória no Omie de cada item baixado
+// (nos MESMOS lotes), devolvendo o estoque. Não apaga nada — marca `estornadoEm`
+// e registra o movimento. Idempotente (cod_int `est-<item>`): reestornar não
+// devolve duas vezes.
+export async function estornarBaixa(importId: string): Promise<ResultadoEstorno> {
+  const guarda = await guardarBaixas();
+  if ("erro" in guarda) return { ok: false, erro: guarda.erro, estornados: 0, falhas: 0 };
+  const alvo = String(importId ?? "").trim();
+  if (!alvo) return { ok: false, erro: "Baixa inválida.", estornados: 0, falhas: 0 };
+
+  const importacao = await prisma.baixaImport.findUnique({
+    where: { id: alvo },
+    include: { itens: { where: { status: "BAIXADO", estornadoEm: null } } },
+  });
+  if (!importacao) return { ok: false, erro: "Baixa não encontrada.", estornados: 0, falhas: 0 };
+  if (importacao.itens.length === 0) {
+    return { ok: false, erro: "Nada para estornar (baixa já estornada ou sem itens baixados).", estornados: 0, falhas: 0 };
+  }
+
+  const itensReversao: ItemReversao[] = importacao.itens
+    .filter((item) => item.omieIdProd)
+    .map((item) => ({
+      chave: item.id,
+      sku: item.sku,
+      idProd: String(item.omieIdProd),
+      quantidade: Number(item.quantidade),
+      custoUnitario: item.custoUnitario != null ? Number(item.custoUnitario) : 0,
+      lotes: parseLotes(item.loteConsumido),
+      obs: `Estorno da baixa ${importacao.arquivoNome} - ${item.sku}`,
+    }));
+  if (itensReversao.length === 0) {
+    return { ok: false, erro: "Itens sem id do Omie — não dá para estornar automaticamente.", estornados: 0, falhas: 0 };
+  }
+
+  let resultado: Awaited<ReturnType<typeof reverterBaixa>>;
+  try {
+    resultado = await reverterBaixa(
+      itensReversao,
+      dataOmieHoje(),
+      chamar,
+      importacao.localEstoqueCodigo ?? LOCAL_PADRAO,
+    );
+  } catch (erro) {
+    return { ok: false, erro: mensagemOmieIndisponivel(erro), estornados: 0, falhas: 0 };
+  }
+
+  const agora = new Date();
+  for (const item of resultado.itens) {
+    if (item.outcome !== "estornado" && item.outcome !== "ja_estornado") continue;
+    await prisma.baixaItem.update({
+      where: { id: item.chave },
+      data: { estornadoEm: agora, estornoRef: item.omieRef },
+    });
+    const original = importacao.itens.find((i) => i.id === item.chave);
+    if (item.outcome === "estornado" && original) {
+      await prisma.movimentoEstoque.create({
+        data: {
+          tipo: "ENTRADA",
+          sku: item.sku,
+          quantidade: original.quantidade,
+          omieRef: item.omieRef,
+          baixaItemId: item.chave,
+        },
+      });
+    }
+  }
+
+  const estornados = resultado.itens.filter((i) => i.outcome === "estornado" || i.outcome === "ja_estornado").length;
+  const falhas = resultado.itens.filter((i) => i.outcome === "falha").length;
+
+  await audit({
+    actor: { id: guarda.userId, email: guarda.email },
+    action: "baixa.estornar",
+    entity: "BaixaImport",
+    entityId: alvo,
+    summary: `Estorno da baixa ${importacao.arquivoNome}: ${estornados} estornado(s), ${falhas} falha(s).`,
+    after: { estornados, falhas, interrompido: resultado.interrompido },
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/baixas");
+  if (resultado.interrompido) {
+    return { ok: false, erro: resultado.motivoInterrupcao ?? "Estorno interrompido.", estornados, falhas };
+  }
+  return {
+    ok: true,
+    estornados,
+    falhas,
+    mensagem: `Estorno concluído: ${estornados} item(ns) devolvido(s) ao estoque${falhas > 0 ? `, ${falhas} com falha` : ""}.`,
+  };
 }

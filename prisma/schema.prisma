@@ -325,6 +325,15 @@ model BaixaItem {
   motivoErro String?
   omieIdProd String?
   omieRef    String? // id_ajuste devolvido pelo IncluirAjusteEstoque
+  // Custo médio unitário (CMC) no momento da baixa — base do relatório de consumo
+  // em R$ e do valor da entrada compensatória no estorno.
+  custoUnitario Decimal?
+  // Alocação de lote usada na baixa ([{nIdLote, nQtdLote}]) — o estorno lança a
+  // entrada de volta nos MESMOS lotes. Null = produto sem controle de lote.
+  loteConsumido Json?
+  // Estorno (reversão): entrada compensatória lançada no Omie. Não apaga nada.
+  estornadoEm DateTime?
+  estornoRef  String? // id_ajuste da entrada de estorno no Omie
   baixadoEm  DateTime?
 
   import     BaixaImport        @relation(fields: [importId], references: [id], onDelete: Cascade)

@@ -2222,3 +2222,54 @@ tsc/eslint/vitest(240)/build verdes. Commit + push (deploy).
   historico maior/por periodo, da pra ajustar.
 - Cap de 200 itens por baixa vale tambem no modo tela (schema); o carrinho nao bloqueia antes, so a
   action recusa com mensagem generica se passar (caso raro).
+
+## 2026-07-17 (cont. 4) — Estorno de baixa, alerta de estoque minimo e excluir setor (+ fix da piscada)
+
+### Resumo
+Lote de melhorias pedido pelo admin (das que sugeri). Entregue nesta parte: (a) ESTORNAR uma baixa;
+(b) ALERTA de estoque minimo na conferencia (so gestor); (c) EXCLUIR setor. Tambem subiu antes,
+sozinho, o fix da PISCADA ao trocar de aba (commit 3739547). Code review rodado antes do push
+(3 achados, 2 corrigidos). tsc/eslint/vitest(246)/build verdes.
+FICOU PARA O PROXIMO LOTE (comunicado ao admin): relatorio de consumo em R$, aviso "qtd>saldo" no
+carrinho, notificacao ao solicitante (o vital-ops NAO tem canal de e-mail/WhatsApp hoje - decisao
+de infra a parte; fiz so a base), e a passada de responsividade (precisa testar no visual).
+
+### Estorno (reverter uma baixa)
+- Confirmado na doc do Omie: ENT com `lote_validade: [{nIdLote, nQtdLote}]` SOMA de volta no lote
+  existente (por nIdLote). Entao o estorno replica a alocacao da baixa como ENTRADA.
+- `prisma/schema.prisma` + migration `20260717180000_baixa_item_custo_estorno`: BaixaItem ganhou
+  `custoUnitario` (CMC da baixa), `loteConsumido` (Json da alocacao), `estornadoEm`, `estornoRef`.
+- `omieEstoque.ts`: `baixarEstoque` agora DEVOLVE `custoUnitario` e `lotes` no item baixado;
+  `processarBaixa` guarda os dois no BaixaItem (base do relatorio futuro e do estorno). Nova funcao
+  `reverterBaixa` (ENT nos mesmos lotes, valor=custo*qtd, cod_int `est-<item>` idempotente, ban-safe).
+- `baixas/actions.ts`: `estornarBaixa(importId)` (guard canViewBaixas, carrega itens BAIXADO com
+  estornadoEm=null, chama reverterBaixa no local do import, marca estornadoEm/estornoRef + cria
+  MovimentoEstoque ENTRADA, auditado). `parseLotes` le o Json de volta.
+- `baixas/page.tsx` + `EstornarBaixa.tsx`: botao "Estornar" (com confirmacao inline) na tabela de
+  baixas recentes; marcador "estornada" depois.
+
+### Alerta de estoque minimo (so gestor)
+- `omieEstoque.ts`: `SaldoEstoque.estoqueMinimo` (le `estoque_minimo` do ListarPosEstoque).
+- `baixas/actions.ts` `conferirItens`: `abaixoDoMinimo` = saldo apos a baixa < minimo.
+- `BaixasClient.tsx`: recebe `role`; mostra "fica abaixo do minimo (N) - repor" na conferencia so
+  para ADMIN/GESTOR/FABRICA_GESTOR.
+
+### Excluir setor
+- `usuarios/actions.ts` `excluirSetor` (canManageUsers): bloqueia se ha requisicoes ligadas (FK),
+  senao exclui (memberships cascateiam), auditado, com try/catch pro caso de corrida. Botao X com
+  confirmacao inline (`ExcluirSetor.tsx`) em cada chip de setor.
+
+### Code review (antes do push)
+- FIX: linha da baixa nao mostrava que foi estornada -> marcador "estornada".
+- FIX: excluirSetor sem try/catch (corrida -> FK 500) -> mensagem amigavel.
+- OK-como-esta: ENT do estorno omite valor com custo 0 (espelha a saida provada; confirmar no teste real).
+
+### Comandos
+- `npx prisma generate`. `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 246/246.
+  `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- APLICAR a migration `20260717180000_baixa_item_custo_estorno` (aditiva) - aplica sozinha no deploy.
+- Testar o estorno de verdade com o Omie (ENT-lote e o valor com custo 0).
+- Proximo lote: relatorio de consumo R$ (a base custoUnitario ja esta gravando), aviso qtd>saldo,
+  notificacao (decidir e-mail x WhatsApp), responsividade.

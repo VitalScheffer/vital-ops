@@ -249,6 +249,7 @@ export async function nomeDoLocal(codigoLocal: string, chamar: ChamarFn): Promis
 export interface SaldoEstoque {
   saldo: number;
   cmc: number; // custo médio contábil (vira o `valor` obrigatório do ajuste)
+  estoqueMinimo?: number; // estoque_minimo do Omie (0/ausente = sem mínimo definido)
 }
 
 // `{SKU → saldo/CMC}` numa única chamada, no local pedido (LOCAL_PADRAO = "0"
@@ -277,7 +278,11 @@ export async function saldosPorCodigo(
   for (const p of produtos as OmiePayload[]) {
     const codigo = texto(p.cCodigo);
     if (!codigo) continue;
-    mapa.set(codigo, { saldo: numero(p.nSaldo) ?? 0, cmc: numero(p.nCMC) ?? 0 });
+    mapa.set(codigo, {
+      saldo: numero(p.nSaldo) ?? 0,
+      cmc: numero(p.nCMC) ?? 0,
+      estoqueMinimo: numero(p.estoque_minimo) ?? 0,
+    });
   }
   return mapa;
 }
@@ -422,6 +427,8 @@ export interface ResultadoItemBaixa {
   outcome: OutcomeBaixa;
   motivo?: string;
   omieRef?: string; // id_ajuste devolvido pelo Omie
+  custoUnitario?: number; // CMC usado (relatório de consumo + valor do estorno)
+  lotes?: AlocacaoLote[]; // alocação de lote usada (o estorno reverte nos mesmos lotes)
 }
 
 export interface ResultadoBaixa {
@@ -579,6 +586,8 @@ export async function baixarEstoque(
         sku: item.sku,
         outcome: "baixado",
         omieRef: texto(resp?.id_ajuste) ?? texto(resp?.id_movest),
+        custoUnitario: cmc,
+        ...(alocacaoLote ? { lotes: alocacaoLote } : {}),
       });
       // Só uma baixa NOVA consome o lote nesta rodada (o ja_baixado/duplicado de
       // uma rodada anterior já está descontado no saldo lido do lote).
@@ -615,6 +624,119 @@ export async function baixarEstoque(
         motivo: motivoAmigavel(mensagem(erro)),
       });
       registrarSequencia(false, true);
+    }
+  }
+
+  return { itens: resultados, interrompido, bloqueado, motivoInterrupcao };
+}
+
+// -----------------------------------------------------------------------------
+// Estorno: reverter uma baixa (entrada compensatória)
+// -----------------------------------------------------------------------------
+
+export interface ItemReversao {
+  chave: string; // id do BaixaItem (vira `est-<chave>` = cod_int do estorno)
+  sku: string;
+  idProd: string; // codigo_produto (id interno)
+  quantidade: number;
+  custoUnitario: number; // valor da entrada (mesmo CMC da baixa)
+  lotes?: AlocacaoLote[]; // lotes a devolver (a MESMA alocação da baixa)
+  obs: string;
+}
+
+export type OutcomeReversao = "estornado" | "ja_estornado" | "falha" | "nao_estornado";
+
+export interface ResultadoItemReversao {
+  chave: string;
+  sku: string;
+  outcome: OutcomeReversao;
+  motivo?: string;
+  omieRef?: string;
+}
+
+export interface ResultadoReversao {
+  itens: ResultadoItemReversao[];
+  interrompido: boolean;
+  bloqueado: boolean;
+  motivoInterrupcao?: string;
+}
+
+const MOTIVO_NAO_ESTORNADO = "Estorno interrompido antes de chegar neste item.";
+
+// Estorno: lança a ENTRADA (tipo "ENT") de cada item, nos MESMOS lotes que a
+// baixa consumiu (ENT com `lote_validade` por `nIdLote` SOMA de volta no lote).
+// Sequencial e ban-safe; `cod_int_ajuste = est-<chave>` é determinístico →
+// reenviar não estorna duas vezes (OmieDuplicate = já estornado).
+export async function reverterBaixa(
+  itens: readonly ItemReversao[],
+  data: string,
+  chamar: ChamarFn,
+  codigoLocal?: string,
+): Promise<ResultadoReversao> {
+  const resultados: ResultadoItemReversao[] = [];
+  let interrompido = false;
+  let bloqueado = false;
+  let motivoInterrupcao: string | undefined;
+  let sequenciaRisco = 0;
+  const localEscolhido = codigoLocal && codigoLocal !== LOCAL_PADRAO ? codigoLocal : undefined;
+
+  const contarRisco = () => {
+    sequenciaRisco += 1;
+    if (sequenciaRisco >= LIMITE_SEQUENCIA_RISCO) {
+      interrompido = true;
+      motivoInterrupcao =
+        "Estorno pausado por segurança (margem antes do limite do Omie). Tente de novo em alguns minutos.";
+    }
+  };
+
+  for (const item of itens) {
+    if (interrompido) {
+      resultados.push({ chave: item.chave, sku: item.sku, outcome: "nao_estornado", motivo: MOTIVO_NAO_ESTORNADO });
+      continue;
+    }
+    const loteValidade = item.lotes?.map((a) => ({ nIdLote: Number(a.nIdLote), nQtdLote: a.quantidade }));
+    try {
+      const resp = await chamar(
+        "estoque/ajuste/",
+        "IncluirAjusteEstoque",
+        {
+          cod_int_ajuste: `est-${item.chave}`.slice(0, 60),
+          id_prod: Number(item.idProd),
+          data,
+          quan: item.quantidade,
+          tipo: "ENT",
+          motivo: "OPS",
+          origem: "AJU",
+          ...(item.custoUnitario > 0 ? { valor: Number((item.custoUnitario * item.quantidade).toFixed(2)) } : {}),
+          obs: item.obs.slice(0, 500),
+          ...(loteValidade && loteValidade.length > 0 ? { lote_validade: loteValidade } : {}),
+          ...(localEscolhido ? { codigo_local_estoque: Number(localEscolhido) } : {}),
+        },
+        WRITE,
+      );
+      resultados.push({
+        chave: item.chave,
+        sku: item.sku,
+        outcome: "estornado",
+        omieRef: texto(resp?.id_ajuste) ?? texto(resp?.id_movest),
+      });
+      sequenciaRisco = 0;
+    } catch (erro) {
+      if (erro instanceof OmieBlocked) {
+        interrompido = true;
+        bloqueado = true;
+        motivoInterrupcao = mensagem(erro);
+        resultados.push({ chave: item.chave, sku: item.sku, outcome: "nao_estornado", motivo: MOTIVO_NAO_ESTORNADO });
+        continue;
+      }
+      if (erro instanceof OmieDuplicate) {
+        // `est-<chave>` repetido = este item JÁ foi estornado antes. Idempotente.
+        resultados.push({ chave: item.chave, sku: item.sku, outcome: "ja_estornado" });
+        contarRisco();
+        continue;
+      }
+      resultados.push({ chave: item.chave, sku: item.sku, outcome: "falha", motivo: mensagem(erro) });
+      contarRisco();
     }
   }
 

@@ -1,6 +1,7 @@
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { CreateSetorForm } from "@/components/users/CreateSetorForm";
+import { ExcluirSetor } from "@/components/users/ExcluirSetor";
 import { CreateUserForm } from "@/components/users/CreateUserForm";
 import { EditUserDialog } from "@/components/users/EditUserDialog";
 import { auth } from "@/lib/auth";
@@ -75,9 +76,10 @@ export default async function UsuariosPage() {
               {setores.map((setor) => (
                 <li
                   key={setor.id}
-                  className="rounded-lg bg-muted px-3 py-1.5 text-sm text-card-foreground"
+                  className="inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-sm text-card-foreground"
                 >
                   {setor.nome}
+                  <ExcluirSetor setorId={setor.id} />
                 </li>
               ))}
             </ul>

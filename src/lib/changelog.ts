@@ -14,6 +14,15 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-17",
+    title: "Estornar uma baixa, alerta de estoque mínimo e excluir setor",
+    items: [
+      "Em \"Baixas recentes\" tem o botão Estornar: desfaz uma baixa lançando a entrada de volta no Omie (nos mesmos lotes), com confirmação. Nada é apagado, fica tudo registrado.",
+      "Na conferência da baixa, o gestor passa a ver um aviso quando o produto vai ficar abaixo do estoque mínimo cadastrado no Omie (para repor a tempo).",
+      "Na tela de Usuários e setores agora dá para excluir um setor (bloqueado se ele tiver requisições ligadas, para preservar o histórico).",
+    ],
+  },
+  {
+    date: "2026-07-17",
     title: "Baixa de estoque direto na tela (sem planilha) e histórico",
     items: [
       "Na Baixa de estoque, além da planilha, agora dá para lançar direto na tela: busque o produto (aparece a descrição do Omie e o saldo), informe a quantidade e, se quiser, pedido, NF, OP e observação. Obrigatório só o produto e a quantidade.",

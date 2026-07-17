@@ -11,8 +11,10 @@ import {
   listarLocaisEstoque,
   lotesPorCodigo,
   nomeDoLocal,
+  reverterBaixa,
   saldoTotalPorCodigo,
   saldosPorCodigo,
+  type ItemReversao,
   type ChamarFn,
   type ContextoBaixa,
   type ItemBaixa,
@@ -101,8 +103,8 @@ describe("saldosPorCodigo", () => {
     expect(path).toBe("estoque/consulta/");
     expect(call).toBe("ListarPosEstoque");
     expect(param).toMatchObject({ codigo_local_estoque: 0, dDataPosicao: "16/07/2026" });
-    expect(mapa.get("MAT 001")).toEqual({ saldo: 10, cmc: 2.5 });
-    expect(mapa.get("MAT 002")).toEqual({ saldo: 0, cmc: 0 });
+    expect(mapa.get("MAT 001")).toEqual({ saldo: 10, cmc: 2.5, estoqueMinimo: 0 });
+    expect(mapa.get("MAT 002")).toEqual({ saldo: 0, cmc: 0, estoqueMinimo: 0 });
   });
 
   it("consulta um local específico com cExibeTodos 'S' (zerado no local NÃO pode virar fault)", async () => {
@@ -117,6 +119,18 @@ describe("saldosPorCodigo", () => {
     const mapa = await saldosPorCodigo([], "16/07/2026", chamar);
     expect(chamar).not.toHaveBeenCalled();
     expect(mapa.size).toBe(0);
+  });
+
+  it("lê o estoque_minimo do Omie (0 quando ausente)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      produtos: [
+        { cCodigo: "MAT 001", nSaldo: 10, nCMC: 2, estoque_minimo: 5 },
+        { cCodigo: "MAT 002", nSaldo: 3, nCMC: 1 },
+      ],
+    });
+    const mapa = await saldosPorCodigo(["MAT 001", "MAT 002"], "16/07/2026", chamar);
+    expect(mapa.get("MAT 001")?.estoqueMinimo).toBe(5);
+    expect(mapa.get("MAT 002")?.estoqueMinimo).toBe(0);
   });
 });
 
@@ -547,6 +561,77 @@ describe("baixarEstoque — controle de lote e custo médio", () => {
     const [, , param] = chamar.mock.calls[0];
     expect(param).not.toHaveProperty("valor");
     expect(resultado.itens[0].outcome).toBe("baixado");
+  });
+});
+
+describe("baixarEstoque — resultado carrega custo e lotes (p/ relatório e estorno)", () => {
+  it("baixado devolve custoUnitario (CMC) e a alocação de lote", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 1 });
+    const ctx = contexto(
+      { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
+      { "MAT 001": { saldo: 10, cmc: 2.5 } },
+      { "MAT 001": [{ nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }] },
+    );
+    const resultado = await baixarEstoque([{ chave: "k1", sku: "MAT 001", quantidade: 4, obs: "" }], ctx, chamar);
+    expect(resultado.itens[0].custoUnitario).toBe(2.5);
+    expect(resultado.itens[0].lotes).toEqual([{ nIdLote: "30", quantidade: 4 }]);
+  });
+});
+
+describe("reverterBaixa (estorno)", () => {
+  const ITEM_REV: ItemReversao = {
+    chave: "bi-1",
+    sku: "MAT 001",
+    idProd: "111",
+    quantidade: 4,
+    custoUnitario: 2.5,
+    lotes: [{ nIdLote: "30", quantidade: 4 }],
+    obs: "Estorno",
+  };
+
+  it("lança ENTRADA nos mesmos lotes, valor = custo × qtd, cod_int est-<chave>", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 999 });
+    const resultado = await reverterBaixa([ITEM_REV], "16/07/2026", chamar, "8667075521");
+    const [path, call, param] = chamar.mock.calls[0];
+    expect(path).toBe("estoque/ajuste/");
+    expect(call).toBe("IncluirAjusteEstoque");
+    expect(param).toMatchObject({
+      cod_int_ajuste: "est-bi-1",
+      id_prod: 111,
+      tipo: "ENT",
+      quan: 4,
+      valor: 10,
+      lote_validade: [{ nIdLote: 30, nQtdLote: 4 }],
+      codigo_local_estoque: 8667075521,
+    });
+    expect(resultado.itens[0]).toMatchObject({ outcome: "estornado", omieRef: "999" });
+  });
+
+  it("OmieDuplicate (est-<chave> repetido) = já estornado (idempotente)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockRejectedValue(new OmieDuplicate("ja cadastrado"));
+    const resultado = await reverterBaixa([ITEM_REV], "16/07/2026", chamar);
+    expect(resultado.itens[0].outcome).toBe("ja_estornado");
+  });
+
+  it("produto sem lote omite lote_validade; custo 0 omite valor", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 1 });
+    await reverterBaixa(
+      [{ chave: "x", sku: "S", idProd: "9", quantidade: 2, custoUnitario: 0, obs: "" }],
+      "16/07/2026",
+      chamar,
+    );
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).not.toHaveProperty("lote_validade");
+    expect(param).not.toHaveProperty("valor");
+  });
+
+  it("OmieBlocked interrompe o estorno", async () => {
+    const chamar = vi.fn<ChamarFn>().mockRejectedValue(new OmieBlocked("bloqueado por consumo indevido"));
+    const resultado = await reverterBaixa([ITEM_REV, { ...ITEM_REV, chave: "bi-2" }], "16/07/2026", chamar);
+    expect(chamar).toHaveBeenCalledTimes(1);
+    expect(resultado.bloqueado).toBe(true);
+    expect(resultado.itens[0].outcome).toBe("nao_estornado");
+    expect(resultado.itens[1].outcome).toBe("nao_estornado");
   });
 });
 

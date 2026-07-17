@@ -1,6 +1,7 @@
 import { Download, FileSpreadsheet, PackageMinus, SearchCheck } from "lucide-react";
 
 import { BaixasClient } from "@/components/baixas/BaixasClient";
+import { EstornarBaixa } from "@/components/baixas/EstornarBaixa";
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
@@ -80,7 +81,7 @@ export default async function BaixasPage() {
       take: 10,
       include: {
         autor: { select: { name: true } },
-        itens: { select: { status: true } },
+        itens: { select: { status: true, estornadoEm: true } },
       },
     }),
     locaisDisponiveis(),
@@ -102,7 +103,11 @@ export default async function BaixasPage() {
         title="Nova baixa"
         description="Baixe o modelo, preencha, suba o arquivo e confira antes de executar. A baixa sai no local de estoque padrão."
       >
-        <BaixasClient defaultSolicitante={session!.user.name ?? ""} locais={locais} />
+        <BaixasClient
+          defaultSolicitante={session!.user.name ?? ""}
+          locais={locais}
+          role={session!.user.role}
+        />
       </Panel>
 
       <Panel title="Baixas recentes" description="Últimas planilhas processadas (de todos os usuários).">
@@ -119,12 +124,17 @@ export default async function BaixasPage() {
                   <th className="py-2 pr-3 font-medium">Local</th>
                   <th className="py-2 pr-3 font-medium">Itens (baixados/total)</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
-                  <th className="py-2 font-medium">Quando</th>
+                  <th className="py-2 pr-3 font-medium">Quando</th>
+                  <th className="py-2 font-medium">Ação</th>
                 </tr>
               </thead>
               <tbody>
                 {recentes.map((importacao) => {
                   const baixados = importacao.itens.filter((item) => item.status === "BAIXADO").length;
+                  const estornavel = importacao.itens.some(
+                    (item) => item.status === "BAIXADO" && !item.estornadoEm,
+                  );
+                  const estornada = !estornavel && importacao.itens.some((item) => item.estornadoEm);
                   return (
                     <tr key={importacao.id} className="border-b border-border/60 last:border-0">
                       <td className="py-2 pr-3 text-card-foreground">{importacao.arquivoNome}</td>
@@ -139,7 +149,14 @@ export default async function BaixasPage() {
                       <td className="py-2 pr-3 text-muted-foreground">
                         {STATUS_LABEL[importacao.status] ?? importacao.status}
                       </td>
-                      <td className="py-2 text-muted-foreground">{formatarDataHora(importacao.criadoEm)}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{formatarDataHora(importacao.criadoEm)}</td>
+                      <td className="py-2">
+                        {estornavel ? (
+                          <EstornarBaixa importId={importacao.id} />
+                        ) : estornada ? (
+                          <span className="text-xs text-muted-foreground">estornada ↺</span>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}
