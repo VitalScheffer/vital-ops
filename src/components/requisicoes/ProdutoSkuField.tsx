@@ -3,7 +3,6 @@
 import { Loader2, Search } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { buscarProdutosOmie, saldoDoProduto } from "@/app/(app)/requisicoes/actions";
 import type { ProdutoResumo } from "@/lib/estoque/omieEstoque";
 
 const inputClass =
@@ -12,20 +11,27 @@ const inputClass =
 // Espera de digitação antes de buscar (evita uma chamada por tecla).
 const DEBOUNCE_MS = 350;
 
+// Funções injetadas (a busca e o saldo vêm da tela que usa o campo — requisição
+// ou baixa —, cada uma com sua própria permissão na Server Action).
+export type BuscarProdutosFn = (termo: string) => Promise<{ ok: boolean; erro?: string; produtos: ProdutoResumo[] }>;
+export type SaldoProdutoFn = (sku: string) => Promise<{ ok: boolean; saldo?: number }>;
+
 interface ProdutoSkuFieldProps {
   value: string;
   descricao?: string;
   onChange: (value: string) => void;
   onPick: (codigo: string, descricao: string) => void;
   index: number;
+  buscar: BuscarProdutosFn;
+  saldoDe: SaldoProdutoFn;
 }
 
-// Campo de código do produto COM busca: o solicitante digita parte da descrição
-// (ex.: "cama") ou o código e escolhe na lista (clicar preenche o SKU). Continua
-// aceitando um SKU digitado à mão (a Server Action valida contra o Omie no
+// Campo de código do produto COM busca: digita parte da descrição (ex.: "cama")
+// ou o código e escolhe na lista (clicar preenche o SKU e mostra o saldo do
+// Omie). Continua aceitando um SKU digitado à mão (a Server Action valida no
 // envio). Sem useEffect: a busca é agendada no onChange (debounce por ref) e o
 // dropdown fecha no blur do container.
-export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: ProdutoSkuFieldProps) {
+export function ProdutoSkuField({ value, descricao, onChange, onPick, index, buscar, saldoDe }: ProdutoSkuFieldProps) {
   const [resultados, setResultados] = useState<ProdutoResumo[]>([]);
   const [aberto, setAberto] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -46,12 +52,12 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
     setSaldoCarregando(false);
   }
 
-  async function buscar(termo: string) {
+  async function rodarBusca(termo: string) {
     const id = ++reqId.current;
     setCarregando(true);
     setErro(null);
     try {
-      const resultado = await buscarProdutosOmie(termo);
+      const resultado = await buscar(termo);
       if (reqId.current !== id) return;
       if (resultado.ok) {
         setResultados(resultado.produtos);
@@ -76,7 +82,7 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
       setCarregando(false);
       return;
     }
-    timer.current = setTimeout(() => buscar(termo), DEBOUNCE_MS);
+    timer.current = setTimeout(() => rodarBusca(termo), DEBOUNCE_MS);
   }
 
   async function escolher(produto: ProdutoResumo) {
@@ -90,7 +96,7 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index }: P
     setSaldo(null);
     setSaldoCarregando(true);
     try {
-      const resultado = await saldoDoProduto(produto.codigo);
+      const resultado = await saldoDe(produto.codigo);
       if (saldoReq.current === id) setSaldo(resultado.ok ? (resultado.saldo ?? null) : null);
     } finally {
       if (saldoReq.current === id) setSaldoCarregando(false);

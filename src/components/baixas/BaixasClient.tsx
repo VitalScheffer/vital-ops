@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Download, PackageMinus, PlayCircle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Download, Keyboard, PackageMinus, PlayCircle, RefreshCw, Sheet } from "lucide-react";
 import { useRef, useState } from "react";
 
 import {
@@ -10,10 +10,12 @@ import {
   type ResultadoConferencia,
   type ResultadoExecucao,
 } from "@/app/(app)/baixas/actions";
+import { BaixaManualCart } from "@/components/baixas/BaixaManualCart";
 import { FileDropzone } from "@/components/produtos/FileDropzone";
 import { Select } from "@/components/ui/Select";
 import { gerarModeloXlsx, lerPlanilhaBaixa, type PlanilhaBaixa } from "@/lib/baixas/planilha";
 import { baixarBlob } from "@/lib/bom/download";
+import type { BaixaLinha } from "@/lib/contracts";
 
 export interface LocalOpcao {
   codigo: string;
@@ -37,6 +39,8 @@ function outcomeClass(outcome: string): string {
   return "text-muted-foreground";
 }
 
+type Modo = "planilha" | "manual";
+
 interface BaixasClientProps {
   defaultSolicitante: string;
   // Locais de estoque da empresa (vem do servidor, cacheado). Vazio = seletor
@@ -45,20 +49,28 @@ interface BaixasClientProps {
 }
 
 export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) {
+  const [modo, setModo] = useState<Modo>("planilha");
   const [solicitante, setSolicitante] = useState(defaultSolicitante);
   const [localCodigo, setLocalCodigo] = useState(
     () => locais.find((local) => local.padrao)?.codigo ?? locais[0]?.codigo ?? "0",
   );
+  // Planilha
   const [file, setFile] = useState<File | null>(null);
   const [lendo, setLendo] = useState(false);
   const [erroLeitura, setErroLeitura] = useState<string | null>(null);
   const [planilha, setPlanilha] = useState<PlanilhaBaixa | null>(null);
+  // Digitado na tela
+  const [linhasManuais, setLinhasManuais] = useState<BaixaLinha[]>([]);
+  // Comum
   const [conferencia, setConferencia] = useState<ResultadoConferencia | null>(null);
   const [conferindo, setConferindo] = useState(false);
   const [execucao, setExecucao] = useState<ResultadoExecucao | null>(null);
   const [executando, setExecutando] = useState(false);
   // Guarda contra resultado fora de ordem ao trocar de arquivo rapidamente.
   const reqId = useRef(0);
+
+  const linhasAtivas: BaixaLinha[] = modo === "manual" ? linhasManuais : (planilha?.linhas ?? []);
+  const nomeOrigem = modo === "manual" ? "Digitada na tela" : (file?.name ?? "planilha");
 
   function baixarModelo() {
     const bytes = gerarModeloXlsx();
@@ -70,7 +82,19 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
     );
   }
 
-  async function conferir(linhas: PlanilhaBaixa["linhas"], id: number, local: string) {
+  function trocarModo(novo: Modo) {
+    if (novo === modo) return;
+    reqId.current++;
+    setModo(novo);
+    setFile(null);
+    setPlanilha(null);
+    setLinhasManuais([]);
+    setConferencia(null);
+    setExecucao(null);
+    setErroLeitura(null);
+  }
+
+  async function conferir(linhas: BaixaLinha[], id: number, local: string) {
     setConferindo(true);
     try {
       const resultado = await conferirBaixa({ itens: linhas, localCodigo: local });
@@ -80,13 +104,13 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
     }
   }
 
-  // Trocar o local re-confere a planilha na hora — é assim que dá pra "ver
-  // qual local tem" o material antes de baixar.
+  // Trocar o local re-confere na hora — é assim que dá pra "ver qual local tem"
+  // o material antes de baixar.
   async function onLocalChange(novoLocal: string) {
     setLocalCodigo(novoLocal);
     setExecucao(null);
-    if (planilha && planilha.linhas.length > 0) {
-      await conferir(planilha.linhas, reqId.current, novoLocal);
+    if (linhasAtivas.length > 0) {
+      await conferir(linhasAtivas, reqId.current, novoLocal);
     }
   }
 
@@ -116,15 +140,30 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
     }
   }
 
+  // Carrinho manual reportou novas linhas: guarda e zera uma conferência antiga
+  // (o que estava conferido não vale mais depois de editar).
+  function onLinhasManuais(linhas: BaixaLinha[]) {
+    reqId.current++;
+    setLinhasManuais(linhas);
+    setConferencia(null);
+    setExecucao(null);
+  }
+
+  async function conferirManual() {
+    const id = ++reqId.current;
+    setExecucao(null);
+    await conferir(linhasManuais, id, localCodigo);
+  }
+
   async function executar() {
-    if (!planilha || !file || solicitante.trim().length === 0) return;
+    if (linhasAtivas.length === 0 || solicitante.trim().length === 0) return;
     const id = reqId.current;
     setExecutando(true);
     try {
       const resultado = await executarBaixa({
-        arquivoNome: file.name,
+        arquivoNome: nomeOrigem,
         solicitante: solicitante.trim(),
-        itens: planilha.linhas,
+        itens: linhasAtivas,
         localCodigo,
       });
       if (reqId.current === id) setExecucao(resultado);
@@ -140,8 +179,6 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
     try {
       const resultado = await continuarBaixa(execucao.importId);
       if (reqId.current === id) {
-        // Junta o que já tinha baixado antes com o resultado da retomada; num
-        // erro, preserva o importId pra manter o botão de retomar visível.
         setExecucao(
           resultado.ok
             ? {
@@ -162,8 +199,25 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
 
   const linhasOk = conferencia?.ok ? conferencia.itens.filter((item) => item.ok).length : 0;
   const linhasProblema = conferencia?.ok ? conferencia.itens.filter((item) => !item.ok).length : 0;
-  // Sem NENHUMA linha ok não há o que baixar — evita registrar um import 100% falha.
   const podeExecutar = !executando && !conferindo && linhasOk > 0 && solicitante.trim().length > 0;
+  const podeConferirManual = modo === "manual" && !conferindo && !executando && linhasManuais.length > 0;
+  const ocupado = conferindo || executando;
+
+  const botaoModo = (valor: Modo, Icon: typeof Sheet, texto: string) => (
+    <button
+      type="button"
+      onClick={() => trocarModo(valor)}
+      disabled={ocupado}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
+        modo === valor
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border text-card-foreground hover:bg-muted"
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+      {texto}
+    </button>
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -201,14 +255,16 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
             </Select>
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={baixarModelo}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-card-foreground transition-colors hover:bg-muted"
-        >
-          <Download className="h-4 w-4" />
-          Baixar modelo (.xlsx)
-        </button>
+        {modo === "planilha" ? (
+          <button
+            type="button"
+            onClick={baixarModelo}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-card-foreground transition-colors hover:bg-muted"
+          >
+            <Download className="h-4 w-4" />
+            Baixar modelo (.xlsx)
+          </button>
+        ) : null}
       </div>
 
       {locais.length > 0 ? (
@@ -217,34 +273,56 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
         </p>
       ) : null}
 
-      <FileDropzone
-        label="Planilha de baixa preenchida"
-        hint="Excel (.xlsx ou .xls) com as colunas do modelo: Produto (código Omie) e Quantidade — Pedido, NF, OP, Solicitante e Observação (finalidade/motivo) são opcionais. A Observação vai para o movimento no Omie."
-        accept=".xlsx,.xls"
-        file={file}
-        onChange={onFileChange}
-        loading={lendo}
-      />
+      <div className="flex flex-wrap gap-2">
+        {botaoModo("planilha", Sheet, "Subir planilha")}
+        {botaoModo("manual", Keyboard, "Digitar na tela")}
+      </div>
 
-      {erroLeitura ? (
-        <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          {erroLeitura}
-        </p>
-      ) : null}
+      {modo === "planilha" ? (
+        <>
+          <FileDropzone
+            label="Planilha de baixa preenchida"
+            hint="Excel (.xlsx ou .xls) com as colunas do modelo: Produto (código Omie) e Quantidade — Pedido, NF, OP, Solicitante e Observação (finalidade/motivo) são opcionais. A Observação vai para o movimento no Omie."
+            accept=".xlsx,.xls"
+            file={file}
+            onChange={onFileChange}
+            loading={lendo}
+          />
 
-      {planilha && planilha.erros.length > 0 ? (
-        <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-          <p className="mb-1 flex items-center gap-1.5 font-medium text-card-foreground">
-            <AlertTriangle className="h-4 w-4 text-destructive" />
-            Linhas ignoradas (corrija na planilha se precisar delas):
-          </p>
-          <ul className="list-inside list-disc text-muted-foreground">
-            {planilha.erros.map((erro) => (
-              <li key={erro}>{erro}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+          {erroLeitura ? (
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {erroLeitura}
+            </p>
+          ) : null}
+
+          {planilha && planilha.erros.length > 0 ? (
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+              <p className="mb-1 flex items-center gap-1.5 font-medium text-card-foreground">
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+                Linhas ignoradas (corrija na planilha se precisar delas):
+              </p>
+              <ul className="list-inside list-disc text-muted-foreground">
+                {planilha.erros.map((erro) => (
+                  <li key={erro}>{erro}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <BaixaManualCart onLinhas={onLinhasManuais} disabled={ocupado} />
+          <button
+            type="button"
+            onClick={conferirManual}
+            disabled={!podeConferirManual}
+            className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${conferindo ? "animate-spin" : ""}`} />
+            {conferindo ? "Conferindo…" : "Conferir no Omie"}
+          </button>
+        </>
+      )}
 
       {conferencia && !conferencia.ok ? (
         <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -261,7 +339,7 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
             </h3>
             <button
               type="button"
-              onClick={() => planilha && conferir(planilha.linhas, reqId.current, localCodigo)}
+              onClick={() => linhasAtivas.length > 0 && conferir(linhasAtivas, reqId.current, localCodigo)}
               disabled={conferindo}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-card-foreground transition-colors hover:bg-muted disabled:opacity-60"
             >
@@ -305,8 +383,8 @@ export function BaixasClient({ defaultSolicitante, locais }: BaixasClientProps) 
 
           {linhasProblema > 0 ? (
             <p className="text-xs text-muted-foreground">
-              Linhas com problema NÃO serão baixadas (ficam registradas como falha). Você pode corrigir a
-              planilha e subir de novo, ou executar assim mesmo só com as linhas ok.
+              Linhas com problema NÃO serão baixadas (ficam registradas como falha). Você pode corrigir e
+              conferir de novo, ou executar assim mesmo só com as linhas ok.
             </p>
           ) : null}
 

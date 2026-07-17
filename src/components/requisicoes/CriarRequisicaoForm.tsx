@@ -3,7 +3,7 @@
 import { Plus, SendHorizonal, Trash2 } from "lucide-react";
 import { useActionState, useState } from "react";
 
-import { criarRequisicao } from "@/app/(app)/requisicoes/actions";
+import { buscarProdutosOmie, criarRequisicao, saldoDoProduto } from "@/app/(app)/requisicoes/actions";
 import { FormFeedback } from "@/components/FormFeedback";
 import { ProdutoSkuField } from "@/components/requisicoes/ProdutoSkuField";
 import { Select } from "@/components/ui/Select";
@@ -133,6 +133,8 @@ export function CriarRequisicaoForm({ setores, defaultNome, defaultSetorId }: Cr
                 onChange={(valor) => digitarSku(linha.key, valor)}
                 onPick={(codigo, descricao) => escolherProduto(linha.key, codigo, descricao)}
                 index={index}
+                buscar={buscarProdutosOmie}
+                saldoDe={saldoDoProduto}
               />
               <input
                 value={linha.quantidade}

@@ -14,6 +14,14 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-17",
+    title: "Baixa de estoque direto na tela (sem planilha) e histórico",
+    items: [
+      "Na Baixa de estoque, além da planilha, agora dá para lançar direto na tela: busque o produto (aparece a descrição do Omie e o saldo), informe a quantidade e, se quiser, pedido, NF, OP e observação. Obrigatório só o produto e a quantidade.",
+      "Histórico: os últimos itens que você baixou ficam guardados; marque no histórico os que quer repetir e eles entram já preenchidos, sem digitar de novo.",
+    ],
+  },
+  {
+    date: "2026-07-17",
     title: "Relatório em PDF com a marca, saldo do Omie na requisição e ajustes",
     items: [
       "Relatório de Requisições em PDF ficou mais bonito e legível: cabeçalho com a logo e o nome Vital Scheffer, resumo do período e os itens em tabela, com rodapé e paginação.",

@@ -10,13 +10,16 @@ import {
   LOCAL_PADRAO,
   baixarEstoque,
   buscarProdutosPorCodigo,
+  buscarProdutosPorDescricao,
   dataOmieHoje,
   lotesPorCodigo,
   nomeDoLocal,
+  saldoTotalPorCodigo,
   saldosPorCodigo,
   type ItemBaixa,
   type LoteDisponivel,
   type ProdutoEstoque,
+  type ProdutoResumo,
   type SaldoEstoque,
 } from "@/lib/estoque/omieEstoque";
 import { chamar } from "@/lib/omie";
@@ -50,6 +53,90 @@ function mensagemOmieIndisponivel(erro: unknown): string {
     return "O Omie está temporariamente indisponível (bloqueio de consumo). Tente de novo em alguns minutos.";
   }
   return "Não consegui consultar o Omie agora. Tente novamente.";
+}
+
+// --- Digitar na tela (sem planilha): busca de produto, saldo e histórico -------
+
+export interface ResultadoBuscaProdutoBaixa {
+  ok: boolean;
+  erro?: string;
+  produtos: ProdutoResumo[];
+}
+
+// Busca de produto pra lançar a baixa direto na tela (mesma busca da requisição,
+// mas com a permissão de Baixas). Descrição do Omie + código; ignora inativos.
+export async function buscarProdutosBaixa(termo: string): Promise<ResultadoBuscaProdutoBaixa> {
+  const guarda = await guardarBaixas();
+  if ("erro" in guarda) return { ok: false, erro: guarda.erro, produtos: [] };
+  const q = String(termo ?? "").trim();
+  if (q.length < 2) return { ok: true, produtos: [] };
+  try {
+    return { ok: true, produtos: await buscarProdutosPorDescricao(q, chamar) };
+  } catch (erro) {
+    return { ok: false, erro: mensagemOmieIndisponivel(erro), produtos: [] };
+  }
+}
+
+// Saldo total (todos os locais) do produto escolhido — mostrado ao lado.
+export async function saldoProdutoBaixa(sku: string): Promise<{ ok: boolean; saldo?: number }> {
+  const guarda = await guardarBaixas();
+  if ("erro" in guarda) return { ok: false };
+  const codigo = String(sku ?? "").trim();
+  if (!codigo) return { ok: false };
+  try {
+    const saldo = (await saldoTotalPorCodigo([codigo], dataOmieHoje(), chamar)).get(codigo);
+    return saldo === undefined ? { ok: false } : { ok: true, saldo };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export interface HistoricoBaixaItem {
+  sku: string;
+  descricao: string;
+  quantidade: number;
+  pedido?: string;
+  notaFiscal?: string;
+  op?: string;
+  observacao?: string;
+}
+
+// Histórico pra reusar lançamentos: os últimos itens que DERAM baixa, um por SKU
+// (o mais recente), pra a pessoa marcar os que quer repetir sem digitar de novo.
+export async function historicoBaixaItens(): Promise<HistoricoBaixaItem[]> {
+  const guarda = await guardarBaixas();
+  if ("erro" in guarda) return [];
+  const itens = await prisma.baixaItem.findMany({
+    where: { status: "BAIXADO" },
+    orderBy: { baixadoEm: "desc" },
+    take: 400,
+    select: {
+      sku: true,
+      descricao: true,
+      quantidade: true,
+      pedido: true,
+      notaFiscal: true,
+      op: true,
+      observacao: true,
+    },
+  });
+  const vistos = new Set<string>();
+  const saida: HistoricoBaixaItem[] = [];
+  for (const item of itens) {
+    if (vistos.has(item.sku)) continue;
+    vistos.add(item.sku);
+    saida.push({
+      sku: item.sku,
+      descricao: item.descricao ?? "",
+      quantidade: Number(item.quantidade),
+      pedido: item.pedido ?? undefined,
+      notaFiscal: item.notaFiscal ?? undefined,
+      op: item.op ?? undefined,
+      observacao: item.observacao ?? undefined,
+    });
+    if (saida.length >= 50) break;
+  }
+  return saida;
 }
 
 
@@ -148,7 +235,7 @@ function obsDoItem(arquivoNome: string, solicitante: string, item: BaixaLinha): 
   // segue atrás.
   const partes: string[] = [];
   if (item.observacao) partes.push(item.observacao);
-  partes.push(`Baixa por planilha ${arquivoNome}`, `solicitante: ${item.solicitante ?? solicitante}`);
+  partes.push(`Baixa: ${arquivoNome}`, `solicitante: ${item.solicitante ?? solicitante}`);
   if (item.pedido) partes.push(`pedido ${item.pedido}`);
   if (item.notaFiscal) partes.push(`NF ${item.notaFiscal}`);
   if (item.op) partes.push(`OP ${item.op}`);

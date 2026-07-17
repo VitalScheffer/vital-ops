@@ -2182,3 +2182,43 @@ verdes. Commit + push (deploy) feitos ao final (o admin autorizou).
 - Conferir o visual do PDF (nao exercido no navegador nesta sessao).
 - Se quiserem o saldo TAMBEM na lista de resultados da busca (nao so apos escolher), da pra fazer
   (custa 1 leitura a mais por busca e precisa cuidar de paginacao com muitos produtos).
+
+## 2026-07-17 (cont. 3) — Baixa direto na tela (sem planilha) + historico reutilizavel
+
+### Resumo
+A fabrica pediu poder lancar a baixa DIRETO na tela (sem depender de planilha), com busca de
+produto (descricao do Omie), so codigo+quantidade obrigatorios, e um HISTORICO com SELECAO pra
+reusar lancamentos sem trazer o que nao quer. Feito reusando a busca de produto e a
+conferencia/baixa que ja existiam. Code review feito antes de subir (2 bugs corrigidos).
+tsc/eslint/vitest(240)/build verdes. Commit + push (deploy).
+
+### Implementacao
+- `src/components/requisicoes/ProdutoSkuField.tsx`: virou GENERICO — recebe `buscar` e `saldoDe`
+  por prop (antes importava as actions da requisicao direto). Assim serve requisicao E baixa, cada
+  uma com sua permissao. `CriarRequisicaoForm` passa `buscarProdutosOmie`/`saldoDoProduto`.
+- `src/app/(app)/baixas/actions.ts`: novas actions `buscarProdutosBaixa`, `saldoProdutoBaixa`
+  (guardadas por canViewBaixas, reusam buscarProdutosPorDescricao/saldoTotalPorCodigo) e
+  `historicoBaixaItens` (ultimos BaixaItem status BAIXADO, 1 por SKU, ate 50). `obsDoItem` mudou o
+  prefixo de "Baixa por planilha X" pra "Baixa: X" (serve planilha e "Digitada na tela").
+- `src/components/baixas/BaixaManualCart.tsx` (novo): carrinho controlado. Cada linha tem o
+  ProdutoSkuField (descricao Omie + saldo), quantidade, e um "mais campos" (pedido/NF/OP/observacao).
+  So SKU+qtd obrigatorios (linhasValidas filtra o resto). Historico com filtro + CHECKBOX; "Adicionar
+  selecionados" traz so os marcados ja preenchidos. Reporta as BaixaLinha validas pra tela via onLinhas.
+- `src/components/baixas/BaixasClient.tsx`: alternador "Subir planilha" x "Digitar na tela". `linhasAtivas`
+  vem do arquivo OU do carrinho; a conferencia e a baixa (executarBaixa com arquivoNome "Digitada na
+  tela") sao as MESMAS dos dois modos. Modo manual confere no botao (nao auto).
+
+### Code review (antes de subir) — 2 bugs corrigidos
+- Editar o carrinho durante conferir/baixar incrementava o `reqId` e travava o spinner + descartava
+  o resultado. Fix: carrinho (fieldset disabled) e alternador de modo travam enquanto conferindo||executando.
+- `abrirHistorico` sem catch (rejeicao solta se a leitura falhar). Fix: catch -> trata como "nenhuma baixa".
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 240/240. `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- Sem migration nesta entrega (nenhuma mudanca de schema).
+- Historico dedup por SKU pega os 400 BaixaItem mais recentes e corta em 50 distintos; se quiserem
+  historico maior/por periodo, da pra ajustar.
+- Cap de 200 itens por baixa vale tambem no modo tela (schema); o carrinho nao bloqueia antes, so a
+  action recusa com mensagem generica se passar (caso raro).
