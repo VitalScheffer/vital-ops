@@ -41,6 +41,18 @@ function formatarQuantidade(quantidade: unknown): string {
 
 type RequisicaoComTudo = Awaited<ReturnType<typeof buscarRequisicoes>>[number];
 
+const TRES_DIAS_MS = 3 * 24 * 60 * 60 * 1000;
+
+// Notificação in-app: destaca no "Meus pedidos" o que o gestor decidiu nos
+// últimos 3 dias, pra o solicitante perceber sem precisar de e-mail/WhatsApp.
+function decididaRecentemente(requisicao: RequisicaoComTudo): boolean {
+  return (
+    requisicao.status !== "PENDENTE" &&
+    requisicao.decididaEm != null &&
+    Date.now() - requisicao.decididaEm.getTime() < TRES_DIAS_MS
+  );
+}
+
 // A fila do gestor é FIFO ("asc": o pedido mais antigo primeiro, ninguém fica
 // pra trás); as listas de acompanhamento mostram o mais recente primeiro.
 function buscarRequisicoes(where: object, take: number, ordem: "asc" | "desc" = "desc") {
@@ -107,13 +119,20 @@ function CartaoRequisicao({
   requisicao,
   mostrarSolicitante,
   acoes,
+  novidade,
 }: {
   requisicao: RequisicaoComTudo;
   mostrarSolicitante: boolean;
   acoes?: React.ReactNode;
+  // Decidida há pouco (notificação in-app pro solicitante) — destaca o cartão.
+  novidade?: boolean;
 }) {
   return (
-    <article className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+    <article
+      className={`flex flex-col gap-3 rounded-xl border bg-card p-4 ${
+        novidade ? "border-primary/50 ring-1 ring-primary/30" : "border-border"
+      }`}
+    >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm font-semibold text-card-foreground">
@@ -124,6 +143,11 @@ function CartaoRequisicao({
           >
             {STATUS_LABEL[requisicao.status] ?? requisicao.status}
           </span>
+          {novidade ? (
+            <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+              novo
+            </span>
+          ) : null}
         </div>
         <span className="text-xs text-muted-foreground">{formatarDataHora(requisicao.criadoEm)}</span>
       </header>
@@ -297,7 +321,12 @@ export default async function RequisicoesPage({
         ) : (
           <div className="flex flex-col gap-4">
             {minhas.map((requisicao) => (
-              <CartaoRequisicao key={requisicao.id} requisicao={requisicao} mostrarSolicitante={false} />
+              <CartaoRequisicao
+                key={requisicao.id}
+                requisicao={requisicao}
+                mostrarSolicitante={false}
+                novidade={decididaRecentemente(requisicao)}
+              />
             ))}
           </div>
         )}

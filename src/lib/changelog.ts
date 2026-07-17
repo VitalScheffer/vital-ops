@@ -14,6 +14,15 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-17",
+    title: "Relatório de consumo em R$, aviso de saldo e pedidos decididos em destaque",
+    items: [
+      "Novo relatório de consumo (PDF) na Baixa de estoque, para gestor: quanto de matéria-prima foi baixado no período, em R$, por produto, OP e finalidade (não conta o que foi estornado).",
+      "Ao lançar a baixa na tela, se a quantidade passar do saldo do produto no Omie aparece um aviso na hora.",
+      "Nas Requisições, os seus pedidos decididos nos últimos dias ficam destacados com um selo \"novo\", para você não perder a decisão do gestor.",
+    ],
+  },
+  {
+    date: "2026-07-17",
     title: "Estornar uma baixa, alerta de estoque mínimo e excluir setor",
     items: [
       "Em \"Baixas recentes\" tem o botão Estornar: desfaz uma baixa lançando a entrada de volta no Omie (nos mesmos lotes), com confirmação. Nada é apagado, fica tudo registrado.",

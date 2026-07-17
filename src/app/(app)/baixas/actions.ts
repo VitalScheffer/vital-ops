@@ -2,10 +2,12 @@
 
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
-import { conferirBaixaSchema, executarBaixaSchema, type BaixaLinha } from "@/lib/contracts";
+import type { ItemConsumo } from "@/lib/baixas/consumo";
+import { conferirBaixaSchema, executarBaixaSchema, type BaixaLinha, type Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
 import {
   LOCAL_PADRAO,
@@ -524,6 +526,65 @@ export async function continuarBaixa(importId: string): Promise<ResultadoExecuca
 
   // Retoma no MESMO local da execução original.
   return processarBaixa(importacao.id, persistidos, guarda, importacao.localEstoqueCodigo ?? LOCAL_PADRAO);
+}
+
+// --- Relatório de consumo (R$) — gestor --------------------------------------
+
+const consumoSchema = z.object({
+  de: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const PAPEIS_RELATORIO: readonly Role[] = ["ADMIN", "GESTOR", "FABRICA_GESTOR"];
+
+export interface DadosConsumo {
+  ok: boolean;
+  erro?: string;
+  itens: ItemConsumo[];
+}
+
+// Itens BAIXADOS e NÃO estornados no período, com o valor (custo médio × qtd)
+// pra o relatório de consumo. Só gestor/admin (é dado financeiro). O agrupamento
+// e o PDF acontecem no cliente (consumo.ts/consumoPdf.ts).
+export async function relatorioConsumo(input: unknown): Promise<DadosConsumo> {
+  const session = await auth();
+  if (!session?.user?.email) {
+    return { ok: false, erro: "Sessão expirada. Entre novamente.", itens: [] };
+  }
+  if (!PAPEIS_RELATORIO.includes(session.user.role)) {
+    return { ok: false, erro: "Apenas Gestor ou Administrador gera o relatório de consumo.", itens: [] };
+  }
+  const parsed = consumoSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, erro: "Período inválido.", itens: [] };
+  }
+  const { de, ate } = parsed.data;
+  const inicio = new Date(`${de}T00:00:00-03:00`);
+  const fim = new Date(`${ate}T23:59:59.999-03:00`);
+  if (!(inicio <= fim)) {
+    return { ok: false, erro: "A data inicial precisa ser antes da final.", itens: [] };
+  }
+
+  const registros = await prisma.baixaItem.findMany({
+    where: { status: "BAIXADO", estornadoEm: null, baixadoEm: { gte: inicio, lte: fim } },
+    select: { sku: true, descricao: true, quantidade: true, custoUnitario: true, op: true, observacao: true },
+    orderBy: { baixadoEm: "asc" },
+    take: 5000,
+  });
+
+  const itens: ItemConsumo[] = registros.map((registro) => {
+    const quantidade = Number(registro.quantidade);
+    const custo = registro.custoUnitario != null ? Number(registro.custoUnitario) : 0;
+    return {
+      sku: registro.sku,
+      descricao: registro.descricao ?? registro.sku,
+      quantidade,
+      valor: custo * quantidade,
+      op: registro.op,
+      finalidade: registro.observacao,
+    };
+  });
+  return { ok: true, itens };
 }
 
 // --- Estorno (reverter uma baixa) --------------------------------------------

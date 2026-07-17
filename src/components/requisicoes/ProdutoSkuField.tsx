@@ -24,6 +24,9 @@ interface ProdutoSkuFieldProps {
   index: number;
   buscar: BuscarProdutosFn;
   saldoDe: SaldoProdutoFn;
+  // Opcional: recebe o saldo do Omie do produto escolhido (ou null ao limpar) —
+  // a tela usa pra avisar "qtd > saldo".
+  onSaldo?: (saldo: number | null) => void;
 }
 
 // Campo de código do produto COM busca: digita parte da descrição (ex.: "cama")
@@ -31,7 +34,16 @@ interface ProdutoSkuFieldProps {
 // Omie). Continua aceitando um SKU digitado à mão (a Server Action valida no
 // envio). Sem useEffect: a busca é agendada no onChange (debounce por ref) e o
 // dropdown fecha no blur do container.
-export function ProdutoSkuField({ value, descricao, onChange, onPick, index, buscar, saldoDe }: ProdutoSkuFieldProps) {
+export function ProdutoSkuField({
+  value,
+  descricao,
+  onChange,
+  onPick,
+  index,
+  buscar,
+  saldoDe,
+  onSaldo,
+}: ProdutoSkuFieldProps) {
   const [resultados, setResultados] = useState<ProdutoResumo[]>([]);
   const [aberto, setAberto] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -50,6 +62,7 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index, bus
     setSaldo(null);
     setSaldoSku("");
     setSaldoCarregando(false);
+    onSaldo?.(null);
   }
 
   async function rodarBusca(termo: string) {
@@ -97,7 +110,11 @@ export function ProdutoSkuField({ value, descricao, onChange, onPick, index, bus
     setSaldoCarregando(true);
     try {
       const resultado = await saldoDe(produto.codigo);
-      if (saldoReq.current === id) setSaldo(resultado.ok ? (resultado.saldo ?? null) : null);
+      if (saldoReq.current === id) {
+        const valor = resultado.ok ? (resultado.saldo ?? null) : null;
+        setSaldo(valor);
+        onSaldo?.(valor);
+      }
     } finally {
       if (saldoReq.current === id) setSaldoCarregando(false);
     }

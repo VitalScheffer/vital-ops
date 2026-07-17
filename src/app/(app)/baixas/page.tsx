@@ -2,6 +2,7 @@ import { Download, FileSpreadsheet, PackageMinus, SearchCheck } from "lucide-rea
 
 import { BaixasClient } from "@/components/baixas/BaixasClient";
 import { EstornarBaixa } from "@/components/baixas/EstornarBaixa";
+import { RelatorioConsumo } from "@/components/baixas/RelatorioConsumo";
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
@@ -75,6 +76,8 @@ export default async function BaixasPage() {
     return <Forbidden message="Você não tem permissão para acessar a Baixa de estoque." />;
   }
 
+  const podeRelatorio = ["ADMIN", "GESTOR", "FABRICA_GESTOR"].includes(session!.user.role);
+
   const [recentes, locais] = await Promise.all([
     prisma.baixaImport.findMany({
       orderBy: { criadoEm: "desc" },
@@ -109,6 +112,15 @@ export default async function BaixasPage() {
           role={session!.user.role}
         />
       </Panel>
+
+      {podeRelatorio ? (
+        <Panel
+          title="Relatório de consumo (PDF)"
+          description="Quanto de matéria-prima foi baixado no período, em R$, por produto, OP e finalidade (não conta o que foi estornado)."
+        >
+          <RelatorioConsumo />
+        </Panel>
+      ) : null}
 
       <Panel title="Baixas recentes" description="Últimas planilhas processadas (de todos os usuários).">
         {recentes.length === 0 ? (

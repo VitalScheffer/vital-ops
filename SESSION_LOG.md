@@ -2273,3 +2273,47 @@ de infra a parte; fiz so a base), e a passada de responsividade (precisa testar 
 - Testar o estorno de verdade com o Omie (ENT-lote e o valor com custo 0).
 - Proximo lote: relatorio de consumo R$ (a base custoUnitario ja esta gravando), aviso qtd>saldo,
   notificacao (decidir e-mail x WhatsApp), responsividade.
+
+## 2026-07-17 (cont. 5) — Relatorio de consumo R$, aviso qtd>saldo e notificacao in-app
+
+### Resumo
+Continuacao do lote. Entregue: (a) RELATORIO DE CONSUMO em R$ (por produto/OP/finalidade); (b)
+aviso "qtd > saldo" no carrinho manual; (c) NOTIFICACAO IN-APP (destaque dos pedidos decididos
+recentemente). Code review antes do push (1 fix). tsc/eslint/vitest(251)/build verdes.
+Responsividade NAO feita (precisa testar no visual - extensao do Chrome desconectada); push por
+WhatsApp/e-mail continua como decisao de infra a parte.
+
+### Relatorio de consumo (R$) - gestor
+- `src/lib/baixas/consumo.ts` (puro, testado): `ItemConsumo`, `resumoConsumo` (total + agrupa por
+  produto/OP/finalidade, maior valor primeiro), `formatarReais`.
+- `src/lib/baixas/consumoPdf.ts` + teste (smoke): PDF com a marca (mesma faixa/logo do relatorio de
+  requisicoes), total do periodo em R$ e 3 tabelas. try/catch na logo, paraWinAnsi nos textos.
+- `baixas/actions.ts` `relatorioConsumo({de,ate})`: itens BAIXADO e NAO estornado no periodo, com
+  valor = custoUnitario * qtd. So ADMIN/GESTOR/FABRICA_GESTOR (dado financeiro). take 5000.
+- `RelatorioConsumo.tsx` + painel na pagina de Baixas (so gestor).
+
+### Aviso qtd > saldo (carrinho manual)
+- `ProdutoSkuField` ganhou `onSaldo?(saldo)` (avisa a tela do saldo do produto escolhido).
+- `BaixaManualCart`: guarda o saldo por linha (via atualizarSaldo, SEM passar pelo aplicar pra nao
+  zerar a conferencia) e mostra "Quantidade (X) maior que o saldo no Omie (Y)" quando qtd > saldo.
+
+### Notificacao in-app (requisicao)
+- `requisicoes/page.tsx`: `decididaRecentemente` (decidida ha < 3 dias) destaca o cartao em "Meus
+  pedidos" (borda + selo "novo"), sem schema nem canal externo. Push real (WhatsApp/e-mail) fica pra
+  decisao de infra.
+
+### Code review (antes do push)
+- FIX: no PDF de consumo, o rotulo do agrupamento (larguraMax 350) podia encostar na coluna de qtd
+  em valores largos -> reduzido pra 300.
+- OK-como-esta: take 5000 no relatorio (cap generoso; paginar se virar problema).
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 251/251. `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- Sem migration nesta entrega.
+- RESPONSIVIDADE: nao feita (precisa validar no visual). Os componentes novos ja seguem os padroes.
+- Notificacao PUSH (WhatsApp/e-mail): decidir infra (e-mail via Resend/SMTP no vital-ops, ou ponte
+  pro WhatsApp do nextstep). Hoje so a notificacao in-app.
+- O relatorio de consumo so tem valor cheio das baixas feitas DEPOIS desta entrega (o custoUnitario
+  passou a ser gravado agora; baixas antigas entram com valor 0).

@@ -25,6 +25,7 @@ interface LinhaManual {
   op: string;
   observacao: string;
   aberto: boolean; // mostra os campos opcionais (pedido/NF/OP/observação)
+  saldo?: number | null; // saldo do Omie do produto escolhido (para avisar qtd > saldo)
 }
 
 function novaLinha(key: number, base?: Partial<LinhaManual>): LinhaManual {
@@ -96,6 +97,12 @@ export function BaixaManualCart({ onLinhas, disabled = false }: BaixaManualCartP
 
   function digitarSku(key: number, valor: string) {
     aplicar(linhas.map((l) => (l.key === key ? { ...l, sku: valor, descricao: undefined } : l)));
+  }
+
+  // Só o saldo (para o aviso qtd > saldo) — NÃO passa por `aplicar`, pra não
+  // zerar a conferência (o saldo não muda a linha que vai ser baixada).
+  function atualizarSaldo(key: number, saldo: number | null) {
+    setLinhas((atual) => atual.map((l) => (l.key === key ? { ...l, saldo } : l)));
   }
 
   function adicionarLinha() {
@@ -247,6 +254,7 @@ export function BaixaManualCart({ onLinhas, disabled = false }: BaixaManualCartP
                 index={index}
                 buscar={buscarProdutosBaixa}
                 saldoDe={saldoProdutoBaixa}
+                onSaldo={(saldo) => atualizarSaldo(linha.key, saldo)}
               />
               <input
                 value={linha.quantidade}
@@ -267,6 +275,13 @@ export function BaixaManualCart({ onLinhas, disabled = false }: BaixaManualCartP
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
+
+            {linha.saldo != null && Number(linha.quantidade) > linha.saldo ? (
+              <p className="text-xs text-warning">
+                Quantidade ({Number(linha.quantidade).toLocaleString("pt-BR")}) maior que o saldo no Omie (
+                {linha.saldo.toLocaleString("pt-BR")}). A conferência vai apontar.
+              </p>
+            ) : null}
 
             <button
               type="button"
