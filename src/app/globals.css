@@ -203,7 +203,6 @@
 }
 .animate-page-in {
   animation: page-in 0.15s ease-out both;
-  will-change: opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -221,14 +220,22 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
-  /* Vinheta sutil de marca no topo (turquesa bem fraco) — profundidade sem
-     "sujar" o fundo. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Vinheta sutil de marca no topo (turquesa bem fraco), numa camada fixa própria.
+   Antes era `background-attachment: fixed` no body, que força a repintura da
+   PÁGINA INTEIRA ao trocar de aba do navegador (a tela "retraía e voltava"). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image: radial-gradient(
     ellipse 80% 50% at 50% -10%,
     color-mix(in srgb, var(--vs-turquesa) 12%, transparent),
     transparent 70%
   );
-  background-attachment: fixed;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
