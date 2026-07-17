@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 
 import { criarRequisicao } from "@/app/(app)/requisicoes/actions";
 import { FormFeedback } from "@/components/FormFeedback";
+import { ProdutoSkuField } from "@/components/requisicoes/ProdutoSkuField";
 import { Select } from "@/components/ui/Select";
 import type { Setor } from "@/lib/contracts";
 import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
@@ -19,6 +20,9 @@ interface CriarRequisicaoFormProps {
 interface LinhaItem {
   key: number;
   sku: string;
+  // Descrição do produto escolhido na busca (só exibição — some quando o SKU é
+  // digitado à mão).
+  descricao?: string;
   quantidade: string;
 }
 
@@ -57,6 +61,15 @@ export function CriarRequisicaoForm({ setores, defaultNome, defaultSetorId }: Cr
 
   const atualizarLinha = (key: number, campo: "sku" | "quantidade", valor: string) => {
     setLinhas((atual) => atual.map((l) => (l.key === key ? { ...l, [campo]: valor } : l)));
+  };
+
+  // SKU digitado à mão perde a descrição escolhida (não bate mais com o produto).
+  const digitarSku = (key: number, valor: string) => {
+    setLinhas((atual) => atual.map((l) => (l.key === key ? { ...l, sku: valor, descricao: undefined } : l)));
+  };
+
+  const escolherProduto = (key: number, codigo: string, descricao: string) => {
+    setLinhas((atual) => atual.map((l) => (l.key === key ? { ...l, sku: codigo, descricao } : l)));
   };
 
   const adicionarLinha = () => {
@@ -113,13 +126,13 @@ export function CriarRequisicaoForm({ setores, defaultNome, defaultSetorId }: Cr
         <legend className="text-sm font-medium text-card-foreground">Itens do pedido</legend>
         <div className="flex flex-col gap-2">
           {linhas.map((linha, index) => (
-            <div key={linha.key} className="flex items-center gap-2">
-              <input
+            <div key={linha.key} className="flex items-start gap-2">
+              <ProdutoSkuField
                 value={linha.sku}
-                onChange={(e) => atualizarLinha(linha.key, "sku", e.target.value)}
-                placeholder="Código do produto no Omie (SKU)"
-                aria-label={`Código do item ${index + 1}`}
-                className={`${inputClass} flex-1 font-mono`}
+                descricao={linha.descricao}
+                onChange={(valor) => digitarSku(linha.key, valor)}
+                onPick={(codigo, descricao) => escolherProduto(linha.key, codigo, descricao)}
+                index={index}
               />
               <input
                 value={linha.quantidade}

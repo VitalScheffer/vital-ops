@@ -11,9 +11,11 @@ import {
   baixarEstoque,
   buscarProdutosPorCodigo,
   dataOmieHoje,
+  lotesPorCodigo,
   nomeDoLocal,
   saldosPorCodigo,
   type ItemBaixa,
+  type LoteDisponivel,
   type ProdutoEstoque,
   type SaldoEstoque,
 } from "@/lib/estoque/omieEstoque";
@@ -197,10 +199,13 @@ async function processarBaixa(
 ): Promise<ResultadoExecucao> {
   let produtos: Map<string, ProdutoEstoque>;
   let saldos: Map<string, SaldoEstoque>;
+  let lotes: Map<string, LoteDisponivel[]>;
   try {
     const skus = itens.map((item) => item.sku);
     produtos = produtosPrecarregados ?? (await buscarProdutosPorCodigo(skus, chamar));
     saldos = await saldosPorCodigo(skus, dataOmieHoje(), chamar, codigoLocal);
+    // Lotes só dos produtos com controle de lote (uma leitura por produto).
+    lotes = await lotesPorCodigo(produtos, skus, chamar, codigoLocal);
   } catch (erro) {
     // O import fica ENVIANDO com os itens PENDENTE — o "Continuar baixa" da
     // tela retoma daqui (o importId volta mesmo com ok:false).
@@ -224,7 +229,7 @@ async function processarBaixa(
 
   const resultado = await baixarEstoque(
     itensBaixa,
-    { data: dataOmieHoje(), produtos, saldos, codigoLocal },
+    { data: dataOmieHoje(), produtos, saldos, lotes, codigoLocal },
     chamar,
   );
 

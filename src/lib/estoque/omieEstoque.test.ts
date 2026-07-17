@@ -2,15 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 
 import { OmieBlocked, OmieDuplicate, OmieError } from "@/lib/omie/errors";
 import {
+  alocarLotesFEFO,
   baixarEstoque,
   buscarProdutosPorCodigo,
+  consultarLotes,
   dataOmieHoje,
   listarLocaisEstoque,
+  lotesPorCodigo,
   nomeDoLocal,
   saldosPorCodigo,
   type ChamarFn,
   type ContextoBaixa,
   type ItemBaixa,
+  type LoteDisponivel,
   type ProdutoEstoque,
   type SaldoEstoque,
 } from "./omieEstoque";
@@ -18,11 +22,13 @@ import {
 function contexto(
   produtos: Record<string, ProdutoEstoque>,
   saldos: Record<string, SaldoEstoque>,
+  lotes?: Record<string, LoteDisponivel[]>,
 ): ContextoBaixa {
   return {
     data: "16/07/2026",
     produtos: new Map(Object.entries(produtos)),
     saldos: new Map(Object.entries(saldos)),
+    ...(lotes ? { lotes: new Map(Object.entries(lotes)) } : {}),
   };
 }
 
@@ -62,6 +68,20 @@ describe("buscarProdutosPorCodigo", () => {
     });
     const mapa = await buscarProdutosPorCodigo(["EXISTE", "NAO-EXISTE"], chamar);
     expect(mapa.has("NAO-EXISTE")).toBe(false);
+  });
+
+  it("marca controleLote quando produto_lote = 'S' (e não marca quando 'N'/ausente)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      produto_servico_cadastro: [
+        { codigo: "COM LOTE", codigo_produto: 1, descricao: "a", produto_lote: "S" },
+        { codigo: "SEM LOTE", codigo_produto: 2, descricao: "b", produto_lote: "N" },
+        { codigo: "OMISSO", codigo_produto: 3, descricao: "c" },
+      ],
+    });
+    const mapa = await buscarProdutosPorCodigo(["COM LOTE", "SEM LOTE", "OMISSO"], chamar);
+    expect(mapa.get("COM LOTE")?.controleLote).toBe(true);
+    expect(mapa.get("SEM LOTE")?.controleLote).toBeUndefined();
+    expect(mapa.get("OMISSO")?.controleLote).toBeUndefined();
   });
 });
 
@@ -291,6 +311,190 @@ describe("baixarEstoque", () => {
     const resultado = await baixarEstoque([ITEM], ctx, chamar);
     expect(resultado.itens[0].outcome).toBe("falha");
     expect(resultado.itens[0].motivo).toContain("controle de lote");
+  });
+});
+
+describe("consultarLotes / lotesPorCodigo", () => {
+  const RESPOSTA_LOTES = {
+    lotes: [
+      { nIdLote: 10, cNumLote: "L-A", nSaldoLote: 4, dDataValidade: "01/12/2026" },
+      { nIdLote: 20, cNumLote: "L-B", nSaldoLote: 0, dDataValidade: "01/01/2026" }, // sem saldo → fora
+      { nIdLote: 30, cNumLote: "L-C", nSaldoLote: 6, dDataValidade: "01/06/2026" },
+    ],
+  };
+
+  it("consultarLotes traz só lotes com saldo > 0 e passa nIdLocal quando não é o padrão", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA_LOTES);
+    const lotes = await consultarLotes("111", chamar, "8667075521");
+    const [path, call, param] = chamar.mock.calls[0];
+    expect(path).toBe("produtos/produtoslote/");
+    expect(call).toBe("ConsultarLote");
+    expect(param).toMatchObject({ nCodProd: 111, nIdLocal: 8667075521 });
+    expect(lotes.map((l) => l.nIdLote)).toEqual(["10", "30"]);
+    expect(lotes[0]).toEqual({ nIdLote: "10", numero: "L-A", saldo: 4, validade: "01/12/2026" });
+  });
+
+  it("consultarLotes no local padrão ('0') OMITE nIdLocal", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ lotes: [] });
+    await consultarLotes("111", chamar);
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).not.toHaveProperty("nIdLocal");
+  });
+
+  it("lotesPorCodigo consulta SÓ produtos com controle de lote (uma vez por SKU)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ lotes: [] });
+    const produtos = new Map<string, ProdutoEstoque>([
+      ["COM", { idProd: "1", descricao: "a", controleLote: true }],
+      ["SEM", { idProd: "2", descricao: "b" }],
+    ]);
+    const mapa = await lotesPorCodigo(produtos, ["COM", "SEM", "COM"], chamar);
+    expect(chamar).toHaveBeenCalledTimes(1);
+    expect(mapa.has("COM")).toBe(true);
+    expect(mapa.has("SEM")).toBe(false);
+  });
+});
+
+describe("alocarLotesFEFO", () => {
+  const LOTES: LoteDisponivel[] = [
+    { nIdLote: "10", numero: "A", saldo: 4, validade: "01/12/2026" },
+    { nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }, // vence antes
+    { nIdLote: "40", numero: "D", saldo: 5 }, // sem validade → por último
+  ];
+
+  it("consome primeiro o lote que vence antes (FEFO) e divide entre lotes", () => {
+    const { alocacao, faltou } = alocarLotesFEFO(8, LOTES);
+    expect(faltou).toBe(0);
+    // 6 do lote 30 (vence 01/06) + 2 do lote 10 (vence 01/12).
+    expect(alocacao).toEqual([
+      { nIdLote: "30", quantidade: 6 },
+      { nIdLote: "10", quantidade: 2 },
+    ]);
+  });
+
+  it("lote sem validade fica por último", () => {
+    const { alocacao } = alocarLotesFEFO(11, LOTES);
+    expect(alocacao.map((a) => a.nIdLote)).toEqual(["30", "10", "40"]);
+    expect(alocacao.at(-1)).toEqual({ nIdLote: "40", quantidade: 1 });
+  });
+
+  it("faltou > 0 quando a soma dos saldos não cobre o pedido", () => {
+    const { faltou } = alocarLotesFEFO(100, LOTES);
+    expect(faltou).toBe(85); // 4 + 6 + 5 = 15 disponível
+  });
+
+  it("desconta o que outro item do mesmo lote já pegou (jaConsumido)", () => {
+    const { alocacao, faltou } = alocarLotesFEFO(6, LOTES, new Map([["30", 6]]));
+    // Lote 30 já esgotado por outro item → sai 4 do 10 e 2 do 40.
+    expect(faltou).toBe(0);
+    expect(alocacao).toEqual([
+      { nIdLote: "10", quantidade: 4 },
+      { nIdLote: "40", quantidade: 2 },
+    ]);
+  });
+});
+
+describe("baixarEstoque — controle de lote e custo médio", () => {
+  it("produto com lote leva lote_validade FEFO no ajuste", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 1 });
+    const ctx = contexto(
+      { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
+      { "MAT 001": { saldo: 10, cmc: 2 } },
+      {
+        "MAT 001": [
+          { nIdLote: "10", numero: "A", saldo: 4, validade: "01/12/2026" },
+          { nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" },
+        ],
+      },
+    );
+    const resultado = await baixarEstoque(
+      [{ chave: "k1", sku: "MAT 001", quantidade: 5, obs: "" }],
+      ctx,
+      chamar,
+    );
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).toMatchObject({
+      lote_validade: [
+        { nIdLote: 30, nQtdLote: 5 },
+      ],
+    });
+    expect(resultado.itens[0].outcome).toBe("baixado");
+  });
+
+  it("dois itens do mesmo produto/lote não estouram o saldo do lote", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 1 });
+    const ctx = contexto(
+      { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
+      { "MAT 001": { saldo: 10, cmc: 2 } },
+      { "MAT 001": [{ nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }] },
+    );
+    await baixarEstoque(
+      [
+        { chave: "k1", sku: "MAT 001", quantidade: 4, obs: "" },
+        { chave: "k2", sku: "MAT 001", quantidade: 2, obs: "" },
+      ],
+      ctx,
+      chamar,
+    );
+    expect(chamar.mock.calls[0][2]).toMatchObject({ lote_validade: [{ nIdLote: 30, nQtdLote: 4 }] });
+    expect(chamar.mock.calls[1][2]).toMatchObject({ lote_validade: [{ nIdLote: 30, nQtdLote: 2 }] });
+  });
+
+  it("item que falha no Omie NÃO reserva o lote para o próximo item do mesmo SKU", async () => {
+    const chamar = vi
+      .fn<ChamarFn>()
+      .mockRejectedValueOnce(new OmieError("erro qualquer"))
+      .mockResolvedValueOnce({ id_ajuste: 1 });
+    const ctx = contexto(
+      { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
+      { "MAT 001": { saldo: 10, cmc: 2 } },
+      { "MAT 001": [{ nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }] },
+    );
+    const resultado = await baixarEstoque(
+      [
+        { chave: "k1", sku: "MAT 001", quantidade: 4, obs: "" },
+        { chave: "k2", sku: "MAT 001", quantidade: 5, obs: "" },
+      ],
+      ctx,
+      chamar,
+    );
+    expect(resultado.itens[0].outcome).toBe("falha");
+    expect(resultado.itens[1].outcome).toBe("baixado");
+    // k1 falhou, então k2 vê o lote 30 CHEIO (6) e aloca 5 — se a falha tivesse
+    // reservado 4, sobrariam só 2 e k2 falharia por saldo de lote.
+    expect(chamar.mock.calls[1][2]).toMatchObject({ lote_validade: [{ nIdLote: 30, nQtdLote: 5 }] });
+  });
+
+  it("produto com lote SEM lote com saldo falha localmente, sem chamar o Omie", async () => {
+    const chamar = vi.fn<ChamarFn>();
+    const ctx = contexto(
+      { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
+      { "MAT 001": { saldo: 10, cmc: 2 } },
+      { "MAT 001": [] },
+    );
+    const resultado = await baixarEstoque(
+      [{ chave: "k1", sku: "MAT 001", quantidade: 5, obs: "" }],
+      ctx,
+      chamar,
+    );
+    expect(chamar).not.toHaveBeenCalled();
+    expect(resultado.itens[0].outcome).toBe("falha");
+    expect(resultado.itens[0].motivo).toContain("controle de lote");
+  });
+
+  it("sem custo médio (CMC 0) OMITE valor — a baixa só consome o estoque", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 1 });
+    const ctx = contexto(
+      { "MAT 001": { idProd: "111", descricao: "Fita" } },
+      { "MAT 001": { saldo: 10, cmc: 0 } },
+    );
+    const resultado = await baixarEstoque(
+      [{ chave: "k1", sku: "MAT 001", quantidade: 3, obs: "" }],
+      ctx,
+      chamar,
+    );
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).not.toHaveProperty("valor");
+    expect(resultado.itens[0].outcome).toBe("baixado");
   });
 });
 

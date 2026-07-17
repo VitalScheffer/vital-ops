@@ -1,7 +1,9 @@
-import { CheckCircle2, ClipboardList, PackageMinus, UserCheck } from "lucide-react";
+import { Archive, CheckCircle2, ClipboardList, PackageMinus, UserCheck } from "lucide-react";
+import Link from "next/link";
 
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
+import { ArquivarRequisicao } from "@/components/requisicoes/ArquivarRequisicao";
 import { CriarRequisicaoForm } from "@/components/requisicoes/CriarRequisicaoForm";
 import { DecidirRequisicao } from "@/components/requisicoes/DecidirRequisicao";
 import { RelatorioRequisicoes } from "@/components/requisicoes/RelatorioRequisicoes";
@@ -202,7 +204,11 @@ function CartaoRequisicao({
 
 // Requisições de fábrica (Fase 3): o solicitante monta o pedido (vários itens),
 // o gestor confirma/recusa e a confirmação baixa o estoque no Omie.
-export default async function RequisicoesPage() {
+export default async function RequisicoesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ arquivadas?: string }>;
+}) {
   const session = await auth();
   const role = session!.user.role;
   const permissions = await getRolePermissionsMap();
@@ -213,13 +219,21 @@ export default async function RequisicoesPage() {
 
   const decide = canDecideRequisicao(role, permissions);
   const userId = session!.user.id;
+  const mostrarArquivadas = decide && (await searchParams).arquivadas === "1";
 
-  const [setores, membership, minhas, pendentes, decididas, locais] = await Promise.all([
+  const [setores, membership, minhas, pendentes, decididas, arquivadas, locais] = await Promise.all([
     prisma.setor.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     prisma.userSetor.findFirst({ where: { userId }, select: { setorId: true } }),
+    // "Meus pedidos" mostra TODOS os do solicitante (inclusive arquivados pelo
+    // gestor): a lista já é pequena e escopada, e ele não tem filtro de
+    // arquivadas — arquivar é decluttering das listas do GESTOR, não some com o
+    // pedido de quem o criou.
     buscarRequisicoes({ solicitanteId: userId }, 30),
     decide ? buscarRequisicoes({ status: "PENDENTE" }, 100, "asc") : Promise.resolve([]),
-    decide ? buscarRequisicoes({ status: { not: "PENDENTE" } }, 15) : Promise.resolve([]),
+    decide ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: false }, 15) : Promise.resolve([]),
+    mostrarArquivadas
+      ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: true }, 50)
+      : Promise.resolve([]),
     decide ? locaisDisponiveis() : Promise.resolve([]),
   ]);
 
@@ -289,13 +303,56 @@ export default async function RequisicoesPage() {
         )}
       </Panel>
 
-      {decide && decididas.length > 0 ? (
-        <Panel title="Decididas recentemente" description="Últimos pedidos confirmados ou recusados.">
-          <div className="flex flex-col gap-4">
-            {decididas.map((requisicao) => (
-              <CartaoRequisicao key={requisicao.id} requisicao={requisicao} mostrarSolicitante />
-            ))}
+      {decide ? (
+        <Panel
+          title="Decididas recentemente"
+          description="Últimos pedidos confirmados ou recusados. Arquive os que já resolveu para tirar da lista — nada é apagado."
+        >
+          {decididas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum pedido decidido para mostrar.</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {decididas.map((requisicao) => (
+                <CartaoRequisicao
+                  key={requisicao.id}
+                  requisicao={requisicao}
+                  mostrarSolicitante
+                  acoes={<ArquivarRequisicao requisicaoId={requisicao.id} arquivada={false} />}
+                />
+              ))}
+            </div>
+          )}
+          <div className="mt-4">
+            <Link
+              href={mostrarArquivadas ? "/requisicoes" : "/requisicoes?arquivadas=1"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-card-foreground transition-colors hover:bg-muted"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {mostrarArquivadas ? "Ocultar arquivadas" : "Ver arquivadas"}
+            </Link>
           </div>
+        </Panel>
+      ) : null}
+
+      {mostrarArquivadas ? (
+        <Panel
+          title={`Arquivadas (${arquivadas.length})`}
+          description="Pedidos arquivados — fora das listas do dia a dia, mas preservados aqui e no relatório."
+        >
+          {arquivadas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma requisição arquivada.</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {arquivadas.map((requisicao) => (
+                <CartaoRequisicao
+                  key={requisicao.id}
+                  requisicao={requisicao}
+                  mostrarSolicitante
+                  acoes={<ArquivarRequisicao requisicaoId={requisicao.id} arquivada={true} />}
+                />
+              ))}
+            </div>
+          )}
         </Panel>
       ) : null}
 

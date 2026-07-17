@@ -238,6 +238,11 @@ model Requisicao {
   localEstoqueCodigo String?
   localEstoqueNome   String?
   decididaEm      DateTime?
+  // Arquivamento: o gestor "some" com um pedido já decidido (confirmado/recusado)
+  // pra não poluir as listas. Nada é apagado — arquivadas ficam atrás de um
+  // filtro e no relatório. Só decididas podem ser arquivadas.
+  arquivada       Boolean  @default(false)
+  arquivadaEm     DateTime?
   criadoEm        DateTime @default(now())
 
   solicitante User  @relation("Solicitante", fields: [solicitanteId], references: [id])

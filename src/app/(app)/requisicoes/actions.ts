@@ -17,11 +17,15 @@ import {
   LOCAL_PADRAO,
   baixarEstoque,
   buscarProdutosPorCodigo,
+  buscarProdutosPorDescricao,
   dataOmieHoje,
+  lotesPorCodigo,
   nomeDoLocal,
   saldosPorCodigo,
   type ItemBaixa,
+  type LoteDisponivel,
   type ProdutoEstoque,
+  type ProdutoResumo,
 } from "@/lib/estoque/omieEstoque";
 import type { FormState } from "@/lib/form";
 import { chamar } from "@/lib/omie";
@@ -45,6 +49,42 @@ function parseItens(raw: FormDataEntryValue | null): unknown {
     return JSON.parse(raw);
   } catch {
     return [];
+  }
+}
+
+export interface ResultadoBuscaProduto {
+  ok: boolean;
+  erro?: string;
+  produtos: ProdutoResumo[];
+}
+
+// Busca de produto pra montar o pedido: o solicitante digita parte da descrição
+// (ex.: "cama") ou o próprio código e escolhe na lista, sem decorar SKU. Só
+// leitura (cacheada por termo no client Omie). Qualquer papel com o módulo.
+export async function buscarProdutosOmie(termo: string): Promise<ResultadoBuscaProduto> {
+  const session = await auth();
+  if (!session?.user?.email) {
+    return { ok: false, erro: "Sessão expirada. Entre novamente.", produtos: [] };
+  }
+  const permissions = await getRolePermissionsMap();
+  if (!canViewRequisicoes(session.user.role, permissions)) {
+    return { ok: false, erro: "Você não tem permissão para buscar produtos.", produtos: [] };
+  }
+  const q = String(termo ?? "").trim();
+  if (q.length < 2) {
+    return { ok: true, produtos: [] };
+  }
+  if (!omieConfigurado()) {
+    return { ok: false, erro: "Integração com o Omie não configurada no servidor.", produtos: [] };
+  }
+  try {
+    const produtos = await buscarProdutosPorDescricao(q, chamar);
+    return { ok: true, produtos };
+  } catch (erro) {
+    if (erro instanceof OmieBlocked) {
+      return { ok: false, erro: "O Omie está indisponível agora. Tente em instantes.", produtos: [] };
+    }
+    return { ok: false, erro: "Não consegui buscar no Omie agora. Tente de novo.", produtos: [] };
   }
 }
 
@@ -227,16 +267,6 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     return { status: "error", message: "Todos os itens desta requisição já foram baixados." };
   }
 
-  // Produtos: usa o id interno resolvido na criação; se faltar em algum item
-  // (não deveria), resolve de novo numa leitura em lote.
-  const produtos = new Map<string, ProdutoEstoque>();
-  for (const item of pendentes) {
-    if (item.omieIdProd) {
-      produtos.set(item.sku, { idProd: item.omieIdProd, descricao: item.descricao });
-    }
-  }
-  const semId = pendentes.filter((item) => !produtos.has(item.sku)).map((item) => item.sku);
-
   // Local POR ITEM (opcional): o form do gestor pode mandar `localItem__<id>`
   // pra cada item; sem escolha, o item herda o local do pedido.
   const localPorItem = new Map(
@@ -244,18 +274,19 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
   );
   const grupos = agruparPorLocal(pendentes, (item) => localPorItem.get(item.id) ?? localCodigo);
 
-  // Saldos POR LOCAL (uma leitura por local distinto, sequencial e cacheada).
+  // Produtos (id interno + controle de lote) e saldos/lotes POR LOCAL — uma
+  // leitura por local distinto, sequencial e cacheada. Resolvemos os produtos de
+  // novo (em vez de reusar só o id salvo na criação) porque precisamos do
+  // `produto_lote` pra saber quais itens exigem lote na baixa.
+  let produtos: Map<string, ProdutoEstoque>;
   const saldosPorLocal = new Map<string, Awaited<ReturnType<typeof saldosPorCodigo>>>();
+  const lotesPorLocal = new Map<string, Map<string, LoteDisponivel[]>>();
   try {
-    if (semId.length > 0) {
-      const resolvidos = await buscarProdutosPorCodigo(semId, chamar);
-      for (const [sku, produto] of resolvidos) produtos.set(sku, produto);
-    }
+    produtos = await buscarProdutosPorCodigo([...new Set(pendentes.map((item) => item.sku))], chamar);
     for (const [local, itensDoLocal] of grupos) {
-      saldosPorLocal.set(
-        local,
-        await saldosPorCodigo(itensDoLocal.map((item) => item.sku), dataOmieHoje(), chamar, local),
-      );
+      const skusDoLocal = itensDoLocal.map((item) => item.sku);
+      saldosPorLocal.set(local, await saldosPorCodigo(skusDoLocal, dataOmieHoje(), chamar, local));
+      lotesPorLocal.set(local, await lotesPorCodigo(produtos, skusDoLocal, chamar, local));
     }
   } catch (erro) {
     if (erro instanceof OmieBlocked) {
@@ -313,7 +344,13 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     }));
     const parcial = await baixarEstoque(
       itensBaixa,
-      { data: dataOmieHoje(), produtos, saldos: saldosPorLocal.get(local) ?? new Map(), codigoLocal: local },
+      {
+        data: dataOmieHoje(),
+        produtos,
+        saldos: saldosPorLocal.get(local) ?? new Map(),
+        lotes: lotesPorLocal.get(local),
+        codigoLocal: local,
+      },
       chamar,
     );
     resultado.itens.push(...parcial.itens);
@@ -415,6 +452,58 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     };
   }
   return { status: "success", message: `Requisição ${numero} confirmada e estoque baixado no Omie.` };
+}
+
+// Arquiva / desarquiva um pedido JÁ DECIDIDO (gestor/admin). Não apaga nada: só
+// tira das listas do dia a dia — arquivadas ficam atrás do filtro "Arquivadas" e
+// continuam no relatório. Pendentes não podem ser arquivados (precisam de
+// decisão). Idempotente: arquivar o que já está arquivado devolve sucesso.
+export async function arquivarRequisicao(id: string, arquivar: boolean = true): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user?.email || !session.user.id) {
+    return unauthenticated();
+  }
+  const permissions = await getRolePermissionsMap();
+  if (!canDecideRequisicao(session.user.role, permissions)) {
+    return { status: "error", message: "Apenas Gestor ou Administrador arquiva requisições." };
+  }
+  const alvo = String(id ?? "").trim();
+  if (!alvo) {
+    return { status: "error", message: "Requisição inválida." };
+  }
+
+  const requisicao = await prisma.requisicao.findUnique({
+    where: { id: alvo },
+    select: { id: true, numero: true, status: true, arquivada: true },
+  });
+  if (!requisicao) {
+    return { status: "error", message: "Requisição não encontrada." };
+  }
+  if (arquivar && requisicao.status === "PENDENTE") {
+    return { status: "error", message: "Só dá para arquivar pedidos já confirmados ou recusados." };
+  }
+
+  const numero = formatarNumeroRequisicao(requisicao.numero);
+  if (requisicao.arquivada === arquivar) {
+    revalidatePath("/requisicoes");
+    return { status: "success", message: `Requisição ${numero} ${arquivar ? "arquivada" : "desarquivada"}.` };
+  }
+
+  await prisma.requisicao.update({
+    where: { id: alvo },
+    data: { arquivada: arquivar, arquivadaEm: arquivar ? new Date() : null },
+  });
+  await audit({
+    actor: { id: session.user.id, email: session.user.email },
+    action: arquivar ? "requisicao.arquivar" : "requisicao.desarquivar",
+    entity: "Requisicao",
+    entityId: alvo,
+    summary: `${arquivar ? "Arquivou" : "Desarquivou"} a requisição ${numero}.`,
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/requisicoes");
+  return { status: "success", message: `Requisição ${numero} ${arquivar ? "arquivada" : "desarquivada"}.` };
 }
 
 // -----------------------------------------------------------------------------

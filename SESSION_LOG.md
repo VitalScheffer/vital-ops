@@ -1990,3 +1990,88 @@ solucao definitiva que elimina a dependencia de relogin:
    marcada (se alguem desmarcou e salvou, o Daniel perde o modulo inteiro, inclusive criar).
 2. Auditoria: conferir o "fabrica@... entrou na plataforma" mais recente (se o horario for
    ANTERIOR a troca de papel, o relogin nao aconteceu de fato naquele dispositivo).
+
+## 2026-07-17 — Baixa por lote (FEFO), baixa sem custo medio, busca de produto e arquivar requisicoes
+
+### Resumo
+Quatro pedidos do Victor/Daniel a partir das falhas na "Baixa de estoque":
+1. **Baixa por lote**: a baixa falhava para produto com controle de lote (o Omie exige
+   informar o lote na saida). Agora o sistema consulta os lotes do produto, escolhe de
+   qual sair por FEFO (vence antes, sai antes) e manda `lote_validade` no ajuste.
+2. **Sem custo medio**: quando o produto nao tinha custo medio (CMC 0), o ajuste mandava
+   `valor: 0` e o Omie recusava. Agora, sem CMC, o campo `valor` e OMITIDO (na saida o
+   Omie calcula pelo CMC; sem custo, baixa a 0, so consome o estoque).
+3. **Busca de produto na Requisicao**: o campo de codigo virou autocomplete (busca por
+   parte da descricao, ex. "cama", ou pelo codigo), clicar preenche o SKU.
+4. **Arquivar requisicoes**: o gestor arquiva pedidos ja decididos para tirar das listas
+   (nada e apagado; filtro "Ver arquivadas" e relatorio continuam completos).
+`npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (231) e `npx next build` verdes.
+
+### Como a API do Omie foi confirmada (doc oficial, 17/07/2026)
+- `IncluirAjusteEstoque` (estoque/ajuste/): saida de produto com lote exige o array
+  `lote_validade: [{ nIdLote, nQtdLote }]` (pode dividir entre lotes). Na saida, o `valor`
+  e preenchido automaticamente pelo CMC do produto, entao da para omitir.
+- `ConsultarLote` (produtos/produtoslote/): request `{ nCodProd, nIdLocal? }`; resposta
+  `{ ident, lotes: [{ nIdLote, cNumLote, dDataValidade, nSaldoLote, nQuantDisponivel, ... }] }`.
+  Uso `nSaldoLote` como saldo do lote (consistente com o `nSaldo` do ListarPosEstoque).
+- `ListarProdutos` (geral/produtos/): a resposta traz `produto_lote` (S/N) por produto, e o
+  filtro de texto e `filtrar_apenas_descricao` com curinga (`%TEXTO%` = contem). Nao existe
+  filtro por codigo parcial (so `produtosPorCodigo` exato).
+
+### Arquivos alterados/criados
+- `src/lib/estoque/omieEstoque.ts`:
+  - `ProdutoEstoque` ganhou `controleLote?` (lido de `produto_lote` no `buscarProdutosPorCodigo`).
+  - `consultarLotes` / `lotesPorCodigo` (le lotes com saldo > 0 de produtos com controle de
+    lote, um por produto, sequencial e cacheado).
+  - `alocarLotesFEFO` (puro e testado): distribui a quantidade entre lotes por validade,
+    descontando o que outro item do mesmo lote ja pegou na rodada; `faltou > 0` = sem saldo.
+  - `buscarProdutosPorDescricao` (autocomplete): `ListarProdutos` com `filtrar_apenas_descricao`,
+    ignora inativo/bloqueado, devolve `{codigo, descricao}`.
+  - `baixarEstoque`: monta `lote_validade` FEFO para produto com lote (falha LOCAL sem gastar
+    chamada se nao ha lote com saldo); OMITE `valor` quando CMC <= 0; `ContextoBaixa.lotes`.
+- `src/app/(app)/baixas/actions.ts`: pre-carrega os lotes (`lotesPorCodigo`) e passa no contexto.
+- `src/app/(app)/requisicoes/actions.ts`: resolve produtos via `buscarProdutosPorCodigo` (pra ter
+  `controleLote`), pre-carrega saldos+lotes POR LOCAL, passa `lotes` na baixa. Novas actions
+  `buscarProdutosOmie` (busca) e `arquivarRequisicao` (arquivar/desarquivar, gestor, auditado).
+- `src/components/requisicoes/ProdutoSkuField.tsx` (novo): autocomplete client (debounce 350ms,
+  teclado, sem useEffect, fecha no blur do container).
+- `src/components/requisicoes/CriarRequisicaoForm.tsx`: usa o `ProdutoSkuField` no lugar do input
+  de SKU; guarda a descricao escolhida por linha (some quando digita o codigo a mao).
+- `src/components/requisicoes/ArquivarRequisicao.tsx` (novo): botao arquivar/desarquivar (transicao).
+- `src/app/(app)/requisicoes/page.tsx`: listas escondem arquivadas por padrao; painel "Arquivadas"
+  + filtro `?arquivadas=1` (gestor); botao arquivar nos decididos.
+- `prisma/schema.prisma`: `Requisicao.arquivada` (Boolean default false) + `arquivadaEm`.
+- `prisma/migrations/20260717120000_requisicao_arquivada/migration.sql` (novo): ALTER TABLE aditivo.
+- `src/lib/estoque/omieEstoque.test.ts`: +10 testes (controleLote, consultarLotes, lotesPorCodigo,
+  alocarLotesFEFO, baixa com lote_validade FEFO, dois itens do mesmo lote, sem lote, CMC 0).
+- `src/lib/changelog.ts`: entrada 2026-07-17 (pt-BR, para quem usa o app).
+
+### Decisoes importantes
+- **FEFO por saldo do lote**: consumo ordenado por `dDataValidade` asc (sem validade por ultimo),
+  empate pelo lote mais antigo (id menor). Uso `nSaldoLote` (fisico) pra bater com o `nSaldo` do
+  ListarPosEstoque; se um dia houver reserva atrapalhando, trocar por `nQuantDisponivel`.
+- **CMC 0 omite valor** (nao envia `valor: 0`): mudanca CIRURGICA, o caminho com CMC > 0 continua
+  identico (nao mexi no que ja funcionava, "o resto ta ok").
+- **Requisicao re-resolve os produtos** no confirmar (em vez de reusar so o id salvo na criacao)
+  porque precisa do `produto_lote`; leitura em lote cacheada, custo baixo.
+- **Arquivar = soft (nunca apaga)**: coerente com "audita tudo / nunca apagar". So decididas
+  arquivam; idempotente; auditado (`requisicao.arquivar`/`desarquivar`).
+- **Busca**: 1 leitura por termo (debounce + minimo 2 chars + cache do client), so descricao
+  (o Omie nao tem busca por codigo parcial). O input aceita SKU digitado a mao como antes.
+
+### Comandos relevantes
+- `npx prisma generate` (client com os campos novos, sem tocar no banco).
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 231/231. `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- **APLICAR A MIGRATION**: `20260717120000_requisicao_arquivada` foi CRIADA mas NAO aplicada no
+  banco (nao rodei migrate contra o Neon). No proximo deploy o `vercel-build` roda
+  `prisma migrate deploy` e aplica sozinho; para rodar local antes, `npx prisma migrate deploy`.
+  ATENCAO: sem aplicar, a tela de Requisicoes quebra (o client Prisma ja espera a coluna
+  `arquivada`). E aditiva e nao destrutiva.
+- **Testar de verdade com o Omie** (nao exercido com credencial real nesta sessao): a baixa por
+  lote (nomes `nIdLote`/`nQtdLote`/`lote_validade` confirmados na doc, nao contra a API viva) e a
+  omissao do `valor` na saida sem CMC. Rodar uma baixa real de um item com lote e de um sem custo.
+- A conferencia (tela da Baixa) checa so o saldo TOTAL, nao por lote; a alocacao FEFO acontece na
+  execucao. Se um produto tiver saldo total mas os lotes nao cobrirem (ex. reserva), a conferencia
+  diz "ok" e a execucao mostra a falha do item. Aceitavel; evita chamadas extras na conferencia.
