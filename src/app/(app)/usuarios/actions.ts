@@ -365,6 +365,7 @@ export async function createSetor(_prev: FormState, formData: FormData): Promise
   });
 
   revalidatePath("/usuarios");
+  revalidatePath("/configuracoes");
   return { status: "success", message: `Setor ${created.nome} criado com sucesso.` };
 }
 
@@ -423,5 +424,6 @@ export async function excluirSetor(_prev: FormState, formData: FormData): Promis
   });
 
   revalidatePath("/usuarios");
+  revalidatePath("/configuracoes");
   return { status: "success", message: `Setor ${target.nome} excluído.` };
 }

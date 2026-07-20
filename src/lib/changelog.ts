@@ -14,6 +14,14 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-20",
+    title: "Setores nas Configurações e barra lateral estável ao navegar",
+    items: [
+      "Os setores agora também aparecem (e podem ser criados/excluídos) na tela de Configurações; criar em um lugar aparece no outro na hora.",
+      "A barra lateral parou de \"retrair e voltar\" ao trocar de tela: o espaço da barra de rolagem passou a ser reservado, então o layout não pula mais entre páginas de tamanhos diferentes.",
+    ],
+  },
+  {
+    date: "2026-07-20",
     title: "Sininho de notificações, sidebar fixa no tablet e busca por SKU",
     items: [
       "Novo botão de notificações (sininho) no topo: mostra os pedidos aguardando sua decisão (gestor) e as suas requisições aprovadas ou recusadas nos últimos dias, com um contador.",

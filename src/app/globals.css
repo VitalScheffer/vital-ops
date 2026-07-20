@@ -215,6 +215,13 @@
   }
 }
 
+/* Reserva o espaço da barra de rolagem sempre. Sem isso, ao trocar de tela
+   (página curta -> longa e vice-versa) a barra some/aparece e empurra o layout
+   ~15px, e a barra lateral "retraía e voltava". */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   background: var(--background);

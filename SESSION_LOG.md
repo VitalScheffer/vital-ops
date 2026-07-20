@@ -2355,3 +2355,25 @@ sem fix). tsc/eslint/vitest(252)/build verdes.
 
 ### Comandos
 - `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 252/252. `npx next build` -> OK.
+
+## 2026-07-20 (cont. 2) — Setores em Configuracoes + sidebar nao pula mais ao navegar
+
+### Resumo
+Dois pedidos: (a) criar setor em Usuarios e ele aparecer em Configuracoes; (b) a sidebar ainda
+"retraia e voltava" ao trocar de tela. (Comecei a fazer setor em Requisicoes/afrouxar permissao, mas
+o admin corrigiu o escopo -> revertido.) tsc/eslint/vitest(252)/build verdes, code review antes do push.
+
+### Setores em Configuracoes
+- `configuracoes/page.tsx` (so ADMIN): novo painel "Setores" (lista + CreateSetorForm + ExcluirSetor),
+  reusando os componentes de Usuarios.
+- `usuarios/actions.ts`: `createSetor`/`excluirSetor` agora fazem `revalidatePath("/configuracoes")`
+  alem de "/usuarios" -> criar/excluir num lugar aparece no outro na hora. (Guards voltaram ao
+  original: canManageUsers; NAO afrouxei pra deciders.)
+
+### Sidebar "retrai e volta" ao navegar (era layout shift da scrollbar)
+- Causa: a barra de rolagem aparece/some entre telas de alturas diferentes, empurrando o layout ~15px.
+- Fix: `html { scrollbar-gutter: stable }` no globals.css (reserva o espaco sempre). O ajuste anterior
+  (lg->md) era so pra tablet e nao era essa a causa.
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 252/252. `npx next build` -> OK.
