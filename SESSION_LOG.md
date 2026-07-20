@@ -2328,3 +2328,30 @@ nada por descricao, tenta o termo como CODIGO EXATO (`produtosPorCodigo`). Serve
 - Limitacao: SKU PARCIAL nao da (a API do Omie so tem descricao-contem OU codigo-exato); tem que
   digitar o codigo inteiro ou buscar pelo nome. Partial exigiria cache local do catalogo.
 - `src/lib/estoque/omieEstoque.ts`: fallback por codigo (1 leitura extra so quando a descricao vem vazia).
+
+## 2026-07-20 (cont.) — Sininho de notificacoes + sidebar fixa no tablet
+
+### Resumo
+Dois pedidos do admin: (a) a barra lateral "retraia" ao trocar de tela; (b) faltava o BOTAO de
+notificacoes (so tinha o destaque "novo" nos cartoes). Code review antes do push (2 achados menores,
+sem fix). tsc/eslint/vitest(252)/build verdes.
+
+### Sidebar fixa no tablet
+- Causa: abaixo de `lg` (1024px) a sidebar era um menu sobreposto que FECHA ao clicar num item
+  (`closeMobile`) — no tablet parecia bug. Fix: baixei o breakpoint da sidebar fixa de `lg` pra `md`
+  (768px) em `AppShell.tsx` (aside + botao de menu). Agora tablet (>=768px) tem sidebar fixa que nao
+  fecha ao navegar; so celular (<768px) mantem o menu sobreposto.
+
+### Sininho de notificacoes
+- `src/lib/notificacoes.ts` (tipo `Notificacao`, client-safe).
+- `src/components/NotificacoesBell.tsx` (novo): sino no header com contador + dropdown (fecha no blur).
+- `src/app/(app)/layout.tsx`: `montarNotificacoes` (gestor -> pendentes aguardando decisao; solicitante
+  -> minhas requisicoes decididas nos ultimos 3 dias) e passa pro AppShell.
+- `AppShell.tsx`: prop `notificacoes` + <NotificacoesBell/> antes do Report.
+
+### Code review
+- montarNotificacoes: +2 queries por navegacao (leve, indexadas) — mantido.
+- header pode apertar em celular <375px com o botao a mais — cosmetico, avaliar na responsividade.
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 252/252. `npx next build` -> OK.

@@ -13,6 +13,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-07-20",
+    title: "Sininho de notificações, sidebar fixa no tablet e busca por SKU",
+    items: [
+      "Novo botão de notificações (sininho) no topo: mostra os pedidos aguardando sua decisão (gestor) e as suas requisições aprovadas ou recusadas nos últimos dias, com um contador.",
+      "No tablet, a barra lateral agora fica fixa e não fecha mais ao trocar de tela (antes ela recolhia a cada clique).",
+      "A busca de produto na Baixa de estoque também encontra pelo código (SKU) exato, além do nome (ex.: PRD00026).",
+    ],
+  },
+  {
     date: "2026-07-17",
     title: "Relatório de consumo em R$, aviso de saldo e pedidos decididos em destaque",
     items: [

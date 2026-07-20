@@ -20,12 +20,14 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { logoutAction } from "@/app/(app)/actions";
+import { NotificacoesBell } from "@/components/NotificacoesBell";
 import { ReportDialog } from "@/components/ReportDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Tutorial } from "@/components/Tutorial";
 import { VitalLogo } from "@/components/VitalLogo";
 import type { Role } from "@/lib/contracts";
 import type { NavIcon, PublicNavItem } from "@/lib/navigation";
+import type { Notificacao } from "@/lib/notificacoes";
 
 const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
@@ -56,6 +58,7 @@ interface ShellUser {
 interface AppShellProps {
   user: ShellUser;
   nav: PublicNavItem[];
+  notificacoes: Notificacao[];
   children: React.ReactNode;
 }
 
@@ -66,7 +69,7 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AppShell({ user, nav, children }: AppShellProps) {
+export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -80,7 +83,7 @@ export function AppShell({ user, nav, children }: AppShellProps) {
           <button
             type="button"
             onClick={() => setMobileOpen((open) => !open)}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-muted lg:hidden"
+            className="rounded-lg p-2 text-muted-foreground hover:bg-muted md:hidden"
             aria-label="Alternar menu"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -102,6 +105,7 @@ export function AppShell({ user, nav, children }: AppShellProps) {
               {user.email} · {ROLE_LABEL[user.role]}
             </p>
           </div>
+          <NotificacoesBell notificacoes={notificacoes} />
           <ReportDialog />
           <ThemeToggle />
           <button
@@ -129,7 +133,7 @@ export function AppShell({ user, nav, children }: AppShellProps) {
         <aside
           className={`${
             mobileOpen ? "block" : "hidden"
-          } fixed inset-x-0 top-16 bottom-0 z-20 overflow-y-auto border-b border-border bg-card p-4 lg:sticky lg:top-16 lg:bottom-auto lg:block lg:h-[calc(100vh-4rem)] lg:w-64 lg:shrink-0 lg:self-start lg:border-b-0 lg:border-r`}
+          } fixed inset-x-0 top-16 bottom-0 z-20 overflow-y-auto border-b border-border bg-card p-4 md:sticky md:top-16 md:bottom-auto md:block md:h-[calc(100vh-4rem)] md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r`}
         >
           <nav className="flex flex-col gap-1">
             {nav.map((item) => {
