@@ -1,12 +1,28 @@
 import { z } from "zod";
 
-// Papéis (espelham os valores aceitos em User.role no Prisma).
-// FABRICA = chão de fábrica: vê SÓ Requisições e apenas SOLICITA.
-// FABRICA_GESTOR = quem aprova os pedidos da fábrica (ex.: Daniel): também vê
-// SÓ Requisições por padrão, mas com a fila de decisão e o relatório PDF
-// (decisões de 16/07/2026).
-export const roleSchema = z.enum(["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA", "FABRICA_GESTOR"]);
-export type Role = z.infer<typeof roleSchema>;
+// Papéis FIXOS (em código, com poderes especiais). FABRICA = chão de fábrica: vê
+// SÓ Requisições e só SOLICITA. FABRICA_GESTOR = quem aprova (ex.: Daniel): vê SÓ
+// Requisições por padrão, mas com a fila de decisão e o relatório PDF.
+export const PAPEIS_FIXOS = ["ADMIN", "GESTOR", "FUNCIONARIO", "FABRICA", "FABRICA_GESTOR"] as const;
+export type PapelFixo = (typeof PAPEIS_FIXOS)[number];
+
+export const ROTULO_PAPEL_FIXO: Record<PapelFixo, string> = {
+  ADMIN: "Administrador",
+  GESTOR: "Gestor",
+  FUNCIONARIO: "Funcionário",
+  FABRICA: "Fábrica",
+  FABRICA_GESTOR: "Gestor da Fábrica",
+};
+
+export function isPapelFixo(codigo: string): codigo is PapelFixo {
+  return (PAPEIS_FIXOS as readonly string[]).includes(codigo);
+}
+
+// `User.role` = o `codigo` do papel fixo OU de um perfil customizado (cuid). Por
+// isso é string livre; a Server Action valida que o código existe (fixo ou perfil
+// no banco) antes de gravar.
+export const roleSchema = z.string().min(1);
+export type Role = z.infer<typeof roleSchema>; // = string
 
 export const setorSchema = z.object({
   id: z.string(),

@@ -6,13 +6,20 @@ import { z } from "zod";
 
 import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
-import { createUserSchema, updateUserSchema } from "@/lib/contracts";
+import { createUserSchema, isPapelFixo, updateUserSchema } from "@/lib/contracts";
 import type { Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
 import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canAssignRole, canEditUser, canManageUsers, wouldRemoveLastAdmin } from "@/lib/rbac";
 import { requestHeaders } from "@/lib/request";
+
+// Papel válido = um dos fixos OU o código de um perfil customizado existente.
+// (User.role é string livre; a validação real de existência é aqui.)
+async function papelValido(codigo: string): Promise<boolean> {
+  if (isPapelFixo(codigo)) return true;
+  return Boolean(await prisma.perfil.findUnique({ where: { codigo }, select: { codigo: true } }));
+}
 
 const FIELD_MESSAGES: Record<string, string> = {
   name: "Informe o nome.",
@@ -60,6 +67,9 @@ export async function createUser(_prev: FormState, formData: FormData): Promise<
   }
 
   const { name, email, password, role, setorIds } = parsed.data;
+  if (!(await papelValido(role))) {
+    return { status: "error", message: "Papel/perfil inválido." };
+  }
   if (!canAssignRole(actorRole, role, permissions)) {
     return {
       status: "error",
@@ -137,6 +147,9 @@ export async function atualizarUsuario(
   }
 
   const { id, name, role, active, setorIds, password } = parsed.data;
+  if (!(await papelValido(role))) {
+    return { status: "error", message: "Papel/perfil inválido." };
+  }
 
   const target = await prisma.user.findUnique({
     where: { id },

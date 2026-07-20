@@ -7,18 +7,11 @@ import { EditUserDialog } from "@/components/users/EditUserDialog";
 import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
-import { getRolePermissionsMap } from "@/lib/permissions.server";
+import { rotuloPapel } from "@/lib/permissions";
+import { getRolePermissionsMap, listarPerfis } from "@/lib/permissions.server";
 import { canEditUser, canManageUsers } from "@/lib/rbac";
 
 export const metadata = { title: "Usuários e setores — Vital Ops" };
-
-const ROLE_LABEL: Record<Role, string> = {
-  ADMIN: "Administrador",
-  GESTOR: "Gestor",
-  FUNCIONARIO: "Funcionário",
-  FABRICA: "Fábrica",
-  FABRICA_GESTOR: "Gestor da Fábrica",
-};
 
 function badgeClass(role: Role): string {
   if (role === "ADMIN") {
@@ -39,13 +32,17 @@ export default async function UsuariosPage() {
     return <Forbidden message="A gestão de usuários é restrita a quem tem esse módulo liberado." />;
   }
 
-  const [users, setores] = await Promise.all([
+  const [users, setores, perfis] = await Promise.all([
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       include: { setores: { include: { setor: true } } },
     }),
     prisma.setor.findMany({ orderBy: { nome: "asc" } }),
+    listarPerfis(),
   ]);
+  // Perfis customizados p/ o dropdown de papel; mapa codigo→nome p/ os rótulos.
+  const perfisCustom = perfis.filter((perfil) => !perfil.fixo).map((perfil) => ({ codigo: perfil.codigo, nome: perfil.nome }));
+  const nomesCustom = Object.fromEntries(perfisCustom.map((perfil) => [perfil.codigo, perfil.nome]));
 
   return (
     <div className="flex flex-col gap-8">
@@ -66,6 +63,7 @@ export default async function UsuariosPage() {
           <CreateUserForm
             setores={setores.map((setor) => ({ id: setor.id, nome: setor.nome }))}
             canCreateAdmin={role === "ADMIN"}
+            perfisCustom={perfisCustom}
           />
         </Panel>
 
@@ -112,7 +110,7 @@ export default async function UsuariosPage() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${badgeClass(user.role as Role)}`}
                       >
-                        {ROLE_LABEL[user.role as Role]}
+                        {rotuloPapel(user.role, nomesCustom)}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
@@ -143,6 +141,7 @@ export default async function UsuariosPage() {
                           setores={setores.map((setor) => ({ id: setor.id, nome: setor.nome }))}
                           canAssignAdmin={role === "ADMIN"}
                           isSelf={user.id === session!.user.id}
+                          perfisCustom={perfisCustom}
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>

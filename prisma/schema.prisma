@@ -154,6 +154,18 @@ model RolePermission {
   @@id([role, module])
 }
 
+// Perfil de acesso CUSTOMIZADO, criado pelo admin (além dos 5 papéis fixos em
+// código: ADMIN/GESTOR/FUNCIONARIO/FABRICA/FABRICA_GESTOR). O `codigo` (cuid)
+// vira o `User.role` e o `RolePermission.role` do perfil; o acesso é 100% por
+// módulo (marcado na matriz de Configurações). Perfil customizado NÃO tem
+// poderes especiais (decidir requisição, relatórios de gestor) — esses seguem
+// só nos papéis fixos.
+model Perfil {
+  codigo   String   @id @default(cuid())
+  nome     String   @unique
+  criadoEm DateTime @default(now())
+}
+
 // ---------------------------------------------------------------------------
 // Módulo Produtos (Fase 2)
 // ---------------------------------------------------------------------------

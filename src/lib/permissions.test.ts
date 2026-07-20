@@ -4,6 +4,7 @@ import {
   buildRolePermissionsMap,
   DEFAULT_ROLE_PERMISSIONS,
   hasModuleAccess,
+  rotuloPapel,
 } from "@/lib/permissions";
 
 describe("buildRolePermissionsMap", () => {
@@ -56,6 +57,23 @@ describe("buildRolePermissionsMap", () => {
     expect(map).toEqual(DEFAULT_ROLE_PERMISSIONS);
   });
 
+  it("perfil customizado começa SEM nada e recebe só o que a matriz marcar", () => {
+    const map = buildRolePermissionsMap(
+      [{ role: "perfil-abc", module: "requisicoes", enabled: true }],
+      ["perfil-abc"],
+    );
+    expect(map["perfil-abc"]).toEqual({
+      products: false,
+      pranchas: false,
+      requisicoes: true,
+      baixas: false,
+      users: false,
+      audit: false,
+    });
+    // os fixos seguem intactos
+    expect(map.FUNCIONARIO).toEqual(DEFAULT_ROLE_PERMISSIONS.FUNCIONARIO);
+  });
+
   it("trava ADMIN em true mesmo se o banco disser o contrário", () => {
     const map = buildRolePermissionsMap([
       { role: "ADMIN", module: "audit", enabled: false },
@@ -87,5 +105,14 @@ describe("hasModuleAccess", () => {
     expect(
       hasModuleAccess("FUNCIONARIO", "products", { FUNCIONARIO: undefined } as never),
     ).toBe(false);
+  });
+});
+
+describe("rotuloPapel", () => {
+  it("resolve papel fixo, perfil customizado e cai no código como último recurso", () => {
+    expect(rotuloPapel("ADMIN")).toBe("Administrador");
+    expect(rotuloPapel("FABRICA_GESTOR")).toBe("Gestor da Fábrica");
+    expect(rotuloPapel("cabc123", { cabc123: "Compras" })).toBe("Compras");
+    expect(rotuloPapel("desconhecido")).toBe("desconhecido");
   });
 });

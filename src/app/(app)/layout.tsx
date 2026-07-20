@@ -6,9 +6,9 @@ import { formatarNumeroRequisicao, type Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
 import { visibleNavFor } from "@/lib/navigation";
 import type { Notificacao } from "@/lib/notificacoes";
-import { getRolePermissionsMap } from "@/lib/permissions.server";
+import { rotuloPapel, type RolePermissionsMap } from "@/lib/permissions";
+import { getRolePermissionsMap, nomesPerfisCustom } from "@/lib/permissions.server";
 import { canDecideRequisicao } from "@/lib/rbac";
-import type { RolePermissionsMap } from "@/lib/permissions";
 
 const TRES_DIAS_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -64,14 +64,16 @@ export default async function AppLayout({
     redirect("/login");
   }
 
+  const [permissions, nomesCustom] = await Promise.all([getRolePermissionsMap(), nomesPerfisCustom()]);
+
   const user = {
     id: session.user.id,
     name: session.user.name ?? session.user.email,
     email: session.user.email,
     role: session.user.role,
+    roleLabel: rotuloPapel(session.user.role, nomesCustom),
   };
 
-  const permissions = await getRolePermissionsMap();
   const notificacoes = await montarNotificacoes(session.user.id, session.user.role, permissions);
 
   return (

@@ -12,12 +12,15 @@ import { IDLE_FORM_STATE } from "@/lib/form";
 interface CreateUserFormProps {
   setores: Setor[];
   canCreateAdmin: boolean;
+  // Perfis de acesso customizados (criados em Configurações) — entram no dropdown
+  // de papel depois dos fixos.
+  perfisCustom: { codigo: string; nome: string }[];
 }
 
 const inputClass =
   "rounded-lg border border-border bg-field px-3 py-2 text-sm text-card-foreground outline-none focus-visible:border-primary";
 
-export function CreateUserForm({ setores, canCreateAdmin }: CreateUserFormProps) {
+export function CreateUserForm({ setores, canCreateAdmin, perfisCustom }: CreateUserFormProps) {
   const [state, formAction, pending] = useActionState(createUser, IDLE_FORM_STATE);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -93,6 +96,11 @@ export function CreateUserForm({ setores, canCreateAdmin }: CreateUserFormProps)
               Administrador
             </option>
           ) : null}
+          {perfisCustom.map((perfil) => (
+            <option key={perfil.codigo} className="bg-card text-foreground" value={perfil.codigo}>
+              {perfil.nome} (perfil)
+            </option>
+          ))}
         </Select>
       </div>
 

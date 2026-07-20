@@ -40,19 +40,12 @@ const ICONS: Record<NavIcon, typeof Home> = {
   settings: Settings,
 };
 
-const ROLE_LABEL: Record<Role, string> = {
-  ADMIN: "Administrador",
-  GESTOR: "Gestor",
-  FUNCIONARIO: "Funcionário",
-  FABRICA: "Fábrica",
-  FABRICA_GESTOR: "Gestor da Fábrica",
-};
-
 interface ShellUser {
   id: string;
   name: string;
   email: string;
   role: Role;
+  roleLabel: string; // rótulo já resolvido (papel fixo ou nome do perfil custom)
 }
 
 interface AppShellProps {
@@ -102,7 +95,7 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
           <div className="hidden text-right sm:block">
             <p className="text-sm font-medium text-card-foreground">{user.name}</p>
             <p className="text-xs text-muted-foreground">
-              {user.email} · {ROLE_LABEL[user.role]}
+              {user.email} · {user.roleLabel}
             </p>
           </div>
           <NotificacoesBell notificacoes={notificacoes} />

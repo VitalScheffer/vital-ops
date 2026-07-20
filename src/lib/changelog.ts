@@ -14,6 +14,15 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-20",
+    title: "Crie seus próprios perfis de acesso",
+    items: [
+      "Em Configurações agora dá para criar perfis de acesso próprios (ex.: um perfil que vê só Requisições). O perfil vira uma linha na tabela de permissões, onde você marca os módulos que ele enxerga.",
+      "Depois é só atribuir o perfil à pessoa em Usuários e setores, no campo Papel (ele aparece na lista junto com os papéis do sistema).",
+      "Perfis criados por você começam sem nenhum módulo marcado (marque e salve) e podem ser excluídos, desde que ninguém esteja usando. O Administrador continua vendo tudo, por segurança.",
+    ],
+  },
+  {
+    date: "2026-07-20",
     title: "Setores nas Configurações e barra lateral estável ao navegar",
     items: [
       "Os setores agora também aparecem (e podem ser criados/excluídos) na tela de Configurações; criar em um lugar aparece no outro na hora.",

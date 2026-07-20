@@ -2375,5 +2375,62 @@ o admin corrigiu o escopo -> revertido.) tsc/eslint/vitest(252)/build verdes, co
 - Fix: `html { scrollbar-gutter: stable }` no globals.css (reserva o espaco sempre). O ajuste anterior
   (lg->md) era so pra tablet e nao era essa a causa.
 
+## 2026-07-20 (cont. 3) — PERFIS DE ACESSO CUSTOMIZADOS (papeis dinamicos)
+
+### Resumo
+O admin queria criar seus proprios grupos de acesso (ex.: um perfil que ve SO Requisicoes) e que
+aparecessem na matriz de "Permissoes por papel". Antes os papeis eram 5 FIXOS em codigo. Agora da pra
+criar/apagar perfis em Configuracoes, marcar os modulos de cada um na matriz e atribuir as pessoas.
+Mudanca grande e sensivel (permissao), feita com testes + code review antes do push.
+tsc/eslint/vitest(254)/build verdes.
+
+### Modelo
+- `Perfil { codigo (cuid, PK), nome (unique), criadoEm }` + migration `20260720170000_perfil_customizado`.
+  A tabela guarda SO os customizados; os 5 fixos seguem em codigo (com seus poderes especiais).
+- `User.role` agora e string livre = o codigo do papel fixo OU do perfil custom. `RolePermission.role`
+  idem. A validacao de "existe mesmo" virou a funcao `papelValido` nas actions de usuario.
+
+### Nucleo
+- `contracts/user.ts`: `roleSchema` virou `z.string().min(1)` (Role = string); novos `PAPEIS_FIXOS`,
+  `ROTULO_PAPEL_FIXO` e `isPapelFixo`.
+- `permissions.ts`: `RolePermissionsMap` virou `Record<string, ...>`; `buildRolePermissionsMap(rows,
+  perfisCustom)` semeia os fixos com os defaults e os customs com TUDO FALSE, aplica as linhas e trava
+  ADMIN=true. Novos `PerfilView`, `PERFIS_FIXOS`, `rotuloPapel`.
+- `permissions.server.ts`: `getRolePermissionsMap` le os perfis custom; novos `listarPerfis` e
+  `nomesPerfisCustom`.
+
+### Telas
+- `configuracoes/actions.ts`: `criarPerfil` / `excluirPerfil` (so ADMIN; bloqueia nome reservado e
+  exclusao com usuario em uso, apaga as linhas de permissao junto) e `atualizarPermissoes` agora
+  itera fixos-nao-admin + customs.
+- `configuracoes/page.tsx` + `CriarPerfilForm` + `PermissionsMatrixForm` (linhas dinamicas, badge
+  "perfil" e X de excluir nos customs) + `ExcluirPerfil`.
+- `CreateUserForm` / `EditUserDialog`: os perfis custom entram no dropdown de Papel (a opcao do perfil
+  atual PRECISA existir, senao o select ficaria vazio).
+- `usuarios/page.tsx` e `AppShell`/layout: rotulo do papel resolvido por `rotuloPapel` (fixo ou nome do
+  perfil), em vez do mapa fixo.
+
+### Seguranca (o que garante que nao escala privilegio)
+- Perfil custom NAO tem poderes especiais: `canDecideRequisicao`/relatorios checam os NOMES dos papeis
+  fixos, entao custom so tem acesso POR MODULO.
+- ADMIN continua travado em tudo e so ADMIN cria/apaga perfil e edita a matriz.
+- Custom nunca recebe o codigo "ADMIN" (codigo e cuid; nome reservado bloqueado).
+- Um gestor atribuir um perfil custom nao escala nada: o teto do custom e o mesmo do GESTOR (6 modulos),
+  que ele ja podia conceder.
+
+### Code review (antes do push)
+- FIX: criarPerfil bloqueava so os codigos fixos; agora bloqueia tambem os ROTULOS (evita dois "Gestor").
+- OK-como-esta: corridas raras (excluir perfil x atribuir usuario; salvar matriz x excluir) deixam
+  no maximo lixo inofensivo — o mapa ignora papel inexistente (sem acesso, sem escalada).
+
+### Comandos
+- `npx prisma generate`. `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 254/254.
+  `npx next build` -> OK.
+
+### Pendencias
+- APLICAR a migration `20260720170000_perfil_customizado` (aplica sozinha no deploy).
+- Perfil custom so "ve" telas. Se um dia precisarem que um perfil custom APROVE requisicao / veja os
+  relatorios de gestor, ai vira permissao marcavel tambem (fase 2, combinada com o admin).
+
 ### Comandos
 - `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 252/252. `npx next build` -> OK.

@@ -25,6 +25,9 @@ interface EditUserDialogProps {
   canAssignAdmin: boolean;
   // O próprio usuário logado não pode se excluir — some o botão de exclusão.
   isSelf: boolean;
+  // Perfis de acesso customizados — entram no dropdown de papel (e a opção do
+  // perfil atual precisa existir pra o select não ficar vazio).
+  perfisCustom: { codigo: string; nome: string }[];
 }
 
 const inputClass =
@@ -35,7 +38,7 @@ const labelClass = "text-sm font-medium text-card-foreground";
 // Botão + controle de aberto. O corpo do modal fica num componente separado,
 // montado SÓ quando aberto: assim cada abertura reinicia o estado do formulário
 // (antes a mensagem de sucesso/erro anterior ficava "grudada" ao reabrir).
-export function EditUserDialog({ user, setores, canAssignAdmin, isSelf }: EditUserDialogProps) {
+export function EditUserDialog({ user, setores, canAssignAdmin, isSelf, perfisCustom }: EditUserDialogProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -56,6 +59,7 @@ export function EditUserDialog({ user, setores, canAssignAdmin, isSelf }: EditUs
           setores={setores}
           canAssignAdmin={canAssignAdmin}
           isSelf={isSelf}
+          perfisCustom={perfisCustom}
           onClose={() => setOpen(false)}
         />
       )}
@@ -68,6 +72,7 @@ function EditUserModal({
   setores,
   canAssignAdmin,
   isSelf,
+  perfisCustom,
   onClose,
 }: EditUserDialogProps & { onClose: () => void }) {
   const [state, formAction, pending] = useActionState(atualizarUsuario, IDLE_FORM_STATE);
@@ -181,6 +186,11 @@ function EditUserModal({
                     Administrador
                   </option>
                 ) : null}
+                {perfisCustom.map((perfil) => (
+                  <option key={perfil.codigo} className="bg-card text-foreground" value={perfil.codigo}>
+                    {perfil.nome} (perfil)
+                  </option>
+                ))}
               </Select>
             </div>
 
