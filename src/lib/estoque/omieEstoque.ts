@@ -113,10 +113,11 @@ export interface ProdutoResumo {
   descricao: string;
 }
 
-// Busca de catálogo por PARTE da descrição (autocomplete da requisição). Uma
-// leitura só, cacheada por termo. `filtrar_apenas_descricao` usa curinga do Omie
-// (`%TEXTO%` = contém). Ignora inativos/bloqueados. Termo < 2 chars → [] sem
-// chamar (evita busca larga demais e gasto de orçamento de ban à toa).
+// Busca de catálogo para o autocomplete (requisição/baixa). Uma leitura por
+// termo, cacheada. Primeiro por PARTE da descrição (`filtrar_apenas_descricao`
+// com curinga `%TEXTO%` = contém); se NÃO achar nada, tenta o termo como CÓDIGO
+// exato (ex.: "PRD00026"), porque o filtro de descrição não pega o SKU. Ignora
+// inativos/bloqueados. Termo < 2 chars → [] sem chamar.
 export async function buscarProdutosPorDescricao(
   termo: string,
   chamar: ChamarFn,
@@ -132,21 +133,31 @@ export async function buscarProdutosPorDescricao(
     filtrar_apenas_descricao: `%${q}%`,
   });
   const lista = resp?.produto_servico_cadastro;
-  if (!Array.isArray(lista)) return [];
   const saida: ProdutoResumo[] = [];
-  for (const registro of lista as OmiePayload[]) {
-    if (texto(registro.inativo)?.toUpperCase() === "S") continue;
-    if (texto(registro.bloqueado)?.toUpperCase() === "S") continue;
-    const codigo = texto(registro.codigo);
-    if (!codigo) continue;
-    const descricao = texto(registro.descricao) ?? "";
-    // Convenção manual da empresa: produto descontinuado ganha o prefixo
-    // "INATIVO1-"/"INATIVO-" na DESCRIÇÃO (o cadastro segue ativo no Omie, então
-    // o campo `inativo` não pega). Fora da busca.
-    if (semAcento(descricao).trimStart().startsWith("inativo")) continue;
-    saida.push({ codigo, descricao });
+  if (Array.isArray(lista)) {
+    for (const registro of lista as OmiePayload[]) {
+      if (texto(registro.inativo)?.toUpperCase() === "S") continue;
+      if (texto(registro.bloqueado)?.toUpperCase() === "S") continue;
+      const codigo = texto(registro.codigo);
+      if (!codigo) continue;
+      const descricao = texto(registro.descricao) ?? "";
+      // Convenção manual da empresa: produto descontinuado ganha o prefixo
+      // "INATIVO1-"/"INATIVO-" na DESCRIÇÃO (o cadastro segue ativo no Omie,
+      // então o campo `inativo` não pega). Fora da busca.
+      if (semAcento(descricao).trimStart().startsWith("inativo")) continue;
+      saida.push({ codigo, descricao });
+    }
   }
-  return saida;
+  if (saida.length > 0) return saida;
+
+  // Nada por descrição: o pessoal costuma digitar o CÓDIGO (SKU) do produto, que
+  // o filtro de descrição não acha. Tenta como código exato.
+  const porCodigo = await buscarProdutosPorCodigo([q], chamar);
+  const doCodigo: ProdutoResumo[] = [];
+  for (const [codigo, produto] of porCodigo) {
+    doCodigo.push({ codigo, descricao: produto.descricao });
+  }
+  return doCodigo;
 }
 
 export interface SaldoProduto {

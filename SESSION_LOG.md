@@ -2317,3 +2317,14 @@ WhatsApp/e-mail continua como decisao de infra a parte.
   pro WhatsApp do nextstep). Hoje so a notificacao in-app.
 - O relatorio de consumo so tem valor cheio das baixas feitas DEPOIS desta entrega (o custoUnitario
   passou a ser gravado agora; baixas antigas entram com valor 0).
+
+## 2026-07-20 — Busca de produto tambem por SKU (codigo)
+
+### Resumo
+Reclamacao do admin: na baixa, a busca nao achava por PRD (ex.: PRD00026). Causa: `filtrar_apenas_descricao`
+so filtra pela DESCRICAO, nao pelo codigo. Fix: `buscarProdutosPorDescricao` agora, quando NAO acha
+nada por descricao, tenta o termo como CODIGO EXATO (`produtosPorCodigo`). Serve requisicao e baixa
+(ambas usam a mesma funcao). +1 teste. tsc/eslint/vitest/build verdes.
+- Limitacao: SKU PARCIAL nao da (a API do Omie so tem descricao-contem OU codigo-exato); tem que
+  digitar o codigo inteiro ou buscar pelo nome. Partial exigiria cache local do catalogo.
+- `src/lib/estoque/omieEstoque.ts`: fallback por codigo (1 leitura extra so quando a descricao vem vazia).

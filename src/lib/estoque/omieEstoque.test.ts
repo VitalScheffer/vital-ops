@@ -354,6 +354,21 @@ describe("buscarProdutosPorDescricao", () => {
     expect(await buscarProdutosPorDescricao("f", chamar)).toEqual([]);
     expect(chamar).not.toHaveBeenCalled();
   });
+
+  it("cai para busca por CÓDIGO exato quando a descrição não acha nada (ex.: PRD00026)", async () => {
+    const chamar = vi
+      .fn<ChamarFn>()
+      .mockResolvedValueOnce({ produto_servico_cadastro: [] }) // descrição: nada
+      .mockResolvedValueOnce({
+        produto_servico_cadastro: [{ codigo: "PRD00026", codigo_produto: 5, descricao: "Cama box" }],
+      });
+    const produtos = await buscarProdutosPorDescricao("PRD00026", chamar);
+    expect(chamar).toHaveBeenCalledTimes(2);
+    const [, call2, param2] = chamar.mock.calls[1];
+    expect(call2).toBe("ListarProdutos");
+    expect(param2).toMatchObject({ produtosPorCodigo: [{ codigo: "PRD00026" }] });
+    expect(produtos).toEqual([{ codigo: "PRD00026", descricao: "Cama box" }]);
+  });
 });
 
 describe("saldoTotalPorCodigo", () => {
