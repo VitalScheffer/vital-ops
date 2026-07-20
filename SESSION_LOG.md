@@ -2434,3 +2434,67 @@ tsc/eslint/vitest(254)/build verdes.
 
 ### Comandos
 - `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 252/252. `npx next build` -> OK.
+
+## 2026-07-20 (cont. 4) - Bug: baixa de produto com LOTE recusada pelo Omie (reserva de lote)
+
+### Resumo
+O admin reportou falha na aba "Baixa de estoque": PRD01098 e PRD01099 (RODIZIO 512), 50 un cada,
+davam "Produto com controle de lote: o Omie recusou a baixa por lote". Diagnostiquei contra a API
+REAL do Omie (so leitura) + o banco de producao. Causa confirmada: alocavamos o lote pelo SALDO
+FISICO (`nSaldoLote`), ignorando a quantidade RESERVADA - o Omie recusa a saida da parte reservada.
+Corrigido para usar `nQuantDisponivel`. Achei e corrigi tambem um bug latente de LOCAL no
+`ConsultarLote`. tsc/eslint/vitest(256)/build verdes.
+
+### Diagnostico (dados reais, 20/07/2026)
+- Banco: import "Digitada na tela", local `5940905787` (Estoque de Materia - Prima), 50 un por item,
+  status FALHA nos dois SKUs.
+- `ListarProdutos`: os dois estao com `produto_lote: "S"` (controle de lote ligado), ativos.
+- `ListarPosEstoque`: saldo 138 no local 5940905787 e 0 no padrao -> a validacao LOCAL de saldo
+  passava (138 >= 50), por isso o erro so aparecia no write.
+- `ConsultarLote` no local 5940905787:
+  - PRD01098: lote 12128811578 (`nSaldoLote` 38, `nQuantReservada` 6, `nQuantDisponivel` 32,
+    val. 10/07/2099) e lote 12137854548 (100/0/100, val. 16/07/2099).
+  - PRD01099: lote 12128825141 (38/6/32, val. 07/04/2029) e 12137854572 (100/0/100, val. 16/07/2099).
+- FEFO pegava 38 do PRIMEIRO lote (o que vence antes), mas so 32 estavam livres -> o Omie recusava.
+  O SESSION_LOG de 17/07 ja tinha previsto exatamente isso: "se um dia houver reserva atrapalhando,
+  trocar por `nQuantDisponivel`". Era o dia.
+
+### Fix 1 (a causa) - alocar por quantidade DISPONIVEL
+- `src/lib/estoque/omieEstoque.ts`: `LoteDisponivel.saldo` virou `disponivel` (`nQuantDisponivel`,
+  com fallback pro `nSaldoLote` se o campo faltar) + `saldoFisico` (so log/diagnostico).
+  `alocarLotesFEFO` passa a distribuir sobre `disponivel`. No caso real: 32 do lote que vence antes
+  + 18 do outro = 50, tudo livre.
+- Mensagem da falha local agora diz que parte do saldo pode estar RESERVADA em pedidos/OPs.
+
+### Fix 2 (bug latente de local, mesmo sintoma)
+- Confirmado contra a API: o `ConsultarLote` NAO assume o local padrao quando `nIdLocal` e omitido,
+  ele devolve os lotes de TODOS os locais (diferente do `ListarPosEstoque`, onde
+  `codigo_local_estoque: 0` E o padrao; tambem testei). Com `LOCAL_PADRAO` ("0") o codigo omitia o
+  campo e podia alocar lote de OUTRO local, com recusa garantida do Omie.
+- `consultarLotes` agora resolve o codigo REAL do local padrao (via `listarLocaisEstoque`, cache 1h) e
+  sempre manda `nIdLocal`; alem disso descarta lote cujo `nIdLocal` nao bate. Se a leitura dos locais
+  falhar, segue sem filtro (comportamento antigo) em vez de derrubar a baixa.
+- Impacto: a tela de Baixas sempre manda o codigo real do local, entao ela nao era afetada; o caminho
+  de Requisicoes (`decidirRequisicao`) usa `?? LOCAL_PADRAO` e ERA.
+
+### Fix 3 (diagnosticabilidade)
+- `motivoAmigavel` engolia a `faultstring` do Omie: a falha em producao virava um texto generico e o
+  motivo real se perdia (foi o que atrasou este diagnostico). Agora a dica amigavel vai junto com a
+  "Resposta do Omie: <texto cru>".
+
+### Arquivos alterados
+- `src/lib/estoque/omieEstoque.ts` (os 3 fixes + comentarios de contrato da API atualizados).
+- `src/lib/estoque/omieEstoque.test.ts` (+4 testes: reserva descontada, lote 100% reservado fora,
+  local padrao resolvido e filtrado, fallback sem filtro; fixtures migradas pra disponivel/saldoFisico).
+- `src/lib/changelog.ts` (entrada 2026-07-20 pra quem usa o app).
+
+### Comandos
+- `npx tsc --noEmit` -> 0. `npx eslint .` -> 0. `npx vitest run` -> 256/256. `npx next build` -> OK.
+
+### Pendencias / proximos passos
+- Sem migration nesta entrega.
+- RETESTAR a baixa dos dois RODIZIOS depois do deploy. Se ainda falhar, a mensagem agora traz a
+  resposta crua do Omie, e com ela o motivo real sai na hora.
+- A conferencia (tela) continua mostrando o saldo FISICO do local (`nSaldo`), que inclui reserva.
+  Entao da pra conferir 138 e a baixa falhar por lote em 132. Se incomodar, o proximo passo e a
+  conferencia tambem olhar o disponivel por lote (custa 1 leitura por SKU com lote).

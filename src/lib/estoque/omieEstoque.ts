@@ -6,9 +6,12 @@
 //     `produto_lote` (S/N) → sabemos QUAIS produtos exigem lote na baixa.
 //   • `ListarPosEstoque` (estoque/consulta/) — READ, saldo + CMC de vários SKUs
 //     numa chamada só (portado do nextstep/apps/omie/services/estoque.py).
-//   • `ConsultarLote` (produtos/produtoslote/) — READ, lotes + saldo por lote de
-//     UM produto num local (só para produtos com controle de lote). A saída FEFO
-//     consome primeiro o lote que vence antes (validade mais próxima).
+//   • `ConsultarLote` (produtos/produtoslote/) — READ, lotes de UM produto num
+//     local (só para produtos com controle de lote). A saída FEFO consome
+//     primeiro o lote que vence antes (validade mais próxima), e usa a
+//     quantidade DISPONÍVEL do lote (fora reservas). `nIdLocal` é SEMPRE
+//     enviado: omitido, o Omie devolve os lotes de TODOS os locais (≠ do
+//     `ListarPosEstoque`, onde `codigo_local_estoque: 0` é o local padrão).
 //   • `IncluirAjusteEstoque` (estoque/ajuste/) — WRITE, tipo "SAI" (saída),
 //     origem "AJU", motivo "OPS"; `codigo_local_estoque` omitido = local PADRÃO
 //     (decisão do Victor, 16/07/2026). `cod_int_ajuste` recebe um id NOSSO
@@ -305,35 +308,57 @@ export async function saldosPorCodigo(
 export interface LoteDisponivel {
   nIdLote: string; // id interno do lote no Omie (vai no lote_validade da baixa)
   numero: string; // cNumLote (nº do lote, só para exibição/log)
-  saldo: number; // nSaldoLote (entrada − saída) no local consultado
+  // Quanto dá para BAIXAR do lote: `nQuantDisponivel` (entradas − saídas −
+  // RESERVAS), não o `nSaldoLote` físico. O Omie recusa a saída da parte
+  // reservada em pedidos/OPs, então alocar por saldo físico gera baixa recusada.
+  disponivel: number;
+  saldoFisico: number; // nSaldoLote (entradas − saídas) — só para log/diagnóstico
   validade?: string; // dDataValidade (DD/MM/AAAA) — ordena a saída FEFO
 }
 
-// Lotes COM saldo (> 0) de um produto num local. Produto sem controle de lote /
-// sem lote com saldo → []. `nIdLocal` filtra pelo local (omitido no padrão "0",
-// quando o Omie assume o local padrão da empresa). Best-effort: propaga
+// Código real do local PADRÃO da empresa. Necessário porque o `ConsultarLote`
+// NÃO assume o padrão quando `nIdLocal` é omitido: ele devolve os lotes de
+// TODOS os locais (confirmado contra a API em 20/07/2026). Best-effort: a lista
+// é cacheada por 1h; se a leitura falhar, seguimos sem filtro (comportamento
+// antigo) em vez de derrubar a baixa.
+async function codigoLocalPadrao(chamar: ChamarFn): Promise<string | undefined> {
+  try {
+    return (await listarLocaisEstoque(chamar)).find((local) => local.padrao)?.codigo;
+  } catch {
+    return undefined;
+  }
+}
+
+// Lotes com quantidade DISPONÍVEL (> 0) de um produto num local. Produto sem
+// controle de lote / sem lote disponível → []. Best-effort: propaga
 // OmieBlocked/erros do client (o caller decide), resposta sem `lotes` → [].
 export async function consultarLotes(
   idProd: string,
   chamar: ChamarFn,
   codigoLocal: string = LOCAL_PADRAO,
 ): Promise<LoteDisponivel[]> {
+  const local =
+    codigoLocal && codigoLocal !== LOCAL_PADRAO ? codigoLocal : await codigoLocalPadrao(chamar);
   const param: OmiePayload = { nCodProd: Number(idProd) };
-  if (codigoLocal && codigoLocal !== LOCAL_PADRAO) {
-    param.nIdLocal = Number(codigoLocal);
-  }
+  if (local) param.nIdLocal = Number(local);
   const resp = await chamar("produtos/produtoslote/", "ConsultarLote", param);
   const lotes = resp?.lotes;
   if (!Array.isArray(lotes)) return [];
   const saida: LoteDisponivel[] = [];
   for (const registro of lotes as OmiePayload[]) {
     const nIdLote = texto(registro.nIdLote);
-    const saldo = numero(registro.nSaldoLote) ?? 0;
-    if (!nIdLote || saldo <= 0) continue;
+    // Cinto de segurança: lote de OUTRO local não pode entrar na alocação (o
+    // ajuste sai no local da baixa e o Omie recusaria o lote forasteiro).
+    const idLocal = texto(registro.nIdLocal);
+    if (local && idLocal && idLocal !== local) continue;
+    const saldoFisico = numero(registro.nSaldoLote) ?? 0;
+    const disponivel = numero(registro.nQuantDisponivel) ?? saldoFisico;
+    if (!nIdLote || disponivel <= 0) continue;
     saida.push({
       nIdLote,
       numero: texto(registro.cNumLote) ?? "",
-      saldo,
+      disponivel,
+      saldoFisico,
       validade: texto(registro.dDataValidade) || undefined,
     });
   }
@@ -407,7 +432,7 @@ export function alocarLotesFEFO(
   let restante = quantidade;
   for (const lote of [...lotes].sort(compararFEFO)) {
     if (restante <= 1e-9) break;
-    const disponivel = lote.saldo - (jaConsumido?.get(lote.nIdLote) ?? 0);
+    const disponivel = lote.disponivel - (jaConsumido?.get(lote.nIdLote) ?? 0);
     if (disponivel <= 0) continue;
     const usar = arred(Math.min(disponivel, restante));
     alocacao.push({ nIdLote: lote.nIdLote, quantidade: usar });
@@ -464,12 +489,15 @@ export interface ContextoBaixa {
 // Mensagem amigável pros erros comuns do ajuste. A baixa por lote agora é
 // automática (FEFO), mas se o Omie ainda reclamar de lote — ex. o cadastro do
 // produto marca controle de lote depois que já lemos os produtos, ou não há
-// lote com saldo — orientamos a conferir os lotes no Omie.
+// lote disponível — orientamos a conferir os lotes no Omie. A resposta CRUA do
+// Omie vai junto: sem ela, uma falha de lote em produção não é diagnosticável
+// (foi o que atrasou o diagnóstico de 20/07/2026).
 function motivoAmigavel(bruto: string): string {
   if (semAcento(bruto).includes("lote")) {
     return (
       "Produto com controle de lote: o Omie recusou a baixa por lote. " +
-      "Confira os lotes do produto no Omie (pode não haver lote com saldo neste local)."
+      "Confira os lotes do produto no Omie (pode não haver lote disponível neste local). " +
+      `Resposta do Omie: ${bruto}`
     );
   }
   return bruto;
@@ -559,8 +587,9 @@ export async function baixarEstoque(
           sku: item.sku,
           outcome: "falha",
           motivo:
-            "Produto com controle de lote sem lote com saldo suficiente neste local " +
-            `(faltou ${alocado.faltou}). Confira os lotes do produto no Omie.`,
+            "Produto com controle de lote sem lote DISPONÍVEL suficiente neste local " +
+            `(faltou ${alocado.faltou}). Parte do saldo pode estar reservada em pedidos/OPs — ` +
+            "confira os lotes do produto no Omie.",
         });
         continue;
       }

@@ -14,6 +14,15 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-20",
+    title: "Baixa de produto com lote: corrigida a recusa do Omie",
+    items: [
+      "A baixa de produto com controle de lote estava falhando com \"o Omie recusou a baixa por lote\". Causa: o sistema contava a quantidade reservada em pedidos/OPs como se estivesse livre, e o Omie recusa a saída da parte reservada. Agora ele só usa o que está realmente disponível no lote.",
+      "Se mesmo assim faltar quantidade disponível, a mensagem passa a dizer quanto faltou e avisa que parte do saldo pode estar reservada — em vez de só mandar conferir no Omie.",
+      "Quando a baixa é feita no local padrão, os lotes considerados agora são só os daquele local (antes o sistema podia pegar lote de outro local e a baixa era recusada).",
+    ],
+  },
+  {
+    date: "2026-07-20",
     title: "Crie seus próprios perfis de acesso",
     items: [
       "Em Configurações agora dá para criar perfis de acesso próprios (ex.: um perfil que vê só Requisições). O perfil vira uma linha na tabela de permissões, onde você marca os módulos que ele enxerga.",

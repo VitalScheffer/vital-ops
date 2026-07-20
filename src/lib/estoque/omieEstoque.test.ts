@@ -398,13 +398,13 @@ describe("saldoTotalPorCodigo", () => {
 describe("consultarLotes / lotesPorCodigo", () => {
   const RESPOSTA_LOTES = {
     lotes: [
-      { nIdLote: 10, cNumLote: "L-A", nSaldoLote: 4, dDataValidade: "01/12/2026" },
-      { nIdLote: 20, cNumLote: "L-B", nSaldoLote: 0, dDataValidade: "01/01/2026" }, // sem saldo → fora
-      { nIdLote: 30, cNumLote: "L-C", nSaldoLote: 6, dDataValidade: "01/06/2026" },
+      { nIdLote: 10, cNumLote: "L-A", nSaldoLote: 4, nQuantDisponivel: 4, dDataValidade: "01/12/2026" },
+      { nIdLote: 20, cNumLote: "L-B", nSaldoLote: 0, nQuantDisponivel: 0, dDataValidade: "01/01/2026" }, // sem saldo → fora
+      { nIdLote: 30, cNumLote: "L-C", nSaldoLote: 6, nQuantDisponivel: 6, dDataValidade: "01/06/2026" },
     ],
   };
 
-  it("consultarLotes traz só lotes com saldo > 0 e passa nIdLocal quando não é o padrão", async () => {
+  it("consultarLotes traz só lotes disponíveis e passa nIdLocal quando não é o padrão", async () => {
     const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA_LOTES);
     const lotes = await consultarLotes("111", chamar, "8667075521");
     const [path, call, param] = chamar.mock.calls[0];
@@ -412,14 +412,66 @@ describe("consultarLotes / lotesPorCodigo", () => {
     expect(call).toBe("ConsultarLote");
     expect(param).toMatchObject({ nCodProd: 111, nIdLocal: 8667075521 });
     expect(lotes.map((l) => l.nIdLote)).toEqual(["10", "30"]);
-    expect(lotes[0]).toEqual({ nIdLote: "10", numero: "L-A", saldo: 4, validade: "01/12/2026" });
+    expect(lotes[0]).toEqual({
+      nIdLote: "10",
+      numero: "L-A",
+      disponivel: 4,
+      saldoFisico: 4,
+      validade: "01/12/2026",
+    });
   });
 
-  it("consultarLotes no local padrão ('0') OMITE nIdLocal", async () => {
-    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ lotes: [] });
-    await consultarLotes("111", chamar);
-    const [, , param] = chamar.mock.calls[0];
+  // Bug de 20/07/2026: alocávamos por `nSaldoLote` (físico) e o Omie recusava a
+  // baixa da parte RESERVADA em pedidos/OPs.
+  it("consultarLotes usa a quantidade DISPONÍVEL (desconta reserva), não o saldo físico", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      lotes: [
+        { nIdLote: 12128811578, cNumLote: "187139", nSaldoLote: 38, nQuantReservada: 6, nQuantDisponivel: 32 },
+        { nIdLote: 99, cNumLote: "so-reserva", nSaldoLote: 5, nQuantReservada: 5, nQuantDisponivel: 0 },
+      ],
+    });
+    const lotes = await consultarLotes("111", chamar, "5940905787");
+    expect(lotes).toHaveLength(1); // o lote 100% reservado sai da alocação
+    expect(lotes[0]).toMatchObject({ nIdLote: "12128811578", disponivel: 32, saldoFisico: 38 });
+  });
+
+  // O ConsultarLote NÃO assume o local padrão quando nIdLocal é omitido: devolve
+  // TODOS os locais. Sem resolver o código real do padrão, a baixa no local
+  // padrão alocava lote de outro local e o Omie recusava.
+  it("consultarLotes no local padrão ('0') resolve o código real e filtra por ele", async () => {
+    const chamar = vi.fn<ChamarFn>(async (path, call) => {
+      if (call === "ListarLocaisEstoque") {
+        return {
+          nTotPaginas: 1,
+          locaisEncontrados: [
+            { codigo_local_estoque: 5702636851, descricao: "Padrão", padrao: "S", inativo: "N" },
+            { codigo_local_estoque: 5940905787, descricao: "Matéria-Prima", padrao: "N", inativo: "N" },
+          ],
+        };
+      }
+      expect(path).toBe("produtos/produtoslote/");
+      return {
+        lotes: [
+          { nIdLote: 1, nIdLocal: 5702636851, nSaldoLote: 3, nQuantDisponivel: 3 },
+          { nIdLote: 2, nIdLocal: 5940905787, nSaldoLote: 9, nQuantDisponivel: 9 }, // outro local → fora
+        ],
+      };
+    });
+    const lotes = await consultarLotes("111", chamar);
+    const [, , param] = chamar.mock.calls[1];
+    expect(param).toMatchObject({ nCodProd: 111, nIdLocal: 5702636851 });
+    expect(lotes.map((l) => l.nIdLote)).toEqual(["1"]);
+  });
+
+  it("consultarLotes segue sem filtro se não der pra resolver o local padrão", async () => {
+    const chamar = vi.fn<ChamarFn>(async (_path, call) => {
+      if (call === "ListarLocaisEstoque") throw new Error("Omie fora do ar");
+      return { lotes: [{ nIdLote: 7, nSaldoLote: 2, nQuantDisponivel: 2 }] };
+    });
+    const lotes = await consultarLotes("111", chamar);
+    const [, , param] = chamar.mock.calls[1];
     expect(param).not.toHaveProperty("nIdLocal");
+    expect(lotes.map((l) => l.nIdLote)).toEqual(["7"]);
   });
 
   it("lotesPorCodigo consulta SÓ produtos com controle de lote (uma vez por SKU)", async () => {
@@ -428,8 +480,8 @@ describe("consultarLotes / lotesPorCodigo", () => {
       ["COM", { idProd: "1", descricao: "a", controleLote: true }],
       ["SEM", { idProd: "2", descricao: "b" }],
     ]);
-    const mapa = await lotesPorCodigo(produtos, ["COM", "SEM", "COM"], chamar);
-    expect(chamar).toHaveBeenCalledTimes(1);
+    const mapa = await lotesPorCodigo(produtos, ["COM", "SEM", "COM"], chamar, "5940905787");
+    expect(chamar.mock.calls.filter(([, call]) => call === "ConsultarLote")).toHaveLength(1);
     expect(mapa.has("COM")).toBe(true);
     expect(mapa.has("SEM")).toBe(false);
   });
@@ -437,9 +489,9 @@ describe("consultarLotes / lotesPorCodigo", () => {
 
 describe("alocarLotesFEFO", () => {
   const LOTES: LoteDisponivel[] = [
-    { nIdLote: "10", numero: "A", saldo: 4, validade: "01/12/2026" },
-    { nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }, // vence antes
-    { nIdLote: "40", numero: "D", saldo: 5 }, // sem validade → por último
+    { nIdLote: "10", numero: "A", disponivel: 4, saldoFisico: 4, validade: "01/12/2026" },
+    { nIdLote: "30", numero: "C", disponivel: 6, saldoFisico: 6, validade: "01/06/2026" }, // vence antes
+    { nIdLote: "40", numero: "D", disponivel: 5, saldoFisico: 5 }, // sem validade → por último
   ];
 
   it("consome primeiro o lote que vence antes (FEFO) e divide entre lotes", () => {
@@ -482,8 +534,8 @@ describe("baixarEstoque — controle de lote e custo médio", () => {
       { "MAT 001": { saldo: 10, cmc: 2 } },
       {
         "MAT 001": [
-          { nIdLote: "10", numero: "A", saldo: 4, validade: "01/12/2026" },
-          { nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" },
+          { nIdLote: "10", numero: "A", disponivel: 4, saldoFisico: 4, validade: "01/12/2026" },
+          { nIdLote: "30", numero: "C", disponivel: 6, saldoFisico: 6, validade: "01/06/2026" },
         ],
       },
     );
@@ -506,7 +558,7 @@ describe("baixarEstoque — controle de lote e custo médio", () => {
     const ctx = contexto(
       { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
       { "MAT 001": { saldo: 10, cmc: 2 } },
-      { "MAT 001": [{ nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }] },
+      { "MAT 001": [{ nIdLote: "30", numero: "C", disponivel: 6, saldoFisico: 6, validade: "01/06/2026" }] },
     );
     await baixarEstoque(
       [
@@ -528,7 +580,7 @@ describe("baixarEstoque — controle de lote e custo médio", () => {
     const ctx = contexto(
       { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
       { "MAT 001": { saldo: 10, cmc: 2 } },
-      { "MAT 001": [{ nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }] },
+      { "MAT 001": [{ nIdLote: "30", numero: "C", disponivel: 6, saldoFisico: 6, validade: "01/06/2026" }] },
     );
     const resultado = await baixarEstoque(
       [
@@ -585,7 +637,7 @@ describe("baixarEstoque — resultado carrega custo e lotes (p/ relatório e est
     const ctx = contexto(
       { "MAT 001": { idProd: "111", descricao: "Fita", controleLote: true } },
       { "MAT 001": { saldo: 10, cmc: 2.5 } },
-      { "MAT 001": [{ nIdLote: "30", numero: "C", saldo: 6, validade: "01/06/2026" }] },
+      { "MAT 001": [{ nIdLote: "30", numero: "C", disponivel: 6, saldoFisico: 6, validade: "01/06/2026" }] },
     );
     const resultado = await baixarEstoque([{ chave: "k1", sku: "MAT 001", quantidade: 4, obs: "" }], ctx, chamar);
     expect(resultado.itens[0].custoUnitario).toBe(2.5);
