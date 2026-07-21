@@ -23,6 +23,7 @@ import { useState } from "react";
 
 import { logoutAction } from "@/app/(app)/actions";
 import { NotificacoesBell } from "@/components/NotificacoesBell";
+import { BotaoAtualizar, NovaVersaoModal, useNovaVersao } from "@/components/NovaVersao";
 import { ReportDialog } from "@/components/ReportDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Tutorial } from "@/components/Tutorial";
@@ -70,6 +71,9 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  // Uma única verificação de versão alimenta os dois pontos: o botão ao lado do
+  // sino e o modal de novidades.
+  const atualizacao = useNovaVersao();
 
   const closeMobile = () => setMobileOpen(false);
 
@@ -103,6 +107,7 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
             </p>
           </div>
           <NotificacoesBell notificacoes={notificacoes} />
+          <BotaoAtualizar visivel={atualizacao.temAtualizacao} />
           <ReportDialog />
           <ThemeToggle />
           <button
@@ -175,6 +180,12 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
         navKeys={nav.map((item) => item.key)}
         open={tutorialOpen}
         onOpenChange={setTutorialOpen}
+      />
+
+      <NovaVersaoModal
+        aberto={atualizacao.modalAberto}
+        novidades={atualizacao.novidades}
+        onAdiar={atualizacao.adiarModal}
       />
     </div>
   );

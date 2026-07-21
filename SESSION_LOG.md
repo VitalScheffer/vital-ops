@@ -2902,3 +2902,65 @@ na auditoria e no relatorio PDF.
   `globals.css` define `--color-danger`, nao `destructive`, entao essas mensagens de
   erro nao ficam vermelhas: herdam a cor do pai. Meus arquivos novos usam `danger`.
   Vale uma troca em massa `destructive` -> `danger` numa proxima passada.
+
+## 2026-07-21 (parte 3) - Aviso de versao nova (modal + botao no cabecalho)
+
+### Resumo
+Quando sobe versao nova, quem esta com a aba aberta passa a ser avisado. Dois
+sinais separados, de proposito:
+- **Changelog novo** (alguem escreveu novidade em `src/lib/changelog.ts`):
+  modal com o que mudou, o mesmo texto da /novidades.
+- **Build novo sem changelog** (correcao pequena): sem modal, so um botao
+  discreto de recarregar ao lado do sino, com bolinha.
+O botao do cabecalho tambem e a saida de quem fechou o modal em "Agora nao".
+
+### Arquivos alterados/criados
+- `next.config.ts` - `env.NEXT_PUBLIC_BUILD` a partir de `VERCEL_GIT_COMMIT_SHA`
+  (inlinado no bundle no build; em dev fica "dev" e o aviso nunca dispara).
+- `src/lib/versao.ts` (novo) - `BUILD_ATUAL`, contrato da resposta e o tipo
+  `EstadoAtualizacao` (atual | silenciosa | novidade).
+- `src/lib/changelog.ts` - `versaoDaEntrada()`, `VERSAO_ATUAL`,
+  `novidadesDesde()`. Mais as entradas de changelog do Pranchas e deste aviso.
+- `src/app/api/versao/route.ts` (novo) - `force-dynamic` + `no-store`,
+  auth-gate no padrao de `api/auth/me`.
+- `src/components/NovaVersao.tsx` (novo) - `useNovaVersao()`,
+  `<BotaoAtualizar>`, `<NovaVersaoModal>` e `recarregarLimpo()`.
+- `src/components/AppShell.tsx` - hook chamado uma vez, alimentando o botao
+  (ao lado do sino) e o modal (junto do `<Tutorial>`).
+- `src/lib/changelog.test.ts` - 6 testes novos.
+
+### Decisoes importantes
+- **Gatilho do modal e o changelog, nao o commit.** Amarrar ao SHA faria todo
+  push disparar modal sem ter o que mostrar. O comentario no topo do
+  changelog.ts ja obriga entrada nova por entrega, entao a disciplina existe.
+- **Versao derivada de (data + titulo), sem campo `version` manual.** Campo
+  manual esquecido falha em SILENCIO (o aviso some e ninguem descobre). Tem
+  teste garantindo que nao ha versao duplicada.
+- **Quem monta a lista de novidades e o SERVIDOR.** O navegador que precisa do
+  aviso esta com o bundle antigo e nao tem as entradas novas no CHANGELOG dele.
+  Por isso a rota recebe `?desde=` e devolve as entradas.
+- **Modal nao prende.** Recarregar no meio do Configurador (sem rascunho) ou com
+  a pasta de 658 PDFs carregada no Pranchas jogaria trabalho fora.
+- **Nao existe Ctrl+Shift+R programatico.** `location.reload(true)` foi
+  descontinuado e e ignorado. `recarregarLimpo()` desregistra service worker e
+  limpa Cache Storage antes do reload; como os assets do Next tem hash no nome,
+  o efeito e equivalente.
+- Primeira checagem 10s apos montar (nao disputa rede com o carregamento),
+  depois a cada 3 min, mais uma checagem quando a aba volta ao foco.
+
+### Comandos relevantes
+- `npx tsc --noEmit` -> 0. `npx eslint <arquivos>` -> 0.
+- `npx vitest run` -> 325/325 (27 arquivos).
+- `npx next build` -> OK; /api/versao sai como dinamica.
+
+### Pendencias / proximos passos
+- **ATENCAO - Skew Protection da Vercel.** Se estiver ligada no projeto, ela
+  roteia a requisicao do cliente antigo de volta para o deploy antigo. A rota
+  /api/versao devolveria a versao velha e o aviso NUNCA apareceria. Conferir no
+  painel da Vercel (Settings > Advanced/Deployment Protection). Se estiver
+  ligada, trocar a fonte da versao por algo fora do deploy.
+- **O primeiro deploy nao avisa ninguem.** Quem ja esta com a aba aberta nao tem
+  o verificador no bundle. Do proximo deploy em diante funciona.
+- Falta teste humano: subir duas versoes seguidas e ver o modal aparecer.
+- O changelog do Pranchas foi escrito agora; a entrega anterior tinha ficado
+  sem entrada em /novidades.

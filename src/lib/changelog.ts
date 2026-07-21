@@ -11,7 +11,38 @@ export interface ChangelogEntry {
   items: string[];
 }
 
+/**
+ * Identidade da versão publicada. É derivada da própria entrada (data + título)
+ * em vez de um campo `version` escrito à mão de propósito: um campo manual que
+ * alguém esquece de trocar falha em SILÊNCIO — o aviso de versão nova
+ * simplesmente não aparece e ninguém descobre. Assim, escrever a novidade já é
+ * publicar a versão, que é a disciplina que o time já tem.
+ */
+export function versaoDaEntrada(entry: ChangelogEntry): string {
+  return `${entry.date}#${entry.title}`;
+}
+
 export const CHANGELOG: readonly ChangelogEntry[] = [
+  {
+    date: "2026-07-21",
+    title: "A plataforma avisa quando chega versão nova",
+    items: [
+      "Quando uma versão nova entra no ar, aparece um aviso na tela contando o que mudou — o mesmo texto desta página de Novidades. Não é preciso mais ficar sabendo por WhatsApp que tem coisa nova.",
+      "O aviso tem um botão Recarregar agora, que já traz a versão nova sem você precisar apertar nada no teclado.",
+      "Dá para clicar em Agora não e continuar o que estava fazendo: se você está no meio de uma configuração ou com a pasta de desenhos carregada, nada é perdido. O aviso volta depois.",
+    ],
+  },
+  {
+    date: "2026-07-21",
+    title: "Pranchas: passou a achar os desenhos com os códigos novos",
+    items: [
+      "O compilador de pranchas não reconhecia os códigos atuais dos desenhos (ex.: CREHS PC001 CCSLD R00) e praticamente não encontrava nada na pasta. Agora lê tanto os códigos atuais quanto os antigos.",
+      "Peças que só diferem no material deixaram de ser confundidas: CREHS PC001 CCSLD (carbono) e CREHS PC001 ICSLD (inox) são desenhos diferentes e cada um sai na sua prancha. Antes o sistema podia imprimir o desenho errado.",
+      "Desenho cujo arquivo não tem revisão no nome passa a ser encontrado do mesmo jeito, marcado como SEM REVISÃO para você conferir antes de imprimir.",
+      "Nova lista de material de compra: os itens comprados da BOM saem somados por código, com um campo de quantos conjuntos você vai produzir, e dá para baixar em Excel para conferir estoque e separar.",
+      "A conta respeita os conjuntos: peça que está dentro de um conjunto pedido 2 vezes entra 2 vezes na lista. Para essa lista é preciso subir a BOM em planilha (.xls/.xlsx); no PDF não dá para separar quantidade de descrição com segurança.",
+    ],
+  },
   {
     date: "2026-07-21",
     title: "Projetos responde com recado, e o vendedor vê antes mesmo de enviar",
@@ -230,3 +261,24 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     ],
   },
 ];
+
+/** Versão que ESTE build está servindo (a entrada mais recente do changelog). */
+export const VERSAO_ATUAL: string = CHANGELOG.length > 0 ? versaoDaEntrada(CHANGELOG[0]) : "";
+
+/**
+ * Entradas publicadas depois da versão que o navegador está rodando — é o que o
+ * aviso de versão nova mostra.
+ *
+ * Roda no SERVIDOR: o navegador que precisa do aviso está com o bundle antigo e,
+ * por definição, não tem no `CHANGELOG` dele as entradas novas que queremos
+ * mostrar. Por isso quem monta a lista é o servidor, e não o cliente.
+ *
+ * Se `desde` não for encontrado (entrada renomeada, ou navegador muito
+ * desatualizado), devolve só a mais recente: melhor mostrar uma novidade do que
+ * despejar o changelog inteiro na cara de quem voltou de férias.
+ */
+export function novidadesDesde(desde: string | null | undefined): ChangelogEntry[] {
+  if (!desde || desde === VERSAO_ATUAL) return [];
+  const indice = CHANGELOG.findIndex((entry) => versaoDaEntrada(entry) === desde);
+  return indice === -1 ? CHANGELOG.slice(0, 1) : CHANGELOG.slice(0, indice);
+}
