@@ -2579,3 +2579,85 @@ viabilidade nos 3 repos envolvidos + plano. Nenhum codigo alterado.
   senha do e-mail em texto puro, e o SESSION_LOG do configurador-cama-hospitalar
   tem AWS access key + secret em texto puro (a rotacao ja esta anotada la como
   pendencia aberta). Vale rotacionar.
+
+## 2026-07-21 - Fase 1 do configurador: modulo no vital-ops (EM PRODUCAO)
+
+### Resumo
+Implementada a Fase 1 do plano acima: modulo "Configurador" no vital-ops, onde o
+comercial monta o produto opcao por opcao a partir de uma foto de referencia e
+envia a especificacao. Primeiro produto: Maca Padiola (10 grupos + observacoes).
+A tela da equipe de Projetos no nextstep e a ponte entre os sistemas continuam
+para as fases 2 a 4.
+
+### Arquivos criados
+- `src/lib/configurador/catalogo.ts` - catalogo tipado (Produto -> Grupo -> Opcao),
+  com flag de padrao e opcao que abre campo de texto livre. A Maca Padiola inteira
+  vive aqui; a tela renderiza generico, sem nenhuma opcao chumbada no JSX.
+- `src/lib/configurador/codigo.ts` - nucleo puro: `resolverSelecoes` (valida contra
+  o catalogo), `montarCodigo` (identidade deterministica), `foraDoPadrao`,
+  `escolhasPadrao`, `resumoTexto`.
+- `src/lib/configurador/codigo.test.ts` - 18 testes (determinismo, texto livre
+  normalizado, acento, truncagem, desvios, catalogo bem formado).
+- `src/lib/contracts/configuracao.ts` - zod + `formatarNumeroConfiguracao` (CFG-0001).
+- `src/app/(app)/configurador/page.tsx` - tela (guard + formulario + lista das 20
+  ultimas).
+- `src/app/(app)/configurador/actions.ts` - Server Action `criarConfiguracao`.
+- `src/components/configurador/ConfiguradorForm.tsx` - formulario cliente com
+  previa ao vivo do codigo e dos desvios.
+- `prisma/migrations/20260721120000_configurador/migration.sql` - tabela Configuracao.
+- `public/configurador/maca-padiola.jpg` - foto de referencia (1600x759).
+
+### Arquivos alterados
+- `prisma/schema.prisma` - model `Configuracao` + relacao em `User`.
+- `src/lib/permissions.ts`, `prisma/seed.ts` - novo modulo `configurador` na matriz
+  (ADMIN/GESTOR/FUNCIONARIO true; FABRICA e FABRICA_GESTOR false).
+- `src/lib/rbac.ts` - `canViewConfigurador`.
+- `src/lib/navigation.ts`, `src/components/AppShell.tsx`, `src/app/(app)/page.tsx`,
+  `src/components/configuracoes/PermissionsMatrixForm.tsx` - item de menu, icone
+  (SlidersHorizontal) e rotulo do modulo.
+- `src/lib/changelog.ts` - entrada 2026-07-21 para quem usa o app.
+- `src/lib/permissions.test.ts`, `src/lib/navigation.test.ts` - expectativas com o
+  modulo novo + 2 testes do perfil customizado "Comercial" vendo so o configurador.
+
+### Decisoes importantes
+- **Catalogo em codigo, nao no banco.** Sem tela de cadastro de catalogo, semear
+  tabela na mao seria pior que editar um arquivo revisavel (o diff vira historico).
+  O formato ja e o mesmo que as tabelas terao quando virar cadastro. Custo: produto
+  novo exige deploy (automatico, ~1 min). Isso muda o que estava escrito no plano
+  ("cadastro, nao deploy") - decisao consciente para entregar a Fase 1 antes.
+- **Observacoes livres NAO entram no codigo de identidade.** Se entrassem, todo
+  texto digitado geraria codigo novo e a deteccao de repetidos (fase 2) nunca casaria.
+- **Snapshot desnormalizado** das selecoes (com rotulos) no campo `selecoes` Json:
+  configuracao antiga continua legivel se o catalogo mudar. Mesmo padrao do
+  Delivery/Pickup do nextstep.
+- **Modulo proprio** na matriz, nao pendurado em "products": o publico e o comercial,
+  que nao deve enxergar BOM/estoque. O comercial entra por perfil customizado.
+- **Texto livre no codigo e truncado em 16 caracteres normalizados.** Duas medidas
+  que coincidam nos 16 primeiros geram o mesmo codigo; aceitavel porque o texto
+  integral fica no snapshot e aparece inteiro na tela de Projetos.
+
+### Comandos
+- `npx prisma generate` -> OK. `npx tsc --noEmit` -> 0 erros. `npx eslint .` -> 0.
+- `npx vitest run` -> 276/276 (18 novos). `npx next build` -> OK, rota /configurador.
+- `npx prisma migrate deploy` -> migration aplicada no Neon de PRODUCAO (autorizada
+  pelo usuario; so CREATE TABLE + indices + FK, nao altera tabela existente).
+- `git push origin master` -> deploy Vercel `vital-33y5py9su`, status Ready, 47s.
+
+### NAO verificado
+A tela nao foi exercitada por dentro: nao tenho credencial de login do vital-ops,
+entao o fluxo (marcar opcoes -> enviar -> aparecer na lista) nao foi rodado por mim.
+Build, tipos, lint e os 276 testes passam, e a rota responde em producao (307 para
+/login, como toda rota protegida). Falta um teste humano.
+
+### Pendencias / proximos passos
+- **Liberar acesso ao comercial**: em /configuracoes, criar o perfil "Comercial" e
+  marcar SO o modulo Configurador; depois atribuir o perfil as pessoas em /usuarios.
+  Definir os e-mails (atencao ao Rodrigo Sefas: loga como vendas10@ mas o e-mail e
+  vendas01@; no vital-ops o login e por e-mail).
+- Confirmar com o usuario se as 10 secoes + observacoes sao a lista fechada da maca.
+- Fase 2: `apps/projetos` no nextstep (setor Projetos + membership dupla com
+  Logistica, tela no nav, deteccao de repetidos, resposta com numero do CAD).
+- Fase 3: ponte HMAC vital-ops -> nextstep (outbox/retry; os campos
+  `sincronizadoEm`, `sincronizacaoErro` e `tentativasSync` ja existem na tabela).
+- Fase 4: callback de resposta (status + CAD) de volta para o vital-ops (campos
+  `projetoCad`, `respostaNota`, `respondidoPor`, `respondidoEm` ja existem).
