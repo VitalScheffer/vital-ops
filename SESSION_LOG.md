@@ -3077,6 +3077,17 @@ clicando rapido ela acumula e sobe alto, parado ela desce sozinha ate a base.
   dois temas sem regra extra). Sairam as cores/vars do Gemini e a lavagem
   vs-grad-slide-y; prefers-reduced-motion para o giro e a transicao do nivel.
 
+### Quarto ajuste (feedback: "so faz um movimento" e agua alta demais)
+- Mar mais vivo: cada onda agora soma DOIS movimentos, o giro (borda
+  ondulando) e um balanco vertical (marulho) em keyframes proprios
+  (agua-boia-tras 9,5s / agua-boia-frente 6,5s), com duracoes que nao sao
+  multiplas entre si; as fases nunca coincidem e o movimento nao se repete
+  igual. Onda da frente ficou um pouco mais "brava" (border-radius 44%).
+  O translate estatico dos pseudos virou fallback do prefers-reduced-motion
+  (sem ele, com animation none, a onda perderia o centro da linha d'agua).
+- Agua mais baixa (pedido: ~25% menos): base 10 -> 8, teto 40 -> 30,
+  ganho por clique 10 -> 7. Descida continua 2,5 a cada 400ms.
+
 ### Pendencias / proximos passos
 - Falta teste humano: ligar o modo (2 cliques na logo), navegar rapido varias
   vezes e ver a mare subir/descer; conferir claro/escuro e mobile; confirmar

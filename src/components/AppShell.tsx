@@ -79,9 +79,9 @@ const DUPLO_CLIQUE_MS = 400;
 // Água da barra lateral (modo brilho): cada clique de navegação sobe o nível
 // da "maré" (--agua-nivel, em % da altura da barra). Cliques rápidos acumulam
 // e o mar sobe; parado, desce um degrau a cada tique até a linha de base.
-const NIVEL_BASE = 10;
-const NIVEL_MAX = 40;
-const GANHO_POR_CLIQUE = 10;
+const NIVEL_BASE = 8;
+const NIVEL_MAX = 30;
+const GANHO_POR_CLIQUE = 7;
 const DESCIDA_POR_TIQUE = 2.5;
 const TIQUE_MS = 400;
 
