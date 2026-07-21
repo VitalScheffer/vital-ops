@@ -1,6 +1,13 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, History, RotateCcw, SendHorizonal } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  History,
+  Info,
+  RotateCcw,
+  SendHorizonal,
+} from "lucide-react";
 import Image from "next/image";
 import { useActionState, useState } from "react";
 
@@ -15,6 +22,7 @@ import {
   TEXTO_LIVRE_MAX,
   type EscolhaBruta,
 } from "@/lib/configurador/codigo";
+import type { RespostaConhecida } from "@/lib/configurador/fila";
 import type { ItemHistorico } from "@/lib/configurador/historico";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
@@ -28,13 +36,16 @@ interface ConfiguradorFormProps {
   produto: ProdutoCatalogo;
   // Combinações já enviadas (sem repetir), para repetir com um clique.
   historico: ItemHistorico[];
+  // Combinações que a equipe de Projetos já respondeu, por código. Objeto (e não
+  // Map) porque atravessa a fronteira servidor → cliente.
+  respostas: Record<string, RespostaConhecida>;
 }
 
 // Formulário do configurador. Renderiza o produto INTEIRO a partir do catálogo —
 // nenhuma opção da maca está escrita aqui; trocar/incluir produto é mexer só em
 // `catalogo.ts`. A prévia (código e desvios) usa as MESMAS funções puras que a
 // Server Action usa para valer, então o que o vendedor vê é o que é gravado.
-export function ConfiguradorForm({ produto, historico }: ConfiguradorFormProps) {
+export function ConfiguradorForm({ produto, historico, respostas }: ConfiguradorFormProps) {
   const [state, formAction, pending] = useActionState(criarConfiguracao, IDLE_FORM_STATE);
   const [escolhas, setEscolhas] = useState<Record<string, EscolhaBruta>>(() =>
     escolhasPadrao(produto),
@@ -90,6 +101,10 @@ export function ConfiguradorForm({ produto, historico }: ConfiguradorFormProps) 
   const selecoes = resolucao.ok ? resolucao.selecoes : [];
   const desvios = foraDoPadrao(selecoes);
   const codigo = resolucao.ok ? montarCodigo(produto, selecoes) : null;
+  // Enquanto o vendedor marca as opções, o código muda; se ele cair numa
+  // combinação que a equipe de Projetos já respondeu, mostramos a resposta na
+  // hora — inclusive o recado que a pessoa de Projetos escreveu.
+  const respostaConhecida = codigo ? respostas[codigo] : undefined;
 
   const payload = Object.entries(escolhas)
     .filter(([, escolha]) => Boolean(escolha?.opcao))
@@ -284,6 +299,36 @@ export function ConfiguradorForm({ produto, historico }: ConfiguradorFormProps) 
             </ul>
           )}
         </div>
+
+        {respostaConhecida && (
+          <div
+            className={`rounded-lg px-3 py-2 text-xs ${
+              respostaConhecida.status === "ATENDIDA"
+                ? "bg-success-dim text-success"
+                : "bg-danger-dim text-danger"
+            }`}
+          >
+            <p className="flex items-center gap-1.5 font-semibold">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              {respostaConhecida.status === "ATENDIDA"
+                ? `Já existe: projeto ${respostaConhecida.projetoCad}`
+                : "Esta combinação já foi recusada"}
+            </p>
+            <p className="mt-1">
+              {respostaConhecida.status === "ATENDIDA"
+                ? "Essa exata configuração já foi desenhada. Pode enviar assim mesmo, mas talvez nem precise esperar projeto novo."
+                : "Veja o motivo antes de enviar de novo."}
+            </p>
+            {respostaConhecida.nota && (
+              <p className="mt-1.5 border-t border-current/20 pt-1.5 italic">
+                “{respostaConhecida.nota}”
+              </p>
+            )}
+            <p className="mt-1 opacity-80">
+              {respostaConhecida.quem ?? "Projetos"} · {respostaConhecida.quando}
+            </p>
+          </div>
+        )}
 
         {!resolucao.ok && (
           <p className="rounded-lg bg-danger-dim px-3 py-2 text-xs text-danger">{resolucao.erro}</p>

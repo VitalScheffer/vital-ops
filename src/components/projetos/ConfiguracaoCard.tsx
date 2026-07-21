@@ -6,7 +6,7 @@ import { useActionState, useState } from "react";
 import { assumirConfiguracao, responderConfiguracao } from "@/app/(app)/projetos/actions";
 import { FormFeedback } from "@/components/FormFeedback";
 import { textoDaSelecao, type SelecaoResolvida } from "@/lib/configurador/codigo";
-import type { AtendidaAnterior } from "@/lib/configurador/fila";
+import type { RespostaConhecida } from "@/lib/configurador/fila";
 import { IDLE_FORM_STATE } from "@/lib/form";
 
 const inputClass =
@@ -31,7 +31,7 @@ export interface ConfiguracaoDaFila {
   respondidoQuando: string | null;
   aberta: boolean;
   podeAssumir: boolean;
-  jaDesenhado: AtendidaAnterior | null;
+  jaDesenhado: RespostaConhecida | null;
 }
 
 // Um item da fila. O que a equipe precisa ver primeiro vem primeiro: se a
@@ -69,10 +69,13 @@ export function ConfiguracaoCard({ item }: { item: ConfiguracaoDaFila }) {
       </div>
 
       {item.aberta && item.jaDesenhado && (
-        <p className="flex items-center gap-2 rounded-lg bg-success-dim px-3 py-2 text-sm font-medium text-success">
-          <Copy className="h-4 w-4 shrink-0" />
-          Esta combinação já foi desenhada: projeto {item.jaDesenhado.projetoCad}
-        </p>
+        <div className="rounded-lg bg-success-dim px-3 py-2 text-sm text-success">
+          <p className="flex items-center gap-2 font-medium">
+            <Copy className="h-4 w-4 shrink-0" />
+            Esta combinação já foi desenhada: projeto {item.jaDesenhado.projetoCad}
+          </p>
+          {item.jaDesenhado.nota && <p className="mt-1 pl-6">{item.jaDesenhado.nota}</p>}
+        </div>
       )}
 
       {item.desvios.length === 0 ? (
@@ -172,33 +175,45 @@ export function ConfiguracaoCard({ item }: { item: ConfiguracaoDaFila }) {
           </div>
 
           {decisao && (
-            <form action={responderAction} className="flex flex-col gap-2 sm:flex-row">
+            <form action={responderAction} className="flex flex-col gap-2">
               <input type="hidden" name="id" value={item.id} />
               <input type="hidden" name="decisao" value={decisao} />
+
               {decisao === "ATENDER" ? (
-                <input
-                  name="projetoCad"
-                  required
-                  maxLength={60}
-                  autoFocus
-                  defaultValue={item.jaDesenhado?.projetoCad ?? ""}
-                  placeholder="Número do projeto"
-                  className={inputClass}
-                />
+                <>
+                  <input
+                    name="projetoCad"
+                    required
+                    maxLength={60}
+                    autoFocus
+                    defaultValue={item.jaDesenhado?.projetoCad ?? ""}
+                    placeholder="Número do projeto"
+                    className={inputClass}
+                  />
+                  <textarea
+                    name="nota"
+                    rows={2}
+                    maxLength={1000}
+                    placeholder="Observação para o vendedor (opcional): prazo, ressalva, o que mudou..."
+                    className={inputClass}
+                  />
+                </>
               ) : (
-                <input
+                <textarea
                   name="nota"
                   required
+                  rows={2}
                   maxLength={1000}
                   autoFocus
-                  placeholder="Motivo da recusa"
+                  placeholder="Motivo da recusa (o vendedor vê este texto)"
                   className={inputClass}
                 />
               )}
+
               <button
                 type="submit"
                 disabled={respondendo}
-                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="self-start rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {respondendo ? "Enviando..." : "Confirmar"}
               </button>

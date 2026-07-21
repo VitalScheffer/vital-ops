@@ -6,7 +6,7 @@ import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
 import { CATALOGO } from "@/lib/configurador/catalogo";
 import { rotuloDaSelecao } from "@/lib/configurador/codigo";
-import { classeStatus } from "@/lib/configurador/fila";
+import { classeStatus, mapaRespostas } from "@/lib/configurador/fila";
 import { desviosDoSnapshot, montarHistorico } from "@/lib/configurador/historico";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
@@ -45,6 +45,7 @@ export default async function ConfiguradorPage() {
       where: veTudo ? {} : { autorId: session.user.id },
       orderBy: { criadoEm: "desc" },
       take: 20,
+      include: { respondidoPor: { select: { name: true } } },
     }),
     prisma.configuracao.findMany({
       where: { produtoSlug: produto.slug },
@@ -58,11 +59,37 @@ export default async function ConfiguradorPage() {
         observacoes: true,
         autorNome: true,
         criadoEm: true,
+        status: true,
+        projetoCad: true,
+        respostaNota: true,
+        respondidoEm: true,
+        respondidoPor: { select: { name: true } },
       },
     }),
   ]);
 
   const historico = montarHistorico(produto, registrosHistorico);
+
+  // Índice das combinações que a equipe de Projetos já respondeu. Vai inteiro
+  // para o formulário: assim, no instante em que o vendedor monta uma combinação
+  // já conhecida, ele vê o número do projeto e o recado de quem desenhou, sem
+  // precisar enviar de novo nem perguntar a ninguém.
+  const respostas = Object.fromEntries(
+    mapaRespostas(
+      registrosHistorico
+        .filter((registro) => registro.respondidoEm !== null)
+        .sort((a, b) => (b.respondidoEm?.getTime() ?? 0) - (a.respondidoEm?.getTime() ?? 0))
+        .map((registro) => ({
+          codigo: registro.codigo,
+          numero: registro.numero,
+          status: registro.status,
+          projetoCad: registro.projetoCad,
+          respostaNota: registro.respostaNota,
+          respondidoPorNome: registro.respondidoPor?.name ?? null,
+          respondidoQuando: registro.respondidoEm ? formatarDataHora(registro.respondidoEm) : "",
+        })),
+    ),
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -81,7 +108,7 @@ export default async function ConfiguradorPage() {
         </span>
       </p>
 
-      <ConfiguradorForm produto={produto} historico={historico} />
+      <ConfiguradorForm produto={produto} historico={historico} respostas={respostas} />
 
       <Panel
         title={veTudo ? "Configurações enviadas" : "Minhas configurações"}
@@ -139,6 +166,32 @@ export default async function ConfiguradorPage() {
                       <span className="text-muted-foreground">Observações: </span>
                       {configuracao.observacoes}
                     </p>
+                  )}
+
+                  {/* A resposta da equipe de Projetos fecha o ciclo aqui: é onde
+                      quem pediu descobre o número do projeto e lê o recado, sem
+                      precisar perguntar. */}
+                  {configuracao.respondidoEm && (
+                    <div
+                      className={`rounded-lg px-3 py-2 text-xs ${
+                        configuracao.status === "ATENDIDA"
+                          ? "bg-success-dim text-success"
+                          : "bg-danger-dim text-danger"
+                      }`}
+                    >
+                      <p className="font-medium">
+                        {configuracao.status === "ATENDIDA"
+                          ? `Projetos respondeu: projeto ${configuracao.projetoCad}`
+                          : "Projetos recusou esta configuração"}
+                      </p>
+                      {configuracao.respostaNota && (
+                        <p className="mt-1">{configuracao.respostaNota}</p>
+                      )}
+                      <p className="mt-1 opacity-80">
+                        {configuracao.respondidoPor?.name ?? "—"} ·{" "}
+                        {formatarDataHora(configuracao.respondidoEm)}
+                      </p>
+                    </div>
                   )}
                 </li>
               );

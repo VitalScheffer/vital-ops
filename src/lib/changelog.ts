@@ -14,6 +14,15 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-21",
+    title: "Projetos responde com recado, e o vendedor vê antes mesmo de enviar",
+    items: [
+      "Ao atender, a equipe de Projetos pode escrever uma observação para o vendedor (prazo, ressalva, o que mudou). Ela aparece na configuração de quem pediu, junto com o número do projeto.",
+      "No Configurador, se você montar uma combinação que já foi respondida antes, o aviso aparece na hora, enquanto você marca as opções: mostra o número do projeto e o recado que a equipe escreveu. Dá para saber que já existe sem precisar enviar.",
+      "As abas Em aberto, Atendidas e Todas da tela Projetos ficaram instantâneas — antes cada clique recarregava a tela inteira no servidor.",
+    ],
+  },
+  {
+    date: "2026-07-21",
     title: "Novo: tela Projetos, a fila de quem desenha",
     items: [
       "A equipe de Projetos tem agora a tela Projetos: todas as configurações que o comercial enviou pelo Configurador, do pedido mais antigo para o mais novo.",

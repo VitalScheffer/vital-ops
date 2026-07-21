@@ -1,19 +1,15 @@
-import Link from "next/link";
-
 import { Forbidden } from "@/components/Forbidden";
-import { Panel } from "@/components/Panel";
-import {
-  ConfiguracaoCard,
-  type ConfiguracaoDaFila,
-} from "@/components/projetos/ConfiguracaoCard";
+import { FilaProjetos } from "@/components/projetos/FilaProjetos";
+import type { ConfiguracaoDaFila } from "@/components/projetos/ConfiguracaoCard";
 import { auth } from "@/lib/auth";
 import type { SelecaoResolvida } from "@/lib/configurador/codigo";
 import {
   classeStatus,
   estaAberta,
-  mapaJaDesenhado,
+  mapaRespostas,
   podeAssumir,
   STATUS_ABERTOS,
+  temProjetoParaReusar,
 } from "@/lib/configurador/fila";
 import { desviosDoSnapshot } from "@/lib/configurador/historico";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
@@ -33,40 +29,17 @@ const STATUS_LABEL: Record<string, string> = {
   RECUSADA: "Recusada",
 };
 
-const FILTROS = [
-  { id: "abertas", label: "Em aberto" },
-  { id: "atendidas", label: "Atendidas" },
-  { id: "todas", label: "Todas" },
-] as const;
-
-type FiltroId = (typeof FILTROS)[number]["id"];
-
-// Quantos itens a tela mostra por vez. Se houver mais, a tela DIZ que há mais —
-// fila cortada em silêncio faz a equipe achar que zerou o trabalho.
+// Quantos itens carregar de cada lado. As duas listas são buscadas separadamente
+// para que um acúmulo de respondidas nunca empurre uma configuração em aberto
+// para fora da tela — o que está esperando resposta é o que não pode sumir.
 const LIMITE = 50;
 
-function filtroValido(valor: string | undefined): FiltroId {
-  return FILTROS.some((filtro) => filtro.id === valor) ? (valor as FiltroId) : "abertas";
-}
-
-function whereDoFiltro(filtro: FiltroId) {
-  if (filtro === "abertas") {
-    return { status: { in: [...STATUS_ABERTOS] } };
-  }
-  if (filtro === "atendidas") {
-    return { status: "ATENDIDA" };
-  }
-  return {};
-}
+const ABERTOS = [...STATUS_ABERTOS];
 
 // Fila da equipe de Projetos: as configurações que o comercial montou no
 // Configurador, com o desvio do padrão em destaque e a resposta (número do
-// projeto) fechando o ciclo na tela do vendedor.
-export default async function ProjetosPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ filtro?: string }>;
-}) {
+// projeto e recado) fechando o ciclo na tela do vendedor.
+export default async function ProjetosPage() {
   const session = await auth();
   const permissions = await getRolePermissionsMap();
 
@@ -74,37 +47,57 @@ export default async function ProjetosPage({
     return <Forbidden message="Você não tem acesso à fila de Projetos." />;
   }
 
-  const filtro = filtroValido((await searchParams).filtro);
-  const where = whereDoFiltro(filtro);
-  // A fila em aberto é FIFO (o mais antigo primeiro, ninguém fica para trás);
-  // as listas de conclusão mostram o mais recente primeiro, senão quem acabou de
-  // responder não encontra o próprio item.
-  const ordem = filtro === "abertas" ? "asc" : "desc";
+  const incluirAutor = { respondidoPor: { select: { name: true } } };
 
-  const [registros, total, contagens] = await Promise.all([
+  const [abertas, fechadas, contagens] = await Promise.all([
     prisma.configuracao.findMany({
-      where,
-      orderBy: { criadoEm: ordem },
+      where: { status: { in: ABERTOS } },
+      orderBy: { criadoEm: "asc" }, // FIFO: o pedido mais antigo primeiro
       take: LIMITE,
-      include: { respondidoPor: { select: { name: true } } },
+      include: incluirAutor,
     }),
-    prisma.configuracao.count({ where }),
+    prisma.configuracao.findMany({
+      where: { status: { notIn: ABERTOS } },
+      orderBy: { respondidoEm: "desc" },
+      take: LIMITE,
+      include: incluirAutor,
+    }),
     prisma.configuracao.groupBy({ by: ["status"], _count: { _all: true } }),
   ]);
 
-  // Índice "essa combinação já tem projeto?" restrito aos códigos DESTA página:
-  // é exato (não depende de um teto de linhas) e lê menos do que varrer todas as
-  // atendidas. Uma consulta para a página inteira, não uma por linha.
+  const registros = [...abertas, ...fechadas];
+
+  // Índice "essa combinação já foi respondida?" restrito aos códigos desta
+  // página: exato (não depende de um teto de linhas) e uma consulta só.
   const codigos = [...new Set(registros.map((registro) => registro.codigo))];
-  const atendidas = codigos.length
+  const respondidas = codigos.length
     ? await prisma.configuracao.findMany({
-        where: { codigo: { in: codigos }, status: "ATENDIDA", projetoCad: { not: null } },
+        where: { codigo: { in: codigos }, status: { notIn: ABERTOS } },
         orderBy: { respondidoEm: "desc" },
-        select: { codigo: true, numero: true, projetoCad: true },
+        select: {
+          codigo: true,
+          numero: true,
+          status: true,
+          projetoCad: true,
+          respostaNota: true,
+          respondidoEm: true,
+          respondidoPor: { select: { name: true } },
+        },
       })
     : [];
 
-  const jaDesenhado = mapaJaDesenhado(atendidas);
+  const respostas = mapaRespostas(
+    respondidas.map((registro) => ({
+      codigo: registro.codigo,
+      numero: registro.numero,
+      status: registro.status,
+      projetoCad: registro.projetoCad,
+      respostaNota: registro.respostaNota,
+      respondidoPorNome: registro.respondidoPor?.name ?? null,
+      respondidoQuando: registro.respondidoEm ? formatarDataHora(registro.respondidoEm) : "",
+    })),
+  );
+
   const contagem = (status: string): number =>
     contagens.find((linha) => linha.status === status)?._count._all ?? 0;
 
@@ -112,7 +105,11 @@ export default async function ProjetosPage({
     const selecoes = Array.isArray(registro.selecoes)
       ? (registro.selecoes as unknown as SelecaoResolvida[])
       : [];
-    const anterior = jaDesenhado.get(registro.codigo) ?? null;
+    const anterior = respostas.get(registro.codigo);
+    // Só é atalho se virou projeto de verdade e não é a própria linha.
+    const reuso =
+      temProjetoParaReusar(anterior) && anterior!.numero !== registro.numero ? anterior! : null;
+
     return {
       id: registro.id,
       rotulo: formatarNumeroConfiguracao(registro.numero),
@@ -132,9 +129,7 @@ export default async function ProjetosPage({
       respondidoQuando: registro.respondidoEm ? formatarDataHora(registro.respondidoEm) : null,
       aberta: estaAberta(registro.status),
       podeAssumir: podeAssumir(registro.status),
-      // Só faz sentido sugerir reuso no que ainda não foi respondido, e o
-      // próprio registro não pode se apontar.
-      jaDesenhado: anterior && anterior.numero !== registro.numero ? anterior : null,
+      jaDesenhado: reuso,
     };
   });
 
@@ -155,46 +150,11 @@ export default async function ProjetosPage({
         <Indicador valor={contagem("RECUSADA")} label="Recusadas" />
       </section>
 
-      <nav className="flex flex-wrap gap-2">
-        {FILTROS.map((opcao) => (
-          <Link
-            key={opcao.id}
-            href={`/projetos?filtro=${opcao.id}`}
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              filtro === opcao.id
-                ? "bg-primary text-primary-foreground"
-                : "border border-border text-card-foreground hover:bg-muted"
-            }`}
-          >
-            {opcao.label}
-          </Link>
-        ))}
-      </nav>
-
-      <Panel
-        title="Fila"
-        description={
-          total > itens.length
-            ? `Mostrando ${itens.length} de ${total}. Responda as primeiras para as próximas aparecerem.`
-            : filtro === "abertas"
-              ? "Do pedido mais antigo para o mais novo, para ninguém ficar para trás."
-              : "Da resposta mais recente para a mais antiga."
-        }
-      >
-        {itens.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {filtro === "abertas"
-              ? "Nenhuma configuração aguardando resposta."
-              : "Nenhuma configuração nesta lista."}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {itens.map((item) => (
-              <ConfiguracaoCard key={item.id} item={item} />
-            ))}
-          </ul>
-        )}
-      </Panel>
+      <FilaProjetos
+        itens={itens}
+        totalAbertas={contagem("ENVIADA") + contagem("EM_ANALISE")}
+        totalFechadas={contagem("ATENDIDA") + contagem("RECUSADA")}
+      />
     </div>
   );
 }

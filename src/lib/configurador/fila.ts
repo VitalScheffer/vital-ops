@@ -31,33 +31,54 @@ export function classeStatus(status: string): string {
   return CLASSE_STATUS[status] ?? "bg-muted text-muted-foreground";
 }
 
-export interface AtendidaAnterior {
+// O que a equipe de Projetos já respondeu para uma combinação. Serve aos dois
+// lados: na fila evita redesenhar o que já tem projeto, e no configurador mostra
+// ao vendedor o projeto e o recado de quem desenhou, na hora em que ele monta
+// uma combinação que já foi respondida antes.
+export interface RespostaConhecida {
   numero: number;
-  projetoCad: string;
+  status: string;
+  projetoCad: string | null;
+  nota: string | null;
+  quem: string | null;
+  quando: string;
 }
 
-export interface RegistroAtendido {
+export interface RegistroRespondido {
   codigo: string;
   numero: number;
+  status: string;
   projetoCad: string | null;
+  respostaNota: string | null;
+  respondidoPorNome: string | null;
+  respondidoQuando: string;
 }
 
-// Índice "combinação → projeto já desenhado", montado de uma vez a partir das
-// configurações já atendidas. É o que evita a equipe redesenhar uma maca que já
-// tem projeto: se o código bate, o desenho existe.
-//
-// Recebe os registros do mais recente para o mais antigo; o primeiro de cada
-// código ganha (o projeto mais atual daquela combinação). Uma consulta a mais na
-// página, em vez de uma por linha da fila.
-export function mapaJaDesenhado(
-  atendidas: readonly RegistroAtendido[],
-): Map<string, AtendidaAnterior> {
-  const mapa = new Map<string, AtendidaAnterior>();
-  for (const registro of atendidas) {
-    if (!registro.projetoCad || mapa.has(registro.codigo)) {
+// Índice "combinação → resposta já dada". Recebe os registros do mais recente
+// para o mais antigo; o primeiro de cada código ganha (a resposta mais atual
+// daquela combinação). Uma consulta por página, não uma por linha.
+export function mapaRespostas(
+  respondidas: readonly RegistroRespondido[],
+): Map<string, RespostaConhecida> {
+  const mapa = new Map<string, RespostaConhecida>();
+  for (const registro of respondidas) {
+    if (mapa.has(registro.codigo)) {
       continue;
     }
-    mapa.set(registro.codigo, { numero: registro.numero, projetoCad: registro.projetoCad });
+    mapa.set(registro.codigo, {
+      numero: registro.numero,
+      status: registro.status,
+      projetoCad: registro.projetoCad,
+      nota: registro.respostaNota,
+      quem: registro.respondidoPorNome,
+      quando: registro.respondidoQuando,
+    });
   }
   return mapa;
+}
+
+// A resposta só serve de atalho para não redesenhar quando ela de fato virou
+// projeto: recusada não tem desenho para reaproveitar.
+export function temProjetoParaReusar(resposta: RespostaConhecida | undefined): boolean {
+  return Boolean(resposta && resposta.status === "ATENDIDA" && resposta.projetoCad);
 }
