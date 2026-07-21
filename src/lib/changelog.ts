@@ -25,6 +25,16 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-21",
+    title: "Projetos mostra a especificação inteira, não só o que fugiu do padrão",
+    items: [
+      "No card de cada configuração, a especificação completa agora fica sempre à vista: material, estrutura (soldada ou desmontável), leito, rodízios, grades, soro, oxigênio, peso e medidas. Antes ficava recolhida atrás de \"Ver especificação completa\".",
+      "Motivo: quando a configuração era o modelo padrão, o card dizia apenas \"Modelo padrão, sem alterações\" e quem desenha não conseguia ver como a maca era construída sem abrir item por item. Dava a impressão de que faltavam campos no formulário.",
+      "O destaque do que está FORA DO PADRÃO continua no topo, em amarelo, e os itens fora do padrão seguem marcados também dentro da lista completa.",
+      "Só para deixar registrado, já que a dúvida apareceu: o padrão da estrutura é DESMONTÁVEL. Soldada é a opção fora do padrão.",
+    ],
+  },
+  {
+    date: "2026-07-21",
     title: "A plataforma avisa quando chega versão nova",
     items: [
       "Quando uma versão nova entra no ar, aparece um aviso na tela contando o que mudou — o mesmo texto desta página de Novidades. Não é preciso mais ficar sabendo por WhatsApp que tem coisa nova.",

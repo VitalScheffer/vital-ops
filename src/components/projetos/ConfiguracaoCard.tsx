@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Copy, Eye, Hand } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Hand } from "lucide-react";
 import { useActionState, useState } from "react";
 
 import { assumirConfiguracao, responderConfiguracao } from "@/app/(app)/projetos/actions";
@@ -35,9 +35,12 @@ export interface ConfiguracaoDaFila {
 }
 
 // Um item da fila. O que a equipe precisa ver primeiro vem primeiro: se a
-// combinação JÁ FOI DESENHADA (não redesenhe) e o que fugiu do padrão. A
-// especificação completa fica recolhida, porque na maioria dos casos ela é o
-// modelo da foto e só atrapalharia a leitura.
+// combinação JÁ FOI DESENHADA (não redesenhe) e o que fugiu do padrão. Logo
+// abaixo vem a especificação COMPLETA, sempre aberta: quem desenha precisa
+// saber como a peça é construída (estrutura soldada ou desmontável, material,
+// leito) mesmo quando isso está no padrão. Enquanto ficava recolhida, o card de
+// uma configuração padrão dizia só "Modelo padrão, sem alterações" e a equipe
+// concluía que faltavam campos no formulário.
 export function ConfiguracaoCard({ item }: { item: ConfiguracaoDaFila }) {
   const [assumirState, assumirAction, assumindo] = useActionState(
     assumirConfiguracao,
@@ -47,7 +50,6 @@ export function ConfiguracaoCard({ item }: { item: ConfiguracaoDaFila }) {
     responderConfiguracao,
     IDLE_FORM_STATE,
   );
-  const [aberto, setAberto] = useState(false);
   const [decisao, setDecisao] = useState<"ATENDER" | "RECUSAR" | null>(null);
 
   return (
@@ -107,32 +109,22 @@ export function ConfiguracaoCard({ item }: { item: ConfiguracaoDaFila }) {
         </p>
       )}
 
-      <div>
-        <button
-          type="button"
-          onClick={() => setAberto((valor) => !valor)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-        >
-          <Eye className="h-3.5 w-3.5" />
-          {aberto ? "Ocultar especificação completa" : "Ver especificação completa"}
-        </button>
-
-        {aberto && (
-          <div className="mt-2 border-t border-border pt-2">
-            <ul className="flex flex-col gap-1">
-              {item.selecoes.map((selecao) => (
-                <li key={selecao.grupoCodigo} className="text-sm">
-                  <span className="text-muted-foreground">{selecao.grupoRotulo}:</span>{" "}
-                  {textoDaSelecao(selecao)}
-                  {!selecao.padrao && (
-                    <span className="text-xs text-warning"> (fora do padrão)</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{item.codigo}</p>
-          </div>
-        )}
+      <div className="border-t border-border pt-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Especificação completa
+        </p>
+        <ul className="mt-1.5 grid gap-1 sm:grid-cols-2">
+          {item.selecoes.map((selecao) => (
+            <li key={selecao.grupoCodigo} className="text-sm">
+              <span className="text-muted-foreground">{selecao.grupoRotulo}:</span>{" "}
+              <strong className="font-medium text-card-foreground">
+                {textoDaSelecao(selecao)}
+              </strong>
+              {!selecao.padrao && <span className="text-xs text-warning"> (fora do padrão)</span>}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{item.codigo}</p>
       </div>
 
       {!item.aberta ? (
