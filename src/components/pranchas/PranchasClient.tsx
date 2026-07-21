@@ -1,11 +1,21 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Download, FileText, Info, Loader2, Printer } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileText,
+  Info,
+  Loader2,
+  Printer,
+  Table2,
+} from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { FileDropzone } from "@/components/produtos/FileDropzone";
 import { FolderDropzone } from "@/components/pranchas/FolderDropzone";
-import { lerCodigosDoBom } from "@/lib/pranchas/bom";
+import { baixarBlob } from "@/lib/bom/download";
+import { lerCodigosDoBom, type ItemBom } from "@/lib/pranchas/bom";
 import {
   candidatesFor,
   chooseCandidate,
@@ -14,6 +24,7 @@ import {
   type MatchStatus,
   type Mode,
 } from "@/lib/pranchas/codes";
+import { agruparComerciais, gerarPlanilhaMateriais } from "@/lib/pranchas/materiais";
 import { juntarPdfs, type ParteMerge } from "@/lib/pranchas/pdf";
 
 interface IndexedFile {
@@ -37,6 +48,7 @@ const BADGE: Record<MatchStatus, { label: string; cls: string }> = {
   ok: { label: "OK · BOM", cls: "bg-success-dim text-success" },
   new: { label: "MAIS NOVA", cls: "bg-primary/10 text-primary" },
   old: { label: "SÓ ANTIGA", cls: "bg-warning-dim text-warning" },
+  norev: { label: "SEM REVISÃO", cls: "bg-warning-dim text-warning" },
   warn: { label: "REVISÃO A CONFERIR", cls: "bg-warning-dim text-warning" },
   miss: { label: "NÃO ACHOU", cls: "bg-danger-dim text-danger" },
 };
@@ -53,6 +65,9 @@ export function PranchasClient() {
   const [bomError, setBomError] = useState<string | null>(null);
   const [codes, setCodes] = useState<DrawingCode[]>([]);
   const [parentKey, setParentKey] = useState<string | null>(null);
+  const [itens, setItens] = useState<ItemBom[]>([]);
+  const [temQuantidades, setTemQuantidades] = useState(false);
+  const [multiplicador, setMultiplicador] = useState(1);
 
   const [indexed, setIndexed] = useState<IndexedFile[]>([]);
   const [totalPdfs, setTotalPdfs] = useState(0);
@@ -77,21 +92,25 @@ export function PranchasClient() {
     setBomError(null);
     setCodes([]);
     setParentKey(null);
+    setItens([]);
+    setTemQuantidades(false);
     setOverrides({});
     setResultUrl(null);
     setToast(null);
     if (!file) return;
     setBomLoading(true);
     try {
-      const { codes: lidos, parentKey: pk } = await lerCodigosDoBom(file);
+      const conteudo = await lerCodigosDoBom(file);
       if (req !== bomReqId.current) return; // resposta fora de ordem: ignora
-      if (lidos.length === 0) {
+      if (conteudo.desenhos.length === 0) {
         setBomError(
-          "Não encontrei nenhum código de desenho neste arquivo. Confira se é o BOM certo e se os códigos seguem o padrão (ex.: C4MEC P01 C00 R00).",
+          "Não encontrei nenhum código de desenho neste arquivo. Confira se é o BOM certo e se os códigos seguem o padrão (ex.: CREHS PC001 CCSLD R00).",
         );
       }
-      setCodes(lidos);
-      setParentKey(pk);
+      setCodes(conteudo.desenhos);
+      setParentKey(conteudo.parentKey);
+      setItens(conteudo.itens);
+      setTemQuantidades(conteudo.temQuantidades);
     } catch (e) {
       if (req !== bomReqId.current) return;
       setBomError(e instanceof Error ? e.message : "Falha ao ler o arquivo.");
@@ -145,6 +164,16 @@ export function PranchasClient() {
   }, [rows]);
 
   const totalDocs = resumo.selecionadas + (cover && coverPossivel ? 1 : 0);
+
+  const materiais = useMemo(() => agruparComerciais(itens, multiplicador), [itens, multiplicador]);
+
+  function handleBaixarMateriais() {
+    const base = bomFile ? bomFile.name.replace(/\.[^.]+$/, "") : "materiais";
+    baixarBlob(
+      gerarPlanilhaMateriais(materiais, multiplicador, base),
+      `${base} - materiais.xlsx`,
+    );
+  }
 
   async function compilar(): Promise<{ url: string; name: string } | null> {
     const selecionadas = rows.filter((r) => r.include && r.chosenFile);
@@ -390,6 +419,78 @@ export function PranchasClient() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="overflow-hidden rounded-xl border border-border bg-card">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+              <div>
+                <h2 className="text-base font-semibold text-card-foreground">Material de compra</h2>
+                <p className="text-xs text-muted-foreground">
+                  Itens comprados da BOM, somados por código, para conferir estoque e separar.
+                </p>
+              </div>
+              {materiais.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-sm text-foreground">
+                    Conjuntos a produzir
+                    <input
+                      type="number"
+                      min={1}
+                      value={multiplicador}
+                      onChange={(e) => setMultiplicador(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-20 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleBaixarMateriais}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-muted"
+                  >
+                    <Table2 className="h-4 w-4" />
+                    Baixar Excel
+                  </button>
+                </div>
+              )}
+            </header>
+
+            {!temQuantidades ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                O BOM em PDF não traz as quantidades em coluna separada. Suba a{" "}
+                <strong className="font-medium text-foreground">planilha .xls/.xlsx</strong> do
+                conjunto para montar a lista de materiais.
+              </p>
+            ) : materiais.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                Nenhum item comprado nesta BOM.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Código</th>
+                      <th className="px-4 py-2.5 font-medium">Descrição</th>
+                      <th className="w-32 px-4 py-2.5 text-right font-medium">Por conjunto</th>
+                      <th className="w-28 px-4 py-2.5 text-right font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {materiais.map((l) => (
+                      <tr key={l.codigo} className="border-b border-border/60 last:border-0">
+                        <td className="whitespace-nowrap px-4 py-2.5 font-medium text-card-foreground">
+                          {l.codigo}
+                        </td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{l.descricao}</td>
+                        <td className="px-4 py-2.5 text-right text-muted-foreground">{l.unitaria}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-card-foreground">
+                          {l.total}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

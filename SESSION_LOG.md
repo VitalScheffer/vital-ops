@@ -2738,3 +2738,69 @@ entrou o historico ("se for a mesma configuracao, so puxar do historico").
 - Confirmar se as 10 secoes + observacoes sao a lista fechada da maca.
 - Proximos produtos: acrescentar em src/lib/configurador/catalogo.ts (exige
   deploy, ~1 min; virar cadastro em tela so se a frequencia justificar).
+
+## 2026-07-21 - Pranchas: leitura dos codigos novos (5-5-5) e lista de materiais
+
+### Resumo
+O modulo Pranchas estava quebrado para os codigos de engenharia atuais. A regex
+de `src/lib/pranchas/codes.ts` so entendia o formato antigo
+("C4MEC P01 C00 R00") e casava **1 dos 658** desenhos reais da pasta de producao
+(`Downloads\- PDF''s`). Alinhado o parser ao formato 5-5-5 que o modulo de
+Produtos ja usa (`src/lib/bom/bomParser.ts`), mantendo o formato antigo. Somada
+a lista de material de compra com multiplicador e exportacao para Excel.
+
+### Bug secundario (mais grave que o primeiro)
+A chave de familia era `prefixo + tipo + numero`, ignorando o bloco de material.
+Nos arquivos reais isso funde **71 familias** de pecas distintas que so diferem
+no material/acabamento: `SPDSP PC001 INCTP` x `SPDSP PC001 INDTP`,
+`CREHS PC001 CCSLD` (carbono) x `CREHS PC001 ICSLD` (inox), `MXAPH PC004` em
+tres acabamentos. Ou seja: mesmo com a regex corrigida, imprimiria o desenho
+errado. A identidade agora sao os tres blocos.
+
+### Arquivos alterados/criados
+- `src/lib/pranchas/codes.ts` - reescrito. Suporta os dois formatos (o antigo so
+  e tentado quando o texto nao tem nenhum codigo atual, senao
+  "POADH PC008 CCSLD C00 R00" gerava um codigo fantasma "CCSLD C00"). Chave de
+  familia = 3 blocos. Itens comprados (familia "COM*") marcados com
+  `comercial: true` e excluidos das pranchas. Novo status `norev`.
+- `src/lib/pranchas/bom.ts` - planilha passa a ser lida linha a linha (descricao
+  limpa da celula, quantidade da coluna certa) em vez de concatenar tudo num
+  texto. Devolve `itens` com `quantidadeEfetiva`.
+- `src/lib/pranchas/materiais.ts` (novo) - agrupa comprados por codigo, aplica o
+  multiplicador, gera o .xlsx.
+- `src/lib/pranchas/codes.test.ts` - refeito com dados reais das duas BOMs.
+- `src/lib/pranchas/materiais.test.ts` (novo).
+- `src/components/pranchas/PranchasClient.tsx` - badge "SEM REVISAO", secao
+  "Material de compra" com multiplicador e botao de Excel.
+
+### Decisoes importantes
+- **Arquivo sem R## casa e avisa** (98 dos 658 arquivos nao declaram revisao):
+  status `norev`, entra na compilacao por padrao mas fica sinalizado. Se existir
+  a revisao exata, ela tem prioridade sobre o arquivo sem revisao.
+- **Quantidade efetiva = qtd da linha x qtd de todos os pais.** Na BOM
+  "CREHI MT005", `CREHS SM005` tem QTD 2 e os filhos QTD 1: a peca entra 2x.
+  Somar a coluna crua daria lista de separacao curta.
+- **Lista de materiais exige a planilha .xls/.xlsx.** No PDF o texto nao tem
+  colunas e a quantidade encosta na descricao; a tela avisa em vez de gerar
+  numero nao confiavel.
+- **Nao precisa zipar a pasta** (duvida do Jhonatan): o seletor de pasta so
+  enumera os arquivos; os bytes so sao lidos dos desenhos que a BOM pediu, no
+  navegador. 658 PDFs = ~26 MB.
+
+### Comandos relevantes
+- `npx vitest run src/lib/pranchas` -> 28/28.
+- `npx eslint src/lib/pranchas src/components/pranchas/PranchasClient.tsx` -> 0.
+- `npx tsc --noEmit` -> 0 erros em pranchas.
+
+### Pendencias / proximos passos
+- **Commitado local, sem push.** Durante a sessao apareceram no working tree 15
+  arquivos de `requisicoes` de outra frente em andamento (schema.prisma com
+  `cancelada`, actions.ts, rbac.ts, migration nova, ExcluirRequisicao.tsx). O
+  commit desta sessao inclui **so** os arquivos de pranchas + este log; a outra
+  frente ficou intacta no working tree. O `tsc` acusa 17 erros e 2 testes falham
+  **nessa** frente, porque o Prisma Client nao foi regenerado (`canceladaEm` = 0
+  ocorrencias no client). Rodar `npx prisma generate` antes de fechar aquilo.
+- Falta teste humano: compilar um conjunto de ponta a ponta com o Jhonatan.
+- O formato antigo nao tem arquivo de desenho real aqui para validar o
+  casamento fim a fim (so o BOM `C4MEC M01 R00`). Confirmar com o Lucas se
+  desenho antigo ainda sera impresso por essa tela.
