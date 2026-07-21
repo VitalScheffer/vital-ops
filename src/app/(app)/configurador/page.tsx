@@ -5,7 +5,7 @@ import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
 import { CATALOGO } from "@/lib/configurador/catalogo";
-import type { SelecaoResolvida } from "@/lib/configurador/codigo";
+import { desviosDoSnapshot, montarHistorico } from "@/lib/configurador/historico";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
 import { prisma } from "@/lib/db";
@@ -28,16 +28,6 @@ const STATUS_CLASS: Record<string, string> = {
   RECUSADA: "bg-danger-dim text-danger",
 };
 
-// O snapshot é Json no banco; aqui só precisamos dos rótulos para listar os
-// desvios. Tolerante a formato inesperado (nunca derruba a página por causa de
-// um registro antigo).
-function desviosDoSnapshot(selecoes: unknown): SelecaoResolvida[] {
-  if (!Array.isArray(selecoes)) {
-    return [];
-  }
-  return (selecoes as SelecaoResolvida[]).filter((selecao) => selecao && selecao.padrao === false);
-}
-
 export default async function ConfiguradorPage() {
   const session = await auth();
   const permissions = await getRolePermissionsMap();
@@ -49,13 +39,35 @@ export default async function ConfiguradorPage() {
   // Quem administra usuários enxerga tudo que foi configurado; o comercial vê o
   // que ele mesmo enviou.
   const veTudo = canManageUsers(session.user.role, permissions);
-  const configuracoes = await prisma.configuracao.findMany({
-    where: veTudo ? {} : { autorId: session.user.id },
-    orderBy: { criadoEm: "desc" },
-    take: 20,
-  });
-
   const produto = CATALOGO[0];
+
+  // Duas leituras com propósitos diferentes: a LISTA é de acompanhamento (as
+  // minhas), e o HISTÓRICO é de reaproveitamento — traz o que qualquer vendedor
+  // já especificou daquele produto, porque repetir a maca que o colega já pediu
+  // é justamente o caso de uso.
+  const [configuracoes, registrosHistorico] = await Promise.all([
+    prisma.configuracao.findMany({
+      where: veTudo ? {} : { autorId: session.user.id },
+      orderBy: { criadoEm: "desc" },
+      take: 20,
+    }),
+    prisma.configuracao.findMany({
+      where: { produtoSlug: produto.slug },
+      orderBy: { criadoEm: "desc" },
+      take: 60,
+      select: {
+        numero: true,
+        codigo: true,
+        produtoSlug: true,
+        selecoes: true,
+        observacoes: true,
+        autorNome: true,
+        criadoEm: true,
+      },
+    }),
+  ]);
+
+  const historico = montarHistorico(produto, registrosHistorico);
 
   return (
     <div className="flex flex-col gap-6">
@@ -74,7 +86,7 @@ export default async function ConfiguradorPage() {
         </span>
       </p>
 
-      <ConfiguradorForm produto={produto} />
+      <ConfiguradorForm produto={produto} historico={historico} />
 
       <Panel
         title={veTudo ? "Configurações enviadas" : "Minhas configurações"}

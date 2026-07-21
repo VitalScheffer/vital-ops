@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, SendHorizonal } from "lucide-react";
+import { AlertTriangle, CheckCircle2, History, RotateCcw, SendHorizonal } from "lucide-react";
 import Image from "next/image";
 import { useActionState, useState } from "react";
 
@@ -15,6 +15,8 @@ import {
   TEXTO_LIVRE_MAX,
   type EscolhaBruta,
 } from "@/lib/configurador/codigo";
+import type { ItemHistorico } from "@/lib/configurador/historico";
+import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
 
 const inputClass =
@@ -24,18 +26,23 @@ const OBSERVACOES_MAX = 1000;
 
 interface ConfiguradorFormProps {
   produto: ProdutoCatalogo;
+  // Combinações já enviadas (sem repetir), para repetir com um clique.
+  historico: ItemHistorico[];
 }
 
 // Formulário do configurador. Renderiza o produto INTEIRO a partir do catálogo —
 // nenhuma opção da maca está escrita aqui; trocar/incluir produto é mexer só em
 // `catalogo.ts`. A prévia (código e desvios) usa as MESMAS funções puras que a
 // Server Action usa para valer, então o que o vendedor vê é o que é gravado.
-export function ConfiguradorForm({ produto }: ConfiguradorFormProps) {
+export function ConfiguradorForm({ produto, historico }: ConfiguradorFormProps) {
   const [state, formAction, pending] = useActionState(criarConfiguracao, IDLE_FORM_STATE);
   const [escolhas, setEscolhas] = useState<Record<string, EscolhaBruta>>(() =>
     escolhasPadrao(produto),
   );
   const [observacoes, setObservacoes] = useState("");
+  // De qual configuração anterior o formulário foi carregado (só para avisar na
+  // tela que aquilo veio do histórico).
+  const [carregadoDe, setCarregadoDe] = useState<string | null>(null);
 
   // Volta ao modelo padrão quando o envio dá certo (React 19: ajuste de estado
   // durante o render, sem useEffect).
@@ -44,6 +51,19 @@ export function ConfiguradorForm({ produto }: ConfiguradorFormProps) {
     setUltimoSucesso(state);
     setEscolhas(escolhasPadrao(produto));
     setObservacoes("");
+    setCarregadoDe(null);
+  }
+
+  function repetir(item: ItemHistorico) {
+    setEscolhas(item.escolhas);
+    setObservacoes(item.observacoes);
+    setCarregadoDe(formatarNumeroConfiguracao(item.numero));
+  }
+
+  function voltarAoPadrao() {
+    setEscolhas(escolhasPadrao(produto));
+    setObservacoes("");
+    setCarregadoDe(null);
   }
 
   function escolher(grupoCodigo: string, opcaoCodigo: string) {
@@ -86,6 +106,59 @@ export function ConfiguradorForm({ produto }: ConfiguradorFormProps) {
       <input type="hidden" name="observacoes" value={observacoes} />
 
       <div className="flex flex-col gap-6">
+        {historico.length > 0 && (
+          <section className="rounded-xl border border-border bg-card p-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-card-foreground">
+              <History className="h-4 w-4" />
+              Repetir uma configuração já enviada
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              É a mesma maca de outro pedido? Clique em Usar e o formulário já vem preenchido.
+              Combinações iguais aparecem uma vez só.
+            </p>
+            <ul className="mt-3 flex flex-col gap-2">
+              {historico.map((item) => (
+                <li
+                  key={item.codigo}
+                  className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-card-foreground">
+                      {item.desvios.length === 0 ? "Modelo padrão" : item.desvios.join(" · ")}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatarNumeroConfiguracao(item.numero)} · {item.quando}
+                      {item.vezes > 1 ? ` · enviada ${item.vezes}x` : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => repetir(item)}
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground transition-colors hover:bg-muted"
+                  >
+                    Usar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {carregadoDe && (
+          <p className="flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-card-foreground">
+            <History className="h-4 w-4 shrink-0 text-muted-foreground" />
+            Formulário carregado a partir da {carregadoDe}. Ajuste o que precisar antes de enviar.
+            <button
+              type="button"
+              onClick={voltarAoPadrao}
+              className="ml-auto flex items-center gap-1.5 text-sm font-medium text-muted-foreground underline-offset-2 hover:underline"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Voltar ao padrão
+            </button>
+          </p>
+        )}
+
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <Image
             src={produto.imagem}

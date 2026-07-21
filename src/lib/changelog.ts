@@ -20,6 +20,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       "Precisa de um peso ou uma medida diferente do padrão? Escolha \"Outro peso\" ou \"Outra medida\" e digite o valor. Tem um pedido do cliente que não está nas opções? Use Observações adicionais.",
       "Enquanto você marca, o resumo à direita mostra o código da configuração e a lista do que ficou FORA do padrão — que é justamente o que a equipe de Projetos precisa ver.",
       "Ao enviar, a configuração ganha um número (ex.: CFG-0001) e fica registrada na própria tela, com o código e os desvios. A entrega automática na tela da equipe de Projetos (NextStep) vem na próxima etapa.",
+      "Histórico: se a maca for a mesma de um pedido anterior, clique em Usar em \"Repetir uma configuração já enviada\" e o formulário vem todo preenchido — é só ajustar o que mudou. Combinações iguais aparecem uma vez só (com quantas vezes foram pedidas), e você aproveita também o que outros vendedores já especificaram.",
       "Acesso: o Administrador libera o módulo Configurador em Configurações, inclusive para um perfil próprio do comercial.",
     ],
   },

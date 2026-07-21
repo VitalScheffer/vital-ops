@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { produtoPorSlug } from "@/lib/configurador/catalogo";
 import {
+  escolhasDeSelecoes,
   escolhasPadrao,
   foraDoPadrao,
   montarCodigo,
@@ -157,6 +158,45 @@ describe("foraDoPadrao", () => {
       PESO: { opcao: "POUT", texto: "200 kg" },
     });
     expect(foraDoPadrao(selecoes)).toHaveLength(1);
+  });
+});
+
+describe("escolhasDeSelecoes (repetir configuração do histórico)", () => {
+  it("volta do snapshot para as escolhas e gera o MESMO código", () => {
+    const original = resolverOuFalhar({
+      ...escolhasPadrao(maca),
+      MAT: { opcao: "INOX" },
+      PESO: { opcao: "POUT", texto: "200 kg" },
+    });
+    const recarregado = resolverOuFalhar(escolhasDeSelecoes(maca, original));
+    expect(montarCodigo(maca, recarregado)).toBe(montarCodigo(maca, original));
+  });
+
+  it("preserva o texto livre da opção que o exige", () => {
+    const original = resolverOuFalhar({
+      ...escolhasPadrao(maca),
+      MED: { opcao: "MOUT", texto: "2200 x 700 x 850 mm" },
+    });
+    expect(escolhasDeSelecoes(maca, original).MED).toEqual({
+      opcao: "MOUT",
+      texto: "2200 x 700 x 850 mm",
+    });
+  });
+
+  it("snapshot inválido ou vazio cai no padrão em vez de quebrar", () => {
+    expect(escolhasDeSelecoes(maca, null)).toEqual(escolhasPadrao(maca));
+    expect(escolhasDeSelecoes(maca, "lixo")).toEqual(escolhasPadrao(maca));
+    expect(escolhasDeSelecoes(maca, [null, 42, {}])).toEqual(escolhasPadrao(maca));
+  });
+
+  it("grupo ou opção que saiu do catálogo volta para o padrão daquele grupo", () => {
+    const escolhas = escolhasDeSelecoes(maca, [
+      { grupoCodigo: "GRUPO_EXTINTO", opcaoCodigo: "X" },
+      { grupoCodigo: "MAT", opcaoCodigo: "TITANIO" },
+      { grupoCodigo: "ROD", opcaoCodigo: "R8" },
+    ]);
+    expect(escolhas.MAT).toEqual({ opcao: "CARB" });
+    expect(escolhas.ROD).toEqual({ opcao: "R8", texto: undefined });
   });
 });
 

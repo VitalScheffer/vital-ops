@@ -126,6 +126,39 @@ export function escolhasPadrao(produto: ProdutoCatalogo): Record<string, Escolha
   return escolhas;
 }
 
+// Caminho de volta: transforma um snapshot gravado (campo `selecoes`) nas
+// escolhas do formulário, para repetir uma configuração anterior sem remarcar
+// tudo. Tolerante de propósito — o snapshot é Json e pode ter sido gravado com
+// um catálogo mais antigo: grupo ou opção que não existe mais é ignorado e
+// aquele grupo fica no padrão atual, em vez de derrubar a tela.
+export function escolhasDeSelecoes(
+  produto: ProdutoCatalogo,
+  selecoes: unknown,
+): Record<string, EscolhaBruta> {
+  const escolhas = escolhasPadrao(produto);
+  if (!Array.isArray(selecoes)) {
+    return escolhas;
+  }
+
+  for (const bruto of selecoes) {
+    if (!bruto || typeof bruto !== "object") continue;
+    const item = bruto as Partial<SelecaoResolvida>;
+
+    const grupo = produto.grupos.find((candidato) => candidato.codigo === item.grupoCodigo);
+    if (!grupo) continue;
+
+    const opcao = grupo.opcoes.find((candidato) => candidato.codigo === item.opcaoCodigo);
+    if (!opcao) continue;
+
+    escolhas[grupo.codigo] = {
+      opcao: opcao.codigo,
+      texto: opcao.exigeTexto ? (item.texto ?? "") : undefined,
+    };
+  }
+
+  return escolhas;
+}
+
 // Resumo em texto puro (uma linha por grupo), para copiar/colar e para o corpo
 // da mensagem que a equipe de Projetos vai ler.
 export function resumoTexto(selecoes: readonly SelecaoResolvida[]): string {
