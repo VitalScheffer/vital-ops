@@ -3043,10 +3043,26 @@ O que o modo liga (tudo CSS puro, escopado em `:root[data-sparkle="on"]`):
    feio (lateral e botoes). Sairam o ::before, a keyframe vs-shine e o
    overflow:hidden/position:relative que so existiam por causa dele.
 
+### Segundo ajuste na mesma sessao (o pedido era outro, KKKK do usuario)
+Eu tinha entendido errado: as cores do Gemini eram SO para o FUNDO DA BARRA
+LATERAL. O verde da marca ("o verdinho tava legal") voltou para o item ativo,
+barrinha deslizante (3px turquesa/agua) e botoes primarios, exatamente como na
+v1 (sem glow roxo, sem texto branco forcado). O fundo do `<aside>`
+(classe `app-aside`) ganhou uma lavagem com o degrade Gemini (azul 16% ->
+roxo 14% -> rosa 12% sobre o bg-card) deslizando devagar na vertical
+(vs-grad-slide-y, 14s). Aurora do fundo da tela segue teal, como sempre foi.
+
+### Bug "a barra lateral retrai ao trocar de tela" (corrigido de vez)
+Com o modo ligado, TODA navegacao re-executava a cascata de entrada dos itens
+(sumiam e deslizavam de novo = a barra parecia retrair). Correcao estrutural:
+a cascata (vs-nav-in) saiu do caminho permanente e so roda sob o atributo
+`data-sparkle-reveal`, que o AppShell poe no `<html>` NO INSTANTE em que o
+modo e ligado e remove ~1,2s depois. Trocar de tela, abrir o menu mobile ou
+remontar o shell nao reanima mais item nenhum; no item ativo so entra/sai a
+vs-grad-slide (fundo), que nao mexe em posicao/opacidade do texto.
+
 ### Pendencias / proximos passos
 - Falta teste humano: ligar o modo (2 cliques na logo), conferir claro/escuro,
-  mobile e se a intensidade agrada; ajustar se precisar.
-- Se o usuario quiser, estender as cores Gemini tambem pra aurora do fundo,
-  fio do header e titulo (hoje seguem a marca petroleo/turquesa/agua).
+  mobile, e confirmar que a barra nao "retrai" mais ao navegar.
 - O diff de outra frente (ConfiguracaoCard.tsx + entrada de changelog de
   Projetos) continua no working tree, FORA deste commit.

@@ -113,8 +113,17 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
 
     const el = document.documentElement;
     const ligar = el.getAttribute("data-sparkle") !== "on";
-    if (ligar) el.setAttribute("data-sparkle", "on");
-    else el.removeAttribute("data-sparkle");
+    if (ligar) {
+      el.setAttribute("data-sparkle", "on");
+      // A cascata da navegação roda SÓ neste instante de "reveal". Fora daqui
+      // os itens nunca reanimam (a entrada re-executando a cada navegação era
+      // o que fazia a barra lateral "retrair" ao trocar de tela).
+      el.setAttribute("data-sparkle-reveal", "");
+      window.setTimeout(() => el.removeAttribute("data-sparkle-reveal"), 1200);
+    } else {
+      el.removeAttribute("data-sparkle");
+      el.removeAttribute("data-sparkle-reveal");
+    }
     try {
       if (ligar) localStorage.setItem(SPARKLE_KEY, "on");
       else localStorage.removeItem(SPARKLE_KEY);
@@ -230,7 +239,7 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
 
       <div className="flex flex-1">
         <aside
-          className={`${
+          className={`app-aside ${
             mobileOpen ? "block" : "hidden"
           } fixed inset-x-0 top-16 bottom-0 z-20 overflow-y-auto border-b border-border bg-card p-4 md:sticky md:top-16 md:bottom-auto md:block md:h-[calc(100vh-4rem)] md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r`}
         >

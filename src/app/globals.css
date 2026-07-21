@@ -224,21 +224,26 @@
    prefers-reduced-motion. */
 
 :root {
-  /* Cores vivas do modo brilho, inspiradas no degradê da interface nova do
-     app do Gemini (azul -> roxo -> rosa), levemente escurecidas pra manter o
-     texto branco legível em cima. Iguais nos dois temas. */
+  /* Cores do degradê da interface nova do app do Gemini (azul -> roxo ->
+     rosa): usadas SO na aurora do fundo da tela, pedido do usuário. Barra
+     lateral, botões e título ficam no verde da marca. */
   --gem-azul: #3e6de8;
   --gem-roxo: #8b5cd6;
   --gem-rosa: #cc5069;
-  --sparkle-grad-gemini: linear-gradient(110deg, var(--gem-azul), var(--gem-roxo) 50%, var(--gem-rosa));
+  /* Gradiente de ação (botões primários/item ativo): termina no teal pra
+     manter o contraste do texto branco. */
+  --sparkle-grad-acao: linear-gradient(115deg, var(--vs-petroleo), var(--vs-teal) 55%, var(--vs-petroleo));
   --sparkle-grad-titulo: linear-gradient(100deg, var(--vs-petroleo), var(--vs-teal) 38%, var(--vs-turquesa) 50%, var(--vs-teal) 62%, var(--vs-petroleo));
 }
+/* No escuro o texto de ação é escuro, então o gradiente vai mais claro. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --sparkle-grad-acao: linear-gradient(115deg, var(--vs-turquesa), var(--vs-agua) 55%, var(--vs-turquesa));
     --sparkle-grad-titulo: linear-gradient(100deg, var(--vs-agua), var(--vs-turquesa) 38%, #c2f2ec 50%, var(--vs-turquesa) 62%, var(--vs-agua));
   }
 }
 :root[data-theme="dark"] {
+  --sparkle-grad-acao: linear-gradient(115deg, var(--vs-turquesa), var(--vs-agua) 55%, var(--vs-turquesa));
   --sparkle-grad-titulo: linear-gradient(100deg, var(--vs-agua), var(--vs-turquesa) 38%, #c2f2ec 50%, var(--vs-turquesa) 62%, var(--vs-agua));
 }
 
@@ -343,61 +348,79 @@
   }
 }
 
+/* Fundo da barra lateral: lavagem com o degradê da interface nova do app do
+   Gemini (azul -> roxo -> rosa), deslizando devagar na vertical. Fica por
+   cima do bg-card; os itens e o ativo continuam no verde da marca. */
+:root[data-sparkle="on"] .app-aside {
+  background-image: linear-gradient(
+    170deg,
+    color-mix(in srgb, var(--gem-azul) 16%, transparent),
+    color-mix(in srgb, var(--gem-roxo) 14%, transparent) 50%,
+    color-mix(in srgb, var(--gem-rosa) 12%, transparent)
+  );
+  background-size: 100% 220%;
+  animation: vs-grad-slide-y 14s ease-in-out infinite alternate;
+}
+@keyframes vs-grad-slide-y {
+  from {
+    background-position: 0 0%;
+  }
+  to {
+    background-position: 0 100%;
+  }
+}
+
 /* Navegação lateral: barrinha que desliza até o item ativo (posição medida
-   no AppShell e passada por style), entrada em cascata, "pop" no hover e
-   gradiente animado + glow no ativo. */
+   no AppShell e passada por style), "pop" no hover e gradiente animado +
+   glow no ativo, tudo no verde da marca. */
 .nav-glide {
   display: none;
 }
 :root[data-sparkle="on"] .nav-glide {
   display: block;
   position: absolute;
-  left: -9px;
-  width: 4px;
+  left: -8px;
+  width: 3px;
   border-radius: 9999px;
-  background: linear-gradient(180deg, var(--gem-azul), var(--gem-roxo), var(--gem-rosa));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--gem-roxo) 70%, transparent);
+  background: linear-gradient(180deg, var(--vs-turquesa), var(--vs-agua));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--vs-turquesa) 60%, transparent);
   transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1), height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
 }
-/* "backwards" (e não "both/forwards"): depois que a cascata acaba, o item
-   volta ao estilo natural; forwards travaria o transform e mataria o hover. */
 :root[data-sparkle="on"] .nav-item {
-  animation: vs-nav-in 0.4s ease backwards;
-  animation-delay: calc(var(--nav-i, 0) * 35ms);
   transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 :root[data-sparkle="on"] .nav-item:hover {
-  transform: translateX(3px);
+  transform: translateX(2px);
 }
 :root[data-sparkle="on"] .nav-item svg {
   transition: transform 0.15s ease;
 }
 :root[data-sparkle="on"] .nav-item:hover svg {
-  transform: scale(1.15);
+  transform: scale(1.1);
 }
-/* Lavagem de gradiente no hover dos itens inativos (por cima do bg-muted). */
-:root[data-sparkle="on"] .nav-item:not(.nav-item-active):hover {
-  background-image: linear-gradient(
-    100deg,
-    color-mix(in srgb, var(--gem-azul) 14%, transparent),
-    color-mix(in srgb, var(--gem-roxo) 14%, transparent),
-    color-mix(in srgb, var(--gem-rosa) 12%, transparent)
-  );
-}
-/* Item ativo com o degradê Gemini. A lista de animações mantém vs-nav-in NA
-   MESMA POSIÇÃO da regra .nav-item de cima: ao trocar de tela só entra/sai a
-   vs-grad-slide e o navegador NÃO reinicia a entrada (era isso que causava um
-   flash no texto do item a cada clique). color branco fixo porque no escuro o
-   text-primary-foreground é escuro e sumiria no degradê. */
+/* Item ativo SEM animação de entrada: a cascata roda só no instante em que o
+   modo é ligado (data-sparkle-reveal, abaixo). Era a entrada re-executando a
+   cada navegação que fazia a barra "retrair" ao trocar de tela. */
 :root[data-sparkle="on"] .nav-item-active {
-  color: #ffffff;
-  background-image: var(--sparkle-grad-gemini);
-  background-size: 200% 100%;
-  box-shadow: 0 4px 18px -6px color-mix(in srgb, var(--gem-roxo) 65%, transparent);
+  background-image: var(--sparkle-grad-acao);
+  background-size: 180% 100%;
+  box-shadow: 0 4px 16px -6px color-mix(in srgb, var(--vs-turquesa) 60%, transparent);
+  animation: vs-grad-slide 7s ease-in-out infinite alternate;
+}
+/* Cascata do "reveal": o AppShell põe data-sparkle-reveal no <html> ao ligar
+   o modo e tira ~1,2s depois. "backwards" esconde o item durante o delay e
+   solta o estilo natural quando acaba (forwards travaria o transform e
+   mataria o hover). Estas regras vêm DEPOIS das de cima pra vencerem durante
+   a janela do reveal. */
+:root[data-sparkle-reveal] .nav-item {
+  animation: vs-nav-in 0.4s ease backwards;
+  animation-delay: calc(var(--nav-i, 0) * 35ms);
+}
+:root[data-sparkle-reveal] .nav-item-active {
   animation:
     vs-nav-in 0.4s ease backwards,
-    vs-grad-slide 6s ease-in-out infinite alternate;
+    vs-grad-slide 7s ease-in-out infinite alternate;
   animation-delay: calc(var(--nav-i, 0) * 35ms), 0s;
 }
 @keyframes vs-nav-in {
@@ -407,11 +430,11 @@
   }
 }
 
-/* Botões: micro-lift em todos; degradê Gemini animado + glow nos primários.
-   [class~="bg-primary"] casa só o token exato (não bg-primary/10), então pega
-   os botões/links sólidos sem tocar em chips e badges (spans); :not(.nav-item)
-   deixa a navegação de fora (tem regra própria acima). SEM "shine": o reflexo
-   branco passando por cima da escrita ficou feio (feedback do usuário). */
+/* Botões: micro-lift em todos; gradiente animado no verde da marca nos
+   primários. [class~="bg-primary"] casa só o token exato (não bg-primary/10),
+   então pega os botões/links sólidos sem tocar em chips e badges (spans);
+   :not(.nav-item) deixa a navegação de fora (tem regra própria acima). SEM
+   "shine": o reflexo branco por cima da escrita ficou feio (feedback). */
 :root[data-sparkle="on"] button:not(:disabled) {
   transition:
     transform 0.15s ease,
@@ -430,16 +453,9 @@
 /* :not(:disabled) importa: desabilitado precisa continuar caindo no
    disabled:bg-muted/opacity de cada botão, sem gradiente por cima. */
 :root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(.nav-item):not(:disabled) {
-  color: #ffffff;
-  background-image: var(--sparkle-grad-gemini);
-  background-size: 200% 100%;
-  animation: vs-grad-slide 5s ease-in-out infinite alternate;
-  box-shadow: 0 4px 16px -6px color-mix(in srgb, var(--gem-roxo) 60%, transparent);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
-}
-:root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(.nav-item):not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 22px -6px color-mix(in srgb, var(--gem-roxo) 80%, transparent);
+  background-image: var(--sparkle-grad-acao);
+  background-size: 180% 100%;
+  animation: vs-grad-slide 7s ease-in-out infinite alternate;
 }
 
 /* Estrelinhas que explodem da logo ao ligar o modo (direções via --dx/--dy).
@@ -472,8 +488,11 @@
   :root[data-sparkle="on"] .app-header::after,
   :root[data-sparkle="on"] .app-title,
   :root[data-sparkle="on"] .app-logo::after,
+  :root[data-sparkle="on"] .app-aside,
   :root[data-sparkle="on"] .nav-item,
   :root[data-sparkle="on"] .nav-item-active,
+  :root[data-sparkle-reveal] .nav-item,
+  :root[data-sparkle-reveal] .nav-item-active,
   :root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(.nav-item):not(:disabled),
   .sparkle-star {
     animation: none;
