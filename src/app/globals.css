@@ -224,12 +224,6 @@
    prefers-reduced-motion. */
 
 :root {
-  /* Cores do degradê da interface nova do app do Gemini (azul -> roxo ->
-     rosa): usadas SO na aurora do fundo da tela, pedido do usuário. Barra
-     lateral, botões e título ficam no verde da marca. */
-  --gem-azul: #3e6de8;
-  --gem-roxo: #8b5cd6;
-  --gem-rosa: #cc5069;
   /* Gradiente de ação (botões primários/item ativo): termina no teal pra
      manter o contraste do texto branco. */
   --sparkle-grad-acao: linear-gradient(115deg, var(--vs-petroleo), var(--vs-teal) 55%, var(--vs-petroleo));
@@ -348,25 +342,55 @@
   }
 }
 
-/* Fundo da barra lateral: lavagem com o degradê da interface nova do app do
-   Gemini (azul -> roxo -> rosa), deslizando devagar na vertical. Fica por
-   cima do bg-card; os itens e o ativo continuam no verde da marca. */
-:root[data-sparkle="on"] .app-aside {
-  background-image: linear-gradient(
-    170deg,
-    color-mix(in srgb, var(--gem-azul) 16%, transparent),
-    color-mix(in srgb, var(--gem-roxo) 14%, transparent) 50%,
-    color-mix(in srgb, var(--gem-rosa) 12%, transparent)
-  );
-  background-size: 100% 220%;
-  animation: vs-grad-slide-y 14s ease-in-out infinite alternate;
+/* "Mar" no fundo da barra lateral: água verde no rodapé, cujo nível
+   (--agua-nivel, % da altura) o AppShell sobe a cada clique de navegação;
+   cliques rápidos acumulam maré, parado ela desce sozinha. As ondas são dois
+   blocos gigantes quase-redondos girando devagar (a borda que cruza a linha
+   d'água ondula; só transform = GPU). A cor mistura o verde da marca com o
+   --card, então funciona no claro e no escuro sem regra extra. */
+.agua-clip {
+  display: none;
 }
-@keyframes vs-grad-slide-y {
-  from {
-    background-position: 0 0%;
-  }
+:root[data-sparkle="on"] .agua-clip {
+  display: block;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.agua {
+  position: absolute;
+  inset: 0;
+  transform: translateY(calc(100% - var(--agua-nivel, 10) * 1%));
+  /* bezier com leve estouro: a subida "quica" como uma marolada */
+  transition: transform 0.9s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+.agua::before,
+.agua::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 300%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  animation: agua-gira 13s linear infinite;
+}
+/* onda de trás: mais escura, um tico mais alta e girando ao contrário */
+.agua::before {
+  translate: -50% -51%;
+  border-radius: 47%;
+  background: color-mix(in srgb, var(--vs-teal) 34%, var(--card));
+  animation-duration: 19s;
+  animation-direction: reverse;
+}
+.agua::after {
+  border-radius: 45%;
+  background: color-mix(in srgb, var(--vs-turquesa) 22%, var(--card));
+}
+@keyframes agua-gira {
   to {
-    background-position: 0 100%;
+    rotate: 360deg;
   }
 }
 
@@ -488,7 +512,8 @@
   :root[data-sparkle="on"] .app-header::after,
   :root[data-sparkle="on"] .app-title,
   :root[data-sparkle="on"] .app-logo::after,
-  :root[data-sparkle="on"] .app-aside,
+  .agua::before,
+  .agua::after,
   :root[data-sparkle="on"] .nav-item,
   :root[data-sparkle="on"] .nav-item-active,
   :root[data-sparkle-reveal] .nav-item,
@@ -497,7 +522,8 @@
   .sparkle-star {
     animation: none;
   }
-  :root[data-sparkle="on"] .nav-glide {
+  :root[data-sparkle="on"] .nav-glide,
+  .agua {
     transition: none;
   }
   :root[data-sparkle="on"] .nav-item:hover,

@@ -76,6 +76,15 @@ const DUPLO_CLIQUE_MS = 400;
 
 // Estrelinhas do burst ao ligar: direções/tamanhos fixos (pré-calculados) pra
 // espalhar bem sem sorteio a cada clique.
+// Água da barra lateral (modo brilho): cada clique de navegação sobe o nível
+// da "maré" (--agua-nivel, em % da altura da barra). Cliques rápidos acumulam
+// e o mar sobe; parado, desce um degrau a cada tique até a linha de base.
+const NIVEL_BASE = 10;
+const NIVEL_MAX = 40;
+const GANHO_POR_CLIQUE = 10;
+const DESCIDA_POR_TIQUE = 2.5;
+const TIQUE_MS = 400;
+
 const ESTRELAS = [
   { dx: "-26px", dy: "-20px", dr: "-40deg", tam: 12, cor: "var(--vs-turquesa)", atraso: "0ms" },
   { dx: "24px", dy: "-26px", dr: "45deg", tam: 10, cor: "var(--vs-agua)", atraso: "40ms" },
@@ -151,6 +160,22 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
   }, [pathname, mobileOpen]);
 
   const closeMobile = () => setMobileOpen(false);
+
+  // Maré da barra lateral: sobe no clique, desce sozinha com o tempo.
+  const [nivelAgua, setNivelAgua] = useState(NIVEL_BASE);
+
+  useEffect(() => {
+    if (nivelAgua <= NIVEL_BASE) return;
+    const t = setTimeout(() => {
+      setNivelAgua((n) => Math.max(NIVEL_BASE, n - DESCIDA_POR_TIQUE));
+    }, TIQUE_MS);
+    return () => clearTimeout(t);
+  }, [nivelAgua]);
+
+  function cliqueNav() {
+    closeMobile();
+    setNivelAgua((n) => Math.min(NIVEL_MAX, n + GANHO_POR_CLIQUE));
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -239,10 +264,15 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
 
       <div className="flex flex-1">
         <aside
-          className={`app-aside ${
+          className={`${
             mobileOpen ? "block" : "hidden"
           } fixed inset-x-0 top-16 bottom-0 z-20 overflow-y-auto border-b border-border bg-card p-4 md:sticky md:top-16 md:bottom-auto md:block md:h-[calc(100vh-4rem)] md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r`}
         >
+          {/* O "mar" fica atrás da navegação (nav é relative, pinta por cima).
+              O clip evita que as ondas gigantes criem barra de rolagem. */}
+          <span aria-hidden className="agua-clip">
+            <span className="agua" style={{ "--agua-nivel": nivelAgua } as React.CSSProperties} />
+          </span>
           <nav ref={navRef} className="relative flex flex-col gap-1">
             {glide ? <span aria-hidden className="nav-glide" style={glide} /> : null}
             {nav.map((item, index) => {
@@ -252,7 +282,7 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
                 <Link
                   key={item.key}
                   href={item.href}
-                  onClick={closeMobile}
+                  onClick={cliqueNav}
                   data-active={active ? "true" : undefined}
                   style={{ "--nav-i": index } as React.CSSProperties}
                   className={`nav-item ${active ? "nav-item-active" : ""} flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${

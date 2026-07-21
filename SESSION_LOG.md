@@ -3061,8 +3061,26 @@ modo e ligado e remove ~1,2s depois. Trocar de tela, abrir o menu mobile ou
 remontar o shell nao reanima mais item nenhum; no item ativo so entra/sai a
 vs-grad-slide (fundo), que nao mexe em posicao/opacidade do texto.
 
+### Terceiro ajuste na mesma sessao: o fundo da barra virou um MAR verde
+O usuario trocou o degrade Gemini do fundo da barra por agua verde da marca
+que se comporta como oceano: cada clique de navegacao agita e SOBE a mare;
+clicando rapido ela acumula e sobe alto, parado ela desce sozinha ate a base.
+- AppShell: estado `nivelAgua` (base 10%, max 40%; +10 por clique nos itens da
+  nav, -2,5 a cada 400ms ate voltar a base). O valor vira `--agua-nivel` num
+  span `.agua` dentro de `.agua-clip` (overflow hidden pra onda gigante nao
+  criar barra de rolagem; o nav e relative e pinta por cima).
+- CSS: `.agua` e uma camada de altura total transladada em Y pelo nivel
+  (transition com bezier de leve estouro = a subida "quica" como marolada).
+  As ondas sao ::before/::after gigantes (300% de largura, border-radius
+  47%/45%) girando em sentidos opostos (13s/19s); a borda que cruza a linha
+  d'agua ondula. Cor = color-mix do teal/turquesa com --card (funciona nos
+  dois temas sem regra extra). Sairam as cores/vars do Gemini e a lavagem
+  vs-grad-slide-y; prefers-reduced-motion para o giro e a transicao do nivel.
+
 ### Pendencias / proximos passos
-- Falta teste humano: ligar o modo (2 cliques na logo), conferir claro/escuro,
-  mobile, e confirmar que a barra nao "retrai" mais ao navegar.
+- Falta teste humano: ligar o modo (2 cliques na logo), navegar rapido varias
+  vezes e ver a mare subir/descer; conferir claro/escuro e mobile; confirmar
+  que a barra nao "retrai" mais ao navegar. Ajustar base/max/velocidade da
+  mare ou a amplitude das ondas se precisar.
 - O diff de outra frente (ConfiguracaoCard.tsx + entrada de changelog de
   Projetos) continua no working tree, FORA deste commit.
