@@ -13,6 +13,7 @@ const MODULE_LABEL: Record<Module, string> = {
   products: "Produtos",
   pranchas: "Pranchas",
   configurador: "Configurador",
+  projetos: "Projetos (fila)",
   requisicoes: "Requisições",
   baixas: "Baixa de estoque",
   users: "Usuários e setores",

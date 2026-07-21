@@ -10,6 +10,7 @@ import {
   canViewBaixas,
   canViewConfigurador,
   canViewPranchas,
+  canViewProjetos,
   canViewRequisicoes,
 } from "@/lib/rbac";
 
@@ -38,6 +39,7 @@ describe("visibleNavFor", () => {
       "produtos",
       "pranchas",
       "configurador",
+      "projetos",
       "requisicoes",
       "baixas",
       "usuarios",
@@ -52,6 +54,7 @@ describe("visibleNavFor", () => {
       "produtos",
       "pranchas",
       "configurador",
+      "projetos",
       "requisicoes",
       "baixas",
       "usuarios",
@@ -77,6 +80,7 @@ describe("visibleNavFor", () => {
       "produtos",
       "pranchas",
       "configurador",
+      "projetos",
       "requisicoes",
       "baixas",
       "usuarios",
@@ -151,6 +155,7 @@ describe("rbac", () => {
         products: false,
         pranchas: false,
         configurador: true,
+        projetos: false,
         requisicoes: false,
         baixas: false,
         users: false,
@@ -160,6 +165,33 @@ describe("rbac", () => {
     expect(canViewConfigurador("perfil-comercial", comercial)).toBe(true);
     const keys = visibleNavFor("perfil-comercial", comercial).map((item) => item.key);
     expect(keys).toEqual(["home", "configurador"]);
+  });
+
+  it("os dois lados do fluxo são separáveis: perfil de Projetos vê só a fila", () => {
+    const projetos: RolePermissionsMap = {
+      ...DEFAULT,
+      "perfil-projetos": {
+        products: false,
+        pranchas: false,
+        configurador: false,
+        projetos: true,
+        requisicoes: false,
+        baixas: false,
+        users: false,
+        audit: false,
+      },
+    };
+    expect(canViewProjetos("perfil-projetos", projetos)).toBe(true);
+    expect(canViewConfigurador("perfil-projetos", projetos)).toBe(false);
+    const keys = visibleNavFor("perfil-projetos", projetos).map((item) => item.key);
+    expect(keys).toEqual(["home", "projetos"]);
+  });
+
+  it("fila de Projetos não vai para papéis de fábrica nem para funcionário por padrão", () => {
+    expect(canViewProjetos("ADMIN", DEFAULT)).toBe(true);
+    expect(canViewProjetos("GESTOR", DEFAULT)).toBe(true);
+    expect(canViewProjetos("FUNCIONARIO", DEFAULT)).toBe(false);
+    expect(canViewProjetos("FABRICA", DEFAULT)).toBe(false);
   });
 
   it("baixas por planilha: FABRICA não tem por padrão", () => {

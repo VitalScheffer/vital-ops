@@ -33,6 +33,13 @@ export function canViewConfigurador(role: Role, permissions: RolePermissionsMap)
   return hasModuleAccess(role, "configurador", permissions);
 }
 
+// Fila da equipe de Projetos: quem tem o módulo vê as configurações que o
+// comercial enviou e responde com o número do projeto CAD. Módulo separado do
+// configurador porque são os dois lados do mesmo fluxo, com públicos distintos.
+export function canViewProjetos(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "projetos", permissions);
+}
+
 // Requisições de fábrica: quem tem o módulo pode SOLICITAR e acompanhar os
 // próprios pedidos (inclui o papel FABRICA, que só vê esta tela por padrão).
 export function canViewRequisicoes(role: Role, permissions: RolePermissionsMap): boolean {

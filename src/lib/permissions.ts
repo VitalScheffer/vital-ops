@@ -15,6 +15,7 @@ export const MODULES = [
   "products",
   "pranchas",
   "configurador",
+  "projetos",
   "requisicoes",
   "baixas",
   "users",
@@ -27,15 +28,17 @@ export type RolePermissionsMap = Record<string, Record<Module, boolean>>;
 // Padrões dos papéis FIXOS: ADMIN e GESTOR têm tudo; FUNCIONARIO tem os módulos
 // operacionais menos Usuários/Auditoria; FABRICA e FABRICA_GESTOR veem SÓ
 // Requisições. Seed E fallback de qualquer combinação ainda sem linha no banco.
-// O Configurador é do COMERCIAL: os papéis fixos daqui são de fábrica/engenharia,
-// então quem usa a tela entra por um perfil customizado ("Comercial") com só esse
-// módulo marcado — por isso FABRICA/FABRICA_GESTOR ficam de fora por padrão.
+// O Configurador é do COMERCIAL e a fila de Projetos é da equipe que desenha:
+// os papéis fixos daqui são de fábrica/engenharia, então esses dois times entram
+// por perfil customizado ("Comercial", "Projetos") com só o seu módulo marcado.
+// Por isso FABRICA/FABRICA_GESTOR ficam de fora dos dois, e "projetos" (fila de
+// trabalho de um time específico) não vai nem pro FUNCIONARIO por padrão.
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<Module, boolean>> = {
-  ADMIN: { products: true, pranchas: true, configurador: true, requisicoes: true, baixas: true, users: true, audit: true },
-  GESTOR: { products: true, pranchas: true, configurador: true, requisicoes: true, baixas: true, users: true, audit: true },
-  FUNCIONARIO: { products: true, pranchas: true, configurador: true, requisicoes: true, baixas: true, users: false, audit: false },
-  FABRICA: { products: false, pranchas: false, configurador: false, requisicoes: true, baixas: false, users: false, audit: false },
-  FABRICA_GESTOR: { products: false, pranchas: false, configurador: false, requisicoes: true, baixas: false, users: false, audit: false },
+  ADMIN: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, users: true, audit: true },
+  GESTOR: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, users: true, audit: true },
+  FUNCIONARIO: { products: true, pranchas: true, configurador: true, projetos: false, requisicoes: true, baixas: true, users: false, audit: false },
+  FABRICA: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, users: false, audit: false },
+  FABRICA_GESTOR: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, users: false, audit: false },
 };
 
 function moduloVazio(): Record<Module, boolean> {
@@ -43,6 +46,7 @@ function moduloVazio(): Record<Module, boolean> {
     products: false,
     pranchas: false,
     configurador: false,
+    projetos: false,
     requisicoes: false,
     baixas: false,
     users: false,

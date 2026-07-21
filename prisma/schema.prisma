@@ -47,6 +47,7 @@ model User {
   reports              Report[]     @relation("ReportAutor")
   reportsResolvidos    Report[]     @relation("ReportResolvedor")
   configuracoes        Configuracao[] @relation("ConfiguracaoAutor")
+  configuracoesRespondidas Configuracao[] @relation("ConfiguracaoRespondente")
 
   @@index([role])
 }
@@ -377,11 +378,13 @@ model MovimentoEstoque {
 }
 
 // ---------------------------------------------------------------------------
-// Módulo Configurador de produto
+// Módulo Configurador de produto + fila da equipe de Projetos
 //
 // O comercial monta um produto escolhendo opção por opção (material, estrutura,
-// rodízios...) e envia; a equipe de Projetos recebe a especificação já com o que
-// FUGIU do padrão destacado, e devolve o número do projeto CAD.
+// rodízios...) e envia; a equipe de Projetos vê a fila em /projetos com o que
+// FUGIU do padrão destacado, e devolve o número do projeto CAD. Os dois lados
+// vivem AQUI (decisão de 21/07/2026): sem ponte entre sistemas, sem duplicar
+// usuário, e o vendedor acompanha a resposta na mesma tela em que pediu.
 //
 // O CATÁLOGO de produtos/grupos/opções NÃO está no banco: vive em
 // `src/lib/configurador/catalogo.ts` (dados tipados em código). Enquanto não
@@ -400,7 +403,7 @@ model MovimentoEstoque {
 // digitado geraria um código novo e a detecção de repetidos nunca casaria.
 //
 // status: ENVIADA | EM_ANALISE | ATENDIDA | RECUSADA (o ciclo é fechado pela
-// equipe de Projetos no nextstep; os campos de sincronização são a ponte).
+// equipe de Projetos na tela /projetos).
 // ---------------------------------------------------------------------------
 
 model Configuracao {
@@ -416,22 +419,20 @@ model Configuracao {
   foraDoPadrao Int      @default(0) // quantas escolhas diferem do padrão
   observacoes  String?
   status       String   @default("ENVIADA")
-  // Resposta da equipe de Projetos (chega pela ponte com o nextstep).
-  projetoCad     String?
-  respostaNota   String?
-  respondidoPor  String?
-  respondidoEm   DateTime?
-  // Ponte com o nextstep: enquanto `sincronizadoEm` for nulo, a configuração
-  // ainda não chegou na tela da equipe de Projetos.
-  sincronizadoEm    DateTime?
-  sincronizacaoErro String?
-  tentativasSync    Int       @default(0)
-  criadoEm          DateTime  @default(now())
+  // Resposta da equipe de Projetos (tela /projetos).
+  projetoCad      String?
+  respostaNota    String?
+  respondidoPorId String?
+  respondidoEm    DateTime?
+  criadoEm        DateTime  @default(now())
 
-  autor User @relation("ConfiguracaoAutor", fields: [autorId], references: [id])
+  autor         User  @relation("ConfiguracaoAutor", fields: [autorId], references: [id])
+  respondidoPor User? @relation("ConfiguracaoRespondente", fields: [respondidoPorId], references: [id], onDelete: SetNull)
 
   @@index([autorId])
-  @@index([codigo])
+  // Composto: a busca de "essa combinação já foi desenhada?" filtra por código E
+  // status ao mesmo tempo, então o índice precisa cobrir os dois.
+  @@index([codigo, status])
   @@index([status])
   @@index([produtoSlug])
   @@index([criadoEm])

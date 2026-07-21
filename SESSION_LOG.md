@@ -2661,3 +2661,80 @@ Build, tipos, lint e os 276 testes passam, e a rota responde em producao (307 pa
   `sincronizadoEm`, `sincronizacaoErro` e `tentativasSync` ja existem na tabela).
 - Fase 4: callback de resposta (status + CAD) de volta para o vital-ops (campos
   `projetoCad`, `respostaNota`, `respondidoPor`, `respondidoEm` ja existem).
+
+## 2026-07-21 (parte 2) - Tela de Projetos NO VITAL-OPS (mudanca de rumo)
+
+### Resumo
+O usuario mudou de ideia: a tela da equipe de Projetos NAO vai para o nextstep,
+vai direto no vital-ops. Tudo que tinha sido escrito no nextstep foi descartado e
+o fluxo inteiro (configurar -> fila -> responder) passou a viver aqui. Tambem
+entrou o historico ("se for a mesma configuracao, so puxar do historico").
+
+### O que foi DESCARTADO (nao existe mais)
+- O worktree C:\Users\TREINAMENTO\nextstep-projetos-wt e a branch
+  `projetos-configuracoes` foram removidos. Nada chegou a ser commitado nem
+  pushado: a `main` do nextstep nunca foi tocada. Ficam sem efeito os planos de
+  `apps/projetos` no Django, setor "Projetos", ponte HMAC e as fases 3 e 4 do
+  SESSION_LOG anterior.
+
+### Arquivos criados
+- `src/lib/configurador/historico.ts` (+ teste) - agrupa envios por CODIGO de
+  identidade (a mesma maca pedida 5x aparece 1x, com a contagem) e devolve as
+  escolhas prontas para recarregar o formulario.
+- `src/lib/configurador/fila.ts` (+ teste) - regras da fila (estaAberta,
+  podeAssumir), o indice "essa combinacao ja foi desenhada?" e a cor de status
+  compartilhada pelas duas telas.
+- `src/app/(app)/projetos/page.tsx` e `actions.ts` - a fila e as acoes
+  (assumir / atender com numero do projeto / recusar com motivo).
+- `src/components/projetos/ConfiguracaoCard.tsx` - item da fila.
+- `prisma/migrations/20260721160000_fila_projetos/migration.sql`.
+
+### Arquivos alterados
+- `prisma/schema.prisma` - Configuracao perdeu os campos de sincronizacao
+  (sincronizadoEm/sincronizacaoErro/tentativasSync, restos da ponte que nao
+  existe mais) e `respondidoPor` virou relacao com User. Indice `codigo` virou
+  composto `(codigo, status)`, que e como a busca de reuso filtra.
+- `src/lib/permissions.ts` + `seed.ts` + testes - novo modulo `projetos`.
+- `src/lib/rbac.ts`, `navigation.ts`, `AppShell.tsx`, `page.tsx`,
+  `PermissionsMatrixForm.tsx` - item de menu, icone (Ruler), rotulo.
+- `src/lib/configurador/codigo.ts` - `textoDaSelecao`/`rotuloDaSelecao` viraram
+  fonte unica do formato (antes eram 3 implementacoes, 2 formatos diferentes).
+- `src/lib/changelog.ts` - entrada nova da tela Projetos.
+
+### Decisoes importantes
+- **Tudo no vital-ops.** Sem ponte entre sistemas: sem HMAC, sem outbox/retry,
+  sem duplicar usuario, e o vendedor ve a resposta na mesma tela em que pediu.
+- **Observacoes livres continuam fora do codigo de identidade**, senao a
+  deteccao de repetidos nunca casaria.
+- **Modulo `projetos` separado do `configurador`**: sao os dois lados do mesmo
+  fluxo, com publicos diferentes. Nenhum dos dois vai para papel de fabrica por
+  padrao; cada time entra por perfil customizado.
+
+### Code review (feito nesta sessao, achados corrigidos)
+- Indice de "ja desenhado" lia as 300 atendidas mais recentes: combinacao antiga
+  sumia do indice e a equipe redesenharia projeto existente. Agora a consulta e
+  restrita aos codigos da pagina - exata e mais barata.
+- Assumir/responder faziam check-then-act (findUnique + update): duas pessoas
+  podiam responder a mesma configuracao e a segunda sobrescrevia a primeira. A
+  guarda de estado foi para o WHERE do updateMany; count === 0 = alguem chegou
+  primeiro.
+- Aba "Atendidas" ordenava asc com corte em 50: quem acabou de responder nao
+  achava o proprio item. Agora aberta = asc (FIFO), concluidas = desc.
+- Corte de 50 era silencioso; a tela agora diz "Mostrando X de N".
+- 3 implementacoes de formatar selecao, com 2 formatos - consolidadas.
+
+### Comandos
+- `npx prisma generate`, `npx tsc --noEmit` -> 0, `npx eslint .` -> 0,
+  `npx vitest run` -> 294/294, `npx next build` -> OK (rotas /configurador e
+  /projetos).
+
+### Pendencias / proximos passos
+- **Liberar acesso**: em /configuracoes criar os perfis "Comercial" (so o modulo
+  Configurador) e "Projetos" (so o modulo Projetos), e atribuir as pessoas em
+  /usuarios. Definir os e-mails (Rodrigo Sefas loga como vendas10@ mas o e-mail
+  e vendas01@; aqui o login e por e-mail).
+- Nenhuma das duas telas foi exercitada por dentro (nao tenho credencial de
+  login) - falta teste humano do fluxo completo.
+- Confirmar se as 10 secoes + observacoes sao a lista fechada da maca.
+- Proximos produtos: acrescentar em src/lib/configurador/catalogo.ts (exige
+  deploy, ~1 min; virar cadastro em tela so se a frequencia justificar).

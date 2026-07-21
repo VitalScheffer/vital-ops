@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -31,6 +31,7 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "ADMIN", module: "products", enabled: true },
   { role: "ADMIN", module: "pranchas", enabled: true },
   { role: "ADMIN", module: "configurador", enabled: true },
+  { role: "ADMIN", module: "projetos", enabled: true },
   { role: "ADMIN", module: "requisicoes", enabled: true },
   { role: "ADMIN", module: "baixas", enabled: true },
   { role: "ADMIN", module: "users", enabled: true },
@@ -38,6 +39,7 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "GESTOR", module: "products", enabled: true },
   { role: "GESTOR", module: "pranchas", enabled: true },
   { role: "GESTOR", module: "configurador", enabled: true },
+  { role: "GESTOR", module: "projetos", enabled: true },
   { role: "GESTOR", module: "requisicoes", enabled: true },
   { role: "GESTOR", module: "baixas", enabled: true },
   { role: "GESTOR", module: "users", enabled: true },
@@ -45,6 +47,7 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "FUNCIONARIO", module: "products", enabled: true },
   { role: "FUNCIONARIO", module: "pranchas", enabled: true },
   { role: "FUNCIONARIO", module: "configurador", enabled: true },
+  { role: "FUNCIONARIO", module: "projetos", enabled: false },
   { role: "FUNCIONARIO", module: "requisicoes", enabled: true },
   { role: "FUNCIONARIO", module: "baixas", enabled: true },
   { role: "FUNCIONARIO", module: "users", enabled: false },
@@ -52,6 +55,7 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "FABRICA", module: "products", enabled: false },
   { role: "FABRICA", module: "pranchas", enabled: false },
   { role: "FABRICA", module: "configurador", enabled: false },
+  { role: "FABRICA", module: "projetos", enabled: false },
   { role: "FABRICA", module: "requisicoes", enabled: true },
   { role: "FABRICA", module: "baixas", enabled: false },
   { role: "FABRICA", module: "users", enabled: false },
@@ -59,6 +63,7 @@ const DEFAULT_PERMISSIONS: { role: string; module: string; enabled: boolean }[] 
   { role: "FABRICA_GESTOR", module: "products", enabled: false },
   { role: "FABRICA_GESTOR", module: "pranchas", enabled: false },
   { role: "FABRICA_GESTOR", module: "configurador", enabled: false },
+  { role: "FABRICA_GESTOR", module: "projetos", enabled: false },
   { role: "FABRICA_GESTOR", module: "requisicoes", enabled: true },
   { role: "FABRICA_GESTOR", module: "baixas", enabled: false },
   { role: "FABRICA_GESTOR", module: "users", enabled: false },

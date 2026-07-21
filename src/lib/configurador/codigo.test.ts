@@ -9,6 +9,8 @@ import {
   normalizarParaCodigo,
   resolverSelecoes,
   resumoTexto,
+  rotuloDaSelecao,
+  textoDaSelecao,
   type EscolhasBrutas,
 } from "@/lib/configurador/codigo";
 
@@ -200,6 +202,23 @@ describe("escolhasDeSelecoes (repetir configuração do histórico)", () => {
   });
 });
 
+describe("rotuloDaSelecao (formato compartilhado pelas telas)", () => {
+  it("escreve a escolha simples e a com texto livre do mesmo jeito em todo lugar", () => {
+    const selecoes = resolverOuFalhar({
+      ...escolhasPadrao(maca),
+      MAT: { opcao: "INOX" },
+      PESO: { opcao: "POUT", texto: "200 kg" },
+    });
+    const material = selecoes.find((selecao) => selecao.grupoCodigo === "MAT")!;
+    const peso = selecoes.find((selecao) => selecao.grupoCodigo === "PESO")!;
+
+    expect(textoDaSelecao(material)).toBe("Inox");
+    expect(rotuloDaSelecao(material)).toBe("Material: Inox");
+    expect(textoDaSelecao(peso)).toBe("Outro peso (200 kg)");
+    expect(rotuloDaSelecao(peso)).toBe("Peso suportado: Outro peso (200 kg)");
+  });
+});
+
 describe("resumoTexto", () => {
   it("marca o desvio e mostra o texto livre", () => {
     const selecoes = resolverOuFalhar({
@@ -207,7 +226,7 @@ describe("resumoTexto", () => {
       PESO: { opcao: "POUT", texto: "200 kg" },
     });
     const resumo = resumoTexto(selecoes);
-    expect(resumo).toContain("Peso suportado: Outro peso: 200 kg  (fora do padrão)");
+    expect(resumo).toContain("Peso suportado: Outro peso (200 kg)  (fora do padrão)");
     expect(resumo).toContain("Material: Carbono");
   });
 });

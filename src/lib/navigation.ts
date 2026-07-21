@@ -5,6 +5,7 @@ import {
   canViewAudit,
   canViewBaixas,
   canViewConfigurador,
+  canViewProjetos,
   canViewRequisicoes,
 } from "@/lib/rbac";
 
@@ -14,6 +15,7 @@ export type NavIcon =
   | "products"
   | "pranchas"
   | "configurador"
+  | "projetos"
   | "requisicoes"
   | "baixas"
   | "users"
@@ -73,6 +75,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description: "Monte o produto opção por opção e envie a especificação para a equipe de Projetos.",
     icon: "configurador",
     visibleTo: canViewConfigurador,
+  },
+  {
+    key: "projetos",
+    href: "/projetos",
+    label: "Projetos",
+    description: "Fila das configurações enviadas pelo comercial: responda com o número do projeto.",
+    icon: "projetos",
+    visibleTo: canViewProjetos,
   },
   {
     key: "requisicoes",

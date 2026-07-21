@@ -5,6 +5,8 @@ import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
 import { CATALOGO } from "@/lib/configurador/catalogo";
+import { rotuloDaSelecao } from "@/lib/configurador/codigo";
+import { classeStatus } from "@/lib/configurador/fila";
 import { desviosDoSnapshot, montarHistorico } from "@/lib/configurador/historico";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
@@ -19,13 +21,6 @@ const STATUS_LABEL: Record<string, string> = {
   EM_ANALISE: "Em análise",
   ATENDIDA: "Atendida",
   RECUSADA: "Recusada",
-};
-
-const STATUS_CLASS: Record<string, string> = {
-  ENVIADA: "bg-muted text-muted-foreground",
-  EM_ANALISE: "bg-warning-dim text-warning",
-  ATENDIDA: "bg-success-dim text-success",
-  RECUSADA: "bg-danger-dim text-danger",
 };
 
 export default async function ConfiguradorPage() {
@@ -81,8 +76,8 @@ export default async function ConfiguradorPage() {
       <p className="flex items-start gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          A entrega automática na tela da equipe de Projetos (no NextStep) entra na próxima fase.
-          Por enquanto as configurações enviadas ficam registradas aqui, com número e código.
+          O que você enviar cai na fila da equipe de Projetos. Quando eles responderem, o número do
+          projeto aparece aqui embaixo, na sua configuração.
         </span>
       </p>
 
@@ -111,9 +106,7 @@ export default async function ConfiguradorPage() {
                     </span>
                     <span className="text-sm text-muted-foreground">{configuracao.produtoNome}</span>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        STATUS_CLASS[configuracao.status] ?? "bg-muted text-muted-foreground"
-                      }`}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${classeStatus(configuracao.status)}`}
                     >
                       {STATUS_LABEL[configuracao.status] ?? configuracao.status}
                     </span>
@@ -135,15 +128,7 @@ export default async function ConfiguradorPage() {
                   {desvios.length > 0 ? (
                     <p className="flex items-start gap-1.5 text-xs text-card-foreground">
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                      <span>
-                        {desvios
-                          .map((desvio) =>
-                            desvio.texto
-                              ? `${desvio.grupoRotulo}: ${desvio.opcaoRotulo} (${desvio.texto})`
-                              : `${desvio.grupoRotulo}: ${desvio.opcaoRotulo}`,
-                          )
-                          .join(" · ")}
-                      </span>
+                      <span>{desvios.map(rotuloDaSelecao).join(" · ")}</span>
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">Tudo no padrão.</p>

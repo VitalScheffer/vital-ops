@@ -159,13 +159,24 @@ export function escolhasDeSelecoes(
   return escolhas;
 }
 
+// Valor escolhido, em texto: "Inox" ou "Outro peso (200 kg)". Fonte única do
+// formato — as três telas do fluxo (configurador, histórico e fila de Projetos)
+// mostram a mesma escolha escrita do mesmo jeito.
+export function textoDaSelecao(selecao: SelecaoResolvida): string {
+  return selecao.texto ? `${selecao.opcaoRotulo} (${selecao.texto})` : selecao.opcaoRotulo;
+}
+
+// A escolha com o nome do grupo: "Material: Inox".
+export function rotuloDaSelecao(selecao: SelecaoResolvida): string {
+  return `${selecao.grupoRotulo}: ${textoDaSelecao(selecao)}`;
+}
+
 // Resumo em texto puro (uma linha por grupo), para copiar/colar e para o corpo
 // da mensagem que a equipe de Projetos vai ler.
 export function resumoTexto(selecoes: readonly SelecaoResolvida[]): string {
   return selecoes
-    .map((selecao) => {
-      const valor = selecao.texto ? `${selecao.opcaoRotulo}: ${selecao.texto}` : selecao.opcaoRotulo;
-      return `${selecao.grupoRotulo}: ${valor}${selecao.padrao ? "" : "  (fora do padrão)"}`;
-    })
+    .map(
+      (selecao) => `${rotuloDaSelecao(selecao)}${selecao.padrao ? "" : "  (fora do padrão)"}`,
+    )
     .join("\n");
 }

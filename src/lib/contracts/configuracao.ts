@@ -28,6 +28,22 @@ export const criarConfiguracaoSchema = z.object({
 });
 export type CriarConfiguracaoInput = z.infer<typeof criarConfiguracaoSchema>;
 
+export const assumirConfiguracaoSchema = z.object({
+  id: z.string().min(1),
+});
+export type AssumirConfiguracaoInput = z.infer<typeof assumirConfiguracaoSchema>;
+
+// Resposta da equipe de Projetos. As obrigatoriedades (projeto no atender,
+// motivo no recusar) são validadas na action, onde a mensagem é escrita para o
+// usuário final.
+export const responderConfiguracaoSchema = z.object({
+  id: z.string().min(1),
+  decisao: z.enum(["ATENDER", "RECUSAR"]),
+  projetoCad: z.string().trim().max(60).optional(),
+  nota: z.string().trim().max(1000).optional(),
+});
+export type ResponderConfiguracaoInput = z.infer<typeof responderConfiguracaoSchema>;
+
 // Número sequencial exibido como "CFG-0001" (o inteiro vem do autoincrement).
 export function formatarNumeroConfiguracao(numero: number): string {
   return `CFG-${String(numero).padStart(4, "0")}`;

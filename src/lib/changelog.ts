@@ -14,12 +14,23 @@ export interface ChangelogEntry {
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     date: "2026-07-21",
+    title: "Novo: tela Projetos, a fila de quem desenha",
+    items: [
+      "A equipe de Projetos tem agora a tela Projetos: todas as configurações que o comercial enviou pelo Configurador, do pedido mais antigo para o mais novo.",
+      "Cada item mostra primeiro o que interessa: se aquela combinação JÁ FOI DESENHADA (com o número do projeto anterior, para não redesenhar) e o que ficou fora do padrão. A especificação completa fica recolhida, é só clicar para abrir.",
+      "Responder é direto no item: Assumir (marca que você está olhando), Atender (informando o número do projeto) ou Recusar (informando o motivo).",
+      "A resposta fecha o ciclo: o vendedor vê o número do projeto na tela dele, no Configurador, sem precisar perguntar por WhatsApp.",
+      "Acesso: o Administrador libera o módulo \"Projetos (fila)\" em Configurações, num perfil próprio da equipe.",
+    ],
+  },
+  {
+    date: "2026-07-21",
     title: "Novo: Configurador de produto (Maca Padiola)",
     items: [
       "Nova tela Configurador: escolha as opções do produto (material, estrutura, leito, rodízios, grades, soro, oxigênio, peso e medidas) olhando a foto de referência. A opção marcada como \"padrão\" é a do modelo da foto.",
       "Precisa de um peso ou uma medida diferente do padrão? Escolha \"Outro peso\" ou \"Outra medida\" e digite o valor. Tem um pedido do cliente que não está nas opções? Use Observações adicionais.",
       "Enquanto você marca, o resumo à direita mostra o código da configuração e a lista do que ficou FORA do padrão — que é justamente o que a equipe de Projetos precisa ver.",
-      "Ao enviar, a configuração ganha um número (ex.: CFG-0001) e fica registrada na própria tela, com o código e os desvios. A entrega automática na tela da equipe de Projetos (NextStep) vem na próxima etapa.",
+      "Ao enviar, a configuração ganha um número (ex.: CFG-0001) e fica registrada na própria tela, com o código e os desvios.",
       "Histórico: se a maca for a mesma de um pedido anterior, clique em Usar em \"Repetir uma configuração já enviada\" e o formulário vem todo preenchido — é só ajustar o que mudou. Combinações iguais aparecem uma vez só (com quantas vezes foram pedidas), e você aproveita também o que outros vendedores já especificaram.",
       "Acesso: o Administrador libera o módulo Configurador em Configurações, inclusive para um perfil próprio do comercial.",
     ],

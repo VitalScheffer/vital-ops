@@ -1,5 +1,10 @@
 import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
-import { escolhasDeSelecoes, type EscolhaBruta, type SelecaoResolvida } from "@/lib/configurador/codigo";
+import {
+  escolhasDeSelecoes,
+  rotuloDaSelecao,
+  type EscolhaBruta,
+  type SelecaoResolvida,
+} from "@/lib/configurador/codigo";
 import { formatarDataHora } from "@/lib/datas";
 
 // Histórico do configurador: as configurações já enviadas, prontas para serem
@@ -28,13 +33,6 @@ export interface ItemHistorico {
   observacoes: string;
   // Já no formato do formulário: clicar em "Usar" é só jogar isto no estado.
   escolhas: Record<string, EscolhaBruta>;
-}
-
-// Rótulo de um desvio, a partir do snapshot: "Material: Inox" ou
-// "Peso suportado: Outro peso (200 kg)".
-function rotuloDesvio(selecao: SelecaoResolvida): string {
-  const valor = selecao.texto ? `${selecao.opcaoRotulo} (${selecao.texto})` : selecao.opcaoRotulo;
-  return `${selecao.grupoRotulo}: ${valor}`;
 }
 
 export function desviosDoSnapshot(selecoes: unknown): SelecaoResolvida[] {
@@ -70,7 +68,7 @@ export function montarHistorico(
       vezes: 1,
       autorNome: registro.autorNome,
       quando: formatarDataHora(registro.criadoEm),
-      desvios: desviosDoSnapshot(registro.selecoes).map(rotuloDesvio),
+      desvios: desviosDoSnapshot(registro.selecoes).map(rotuloDaSelecao),
       observacoes: registro.observacoes ?? "",
       escolhas: escolhasDeSelecoes(produto, registro.selecoes),
     });
