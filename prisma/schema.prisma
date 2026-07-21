@@ -20,7 +20,7 @@ datasource db {
 // ImportStatus: RASCUNHO | ENVIANDO | CONCLUIDO | FALHA.
 // ProdutoItemStatus: NOVO | DUPLICADO | ERRO | ENVIADO | FALHA.
 // EstruturaStatus: PENDENTE | ENVIADO | FALHA.
-// RequisicaoStatus: PENDENTE | CONFIRMADA | RECUSADA.
+// RequisicaoStatus: PENDENTE | CONFIRMADA | RECUSADA (+ flag `cancelada`).
 // RequisicaoItemStatus / BaixaItemStatus: PENDENTE | BAIXADO | FALHA.
 // ---------------------------------------------------------------------------
 
@@ -43,6 +43,7 @@ model User {
   imports        ProdutoImport[]
   requisicoesFeitas    Requisicao[] @relation("Solicitante")
   requisicoesGeridas   Requisicao[] @relation("Gestor")
+  requisicoesCanceladas Requisicao[] @relation("Cancelador")
   baixas               BaixaImport[] @relation("BaixaAutor")
   reports              Report[]     @relation("ReportAutor")
   reportsResolvidos    Report[]     @relation("ReportResolvedor")
@@ -257,11 +258,21 @@ model Requisicao {
   // filtro e no relatório. Só decididas podem ser arquivadas.
   arquivada       Boolean  @default(false)
   arquivadaEm     DateTime?
+  // Exclusão pelo gestor: soft delete. Nada some do banco — o pedido sai das
+  // listas do dia a dia (entra junto em `arquivada`) e continua no relatório e
+  // em "Meus pedidos", com quem excluiu e por quê. É uma FLAG, e não um status:
+  // ortogonal à decisão (igual `arquivada`), então excluir um pedido já
+  // confirmado não apaga quem o aprovou nem quando.
+  cancelada       Boolean  @default(false)
+  canceladaPorId  String?
+  canceladaEm     DateTime?
+  motivoCancelamento String?
   criadoEm        DateTime @default(now())
 
-  solicitante User  @relation("Solicitante", fields: [solicitanteId], references: [id])
-  gestor      User? @relation("Gestor", fields: [gestorId], references: [id], onDelete: SetNull)
-  setor       Setor @relation(fields: [setorId], references: [id])
+  solicitante  User  @relation("Solicitante", fields: [solicitanteId], references: [id])
+  gestor       User? @relation("Gestor", fields: [gestorId], references: [id], onDelete: SetNull)
+  canceladaPor User? @relation("Cancelador", fields: [canceladaPorId], references: [id], onDelete: SetNull)
+  setor        Setor @relation(fields: [setorId], references: [id])
 
   itens RequisicaoItem[]
 
@@ -276,6 +287,10 @@ model RequisicaoItem {
   sku          String
   descricao    String
   quantidade   Decimal
+  // Unidade de medida do cadastro do Omie (KG, M3, UN...), copiada na criação.
+  // Só exibição: mostra ao lado da quantidade em que unidade o item foi pedido.
+  // Null nos itens criados antes deste campo existir.
+  unidade      String?
   status       String   @default("PENDENTE")
   motivoErro   String?
   omieIdProd   String? // codigo_produto (id interno) resolvido na criação

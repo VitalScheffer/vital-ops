@@ -4,6 +4,7 @@ import { visibleNavFor } from "@/lib/navigation";
 import { DEFAULT_ROLE_PERMISSIONS, type RolePermissionsMap } from "@/lib/permissions";
 import {
   canAssignRole,
+  canCancelRequisicao,
   canDecideRequisicao,
   canManageUsers,
   canViewAudit,
@@ -140,6 +141,14 @@ describe("rbac", () => {
       GESTOR: { ...DEFAULT.GESTOR, requisicoes: false },
     };
     expect(canDecideRequisicao("GESTOR", semRequisicoes)).toBe(false);
+  });
+
+  it("excluir requisição: mesma régua de quem decide (Gestor da Fábrica pode; solicitante não)", () => {
+    expect(canCancelRequisicao("FABRICA_GESTOR", DEFAULT)).toBe(true);
+    expect(canCancelRequisicao("GESTOR", DEFAULT)).toBe(true);
+    expect(canCancelRequisicao("ADMIN", DEFAULT)).toBe(true);
+    expect(canCancelRequisicao("FABRICA", DEFAULT)).toBe(false);
+    expect(canCancelRequisicao("FUNCIONARIO", DEFAULT)).toBe(false);
   });
 
   it("configurador: papéis de fábrica não têm por padrão (é módulo do comercial)", () => {

@@ -59,6 +59,14 @@ export function canDecideRequisicao(role: Role, permissions: RolePermissionsMap)
   return canViewRequisicoes(role, permissions);
 }
 
+// Excluir (cancelar) um pedido — quem decide também exclui. Predicado próprio,
+// e não `canDecideRequisicao` direto nas chamadas, porque a exclusão vale pra
+// QUALQUER status (inclusive confirmado) e um dia pode ser restringida sem
+// mexer em quem aprova.
+export function canCancelRequisicao(role: Role, permissions: RolePermissionsMap): boolean {
+  return canDecideRequisicao(role, permissions);
+}
+
 // Baixa por planilha (matéria-prima MAT): escreve no estoque do Omie SEM passar
 // pelo gestor, então fica num módulo separado das Requisições — o admin decide
 // quais papéis podem.

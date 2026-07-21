@@ -6,6 +6,7 @@ import { Panel } from "@/components/Panel";
 import { ArquivarRequisicao } from "@/components/requisicoes/ArquivarRequisicao";
 import { CriarRequisicaoForm } from "@/components/requisicoes/CriarRequisicaoForm";
 import { DecidirRequisicao } from "@/components/requisicoes/DecidirRequisicao";
+import { ExcluirRequisicao } from "@/components/requisicoes/ExcluirRequisicao";
 import { RelatorioRequisicoes } from "@/components/requisicoes/RelatorioRequisicoes";
 import { auth } from "@/lib/auth";
 import { formatarNumeroRequisicao } from "@/lib/contracts";
@@ -39,6 +40,19 @@ function formatarQuantidade(quantidade: unknown): string {
   return Number(quantidade).toLocaleString("pt-BR");
 }
 
+// Rótulo/estilo do selo: excluída tem prioridade sobre a decisão, mas mantém a
+// decisão anterior à vista (ex.: "Excluída (Confirmada)").
+function selo(requisicao: RequisicaoComTudo): { texto: string; classe: string } {
+  const decisao = STATUS_LABEL[requisicao.status] ?? requisicao.status;
+  if (!requisicao.cancelada) {
+    return { texto: decisao, classe: STATUS_CLASS[requisicao.status] ?? "bg-muted text-muted-foreground" };
+  }
+  return {
+    texto: requisicao.status === "PENDENTE" ? "Excluída" : `Excluída (${decisao})`,
+    classe: "bg-danger-dim text-danger",
+  };
+}
+
 type RequisicaoComTudo = Awaited<ReturnType<typeof buscarRequisicoes>>[number];
 
 const TRES_DIAS_MS = 3 * 24 * 60 * 60 * 1000;
@@ -46,11 +60,11 @@ const TRES_DIAS_MS = 3 * 24 * 60 * 60 * 1000;
 // Notificação in-app: destaca no "Meus pedidos" o que o gestor decidiu nos
 // últimos 3 dias, pra o solicitante perceber sem precisar de e-mail/WhatsApp.
 function decididaRecentemente(requisicao: RequisicaoComTudo): boolean {
-  return (
-    requisicao.status !== "PENDENTE" &&
-    requisicao.decididaEm != null &&
-    Date.now() - requisicao.decididaEm.getTime() < TRES_DIAS_MS
-  );
+  // Excluída também é "novidade" pro solicitante: o pedido dele sumiu da fila e
+  // ele precisa ver o motivo.
+  const marco = requisicao.cancelada ? requisicao.canceladaEm : requisicao.decididaEm;
+  if (!requisicao.cancelada && requisicao.status === "PENDENTE") return false;
+  return marco != null && Date.now() - marco.getTime() < TRES_DIAS_MS;
 }
 
 // A fila do gestor é FIFO ("asc": o pedido mais antigo primeiro, ninguém fica
@@ -63,6 +77,7 @@ function buscarRequisicoes(where: object, take: number, ordem: "asc" | "desc" = 
       setor: { select: { nome: true } },
       solicitante: { select: { name: true, email: true } },
       gestor: { select: { name: true } },
+      canceladaPor: { select: { name: true } },
     },
     orderBy: { criadoEm: ordem },
     take,
@@ -127,6 +142,7 @@ function CartaoRequisicao({
   // Decidida há pouco (notificação in-app pro solicitante) — destaca o cartão.
   novidade?: boolean;
 }) {
+  const marca = selo(requisicao);
   return (
     <article
       className={`flex flex-col gap-3 rounded-xl border bg-card p-4 ${
@@ -138,10 +154,8 @@ function CartaoRequisicao({
           <span className="font-mono text-sm font-semibold text-card-foreground">
             {formatarNumeroRequisicao(requisicao.numero)}
           </span>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[requisicao.status] ?? "bg-muted text-muted-foreground"}`}
-          >
-            {STATUS_LABEL[requisicao.status] ?? requisicao.status}
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${marca.classe}`}>
+            {marca.texto}
           </span>
           {novidade ? (
             <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
@@ -175,6 +189,7 @@ function CartaoRequisicao({
               <th className="py-1.5 pr-3 font-medium">Código</th>
               <th className="py-1.5 pr-3 font-medium">Descrição</th>
               <th className="py-1.5 pr-3 font-medium">Qtd</th>
+              <th className="py-1.5 pr-3 font-medium">Un.</th>
               <th className="py-1.5 font-medium">Situação</th>
             </tr>
           </thead>
@@ -184,6 +199,8 @@ function CartaoRequisicao({
                 <td className="py-1.5 pr-3 font-mono text-xs text-card-foreground">{item.sku}</td>
                 <td className="py-1.5 pr-3 text-card-foreground">{item.descricao}</td>
                 <td className="py-1.5 pr-3 text-card-foreground">{formatarQuantidade(item.quantidade)}</td>
+                {/* Unidade do Omie congelada na criação (itens antigos não têm). */}
+                <td className="py-1.5 pr-3 text-muted-foreground">{item.unidade ?? "—"}</td>
                 <td className="py-1.5">
                   <span
                     className={
@@ -221,6 +238,15 @@ function CartaoRequisicao({
         </p>
       ) : null}
 
+      {requisicao.cancelada ? (
+        <p className="text-xs text-danger">
+          Excluída
+          {requisicao.canceladaPor ? ` por ${requisicao.canceladaPor.name}` : null}
+          {requisicao.canceladaEm ? ` em ${formatarDataHora(requisicao.canceladaEm)}` : null}
+          {requisicao.motivoCancelamento ? ` — ${requisicao.motivoCancelamento}` : null}
+        </p>
+      ) : null}
+
       {acoes}
     </article>
   );
@@ -253,11 +279,13 @@ export default async function RequisicoesPage({
     // arquivadas — arquivar é decluttering das listas do GESTOR, não some com o
     // pedido de quem o criou.
     buscarRequisicoes({ solicitanteId: userId }, 30),
-    decide ? buscarRequisicoes({ status: "PENDENTE" }, 100, "asc") : Promise.resolve([]),
-    decide ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: false }, 15) : Promise.resolve([]),
-    mostrarArquivadas
-      ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: true }, 50)
+    decide ? buscarRequisicoes({ status: "PENDENTE", cancelada: false }, 100, "asc") : Promise.resolve([]),
+    decide
+      ? buscarRequisicoes({ status: { not: "PENDENTE" }, cancelada: false, arquivada: false }, 15)
       : Promise.resolve([]),
+    // Arquivadas inclui as excluídas (a exclusão arquiva junto) — inclusive as
+    // que estavam PENDENTES quando foram excluídas, por isso sem filtro de status.
+    mostrarArquivadas ? buscarRequisicoes({ arquivada: true }, 50) : Promise.resolve([]),
     decide ? locaisDisponiveis() : Promise.resolve([]),
   ]);
 
@@ -276,7 +304,7 @@ export default async function RequisicoesPage({
       {decide ? (
         <Panel
           title={`Aguardando decisão (${pendentes.length})`}
-          description="Pedidos pendentes de todos os solicitantes, do mais antigo pro mais novo. Confirmar dá baixa no estoque do Omie no local que você escolher; recusar exige motivo."
+          description="Pedidos pendentes de todos os solicitantes, do mais antigo pro mais novo. Confirmar dá baixa no estoque do Omie no local que você escolher; recusar exige motivo. Excluir tira o pedido da fila sem apagar o histórico."
         >
           {pendentes.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum pedido aguardando decisão.</p>
@@ -288,14 +316,20 @@ export default async function RequisicoesPage({
                   requisicao={requisicao}
                   mostrarSolicitante
                   acoes={
-                    <DecidirRequisicao
-                      requisicaoId={requisicao.id}
-                      locais={locais}
-                      itens={requisicao.itens
-                        .filter((item) => item.status !== "BAIXADO")
-                        .map((item) => ({ id: item.id, sku: item.sku }))}
-                      localAtualCodigo={requisicao.localEstoqueCodigo ?? undefined}
-                    />
+                    <div className="flex flex-col gap-3">
+                      <DecidirRequisicao
+                        requisicaoId={requisicao.id}
+                        locais={locais}
+                        itens={requisicao.itens
+                          .filter((item) => item.status !== "BAIXADO")
+                          .map((item) => ({ id: item.id, sku: item.sku }))}
+                        localAtualCodigo={requisicao.localEstoqueCodigo ?? undefined}
+                      />
+                      <ExcluirRequisicao
+                        requisicaoId={requisicao.id}
+                        itensBaixados={requisicao.itens.filter((item) => item.status === "BAIXADO").length}
+                      />
+                    </div>
                   }
                 />
               ))}
@@ -346,7 +380,15 @@ export default async function RequisicoesPage({
                   key={requisicao.id}
                   requisicao={requisicao}
                   mostrarSolicitante
-                  acoes={<ArquivarRequisicao requisicaoId={requisicao.id} arquivada={false} />}
+                  acoes={
+                    <div className="flex flex-col gap-3">
+                      <ArquivarRequisicao requisicaoId={requisicao.id} arquivada={false} />
+                      <ExcluirRequisicao
+                        requisicaoId={requisicao.id}
+                        itensBaixados={requisicao.itens.filter((item) => item.status === "BAIXADO").length}
+                      />
+                    </div>
+                  }
                 />
               ))}
             </div>
@@ -366,7 +408,7 @@ export default async function RequisicoesPage({
       {mostrarArquivadas ? (
         <Panel
           title={`Arquivadas (${arquivadas.length})`}
-          description="Pedidos arquivados — fora das listas do dia a dia, mas preservados aqui e no relatório."
+          description="Pedidos arquivados e excluídos — fora das listas do dia a dia, mas preservados aqui e no relatório."
         >
           {arquivadas.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhuma requisição arquivada.</p>
@@ -377,7 +419,13 @@ export default async function RequisicoesPage({
                   key={requisicao.id}
                   requisicao={requisicao}
                   mostrarSolicitante
-                  acoes={<ArquivarRequisicao requisicaoId={requisicao.id} arquivada={true} />}
+                  // Excluída não desarquiva (a action recusa) — o cartão só mostra
+                  // quem excluiu e por quê.
+                  acoes={
+                    requisicao.cancelada ? null : (
+                      <ArquivarRequisicao requisicaoId={requisicao.id} arquivada={true} />
+                    )
+                  }
                 />
               ))}
             </div>

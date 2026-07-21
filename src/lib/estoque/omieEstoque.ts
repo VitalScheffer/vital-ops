@@ -73,6 +73,9 @@ function* emBlocos<T>(itens: readonly T[], tamanho: number): Generator<T[]> {
 export interface ProdutoEstoque {
   idProd: string; // codigo_produto (id interno do Omie)
   descricao: string;
+  // Unidade de medida do cadastro (KG, M3, UN...). Ausente quando o produto está
+  // sem unidade no Omie — a UI só não mostra o rótulo.
+  unidade?: string;
   // produto_lote === "S": exige informar o lote consumido na baixa (saída).
   // Omitido/false quando o produto não tem controle de lote.
   controleLote?: boolean;
@@ -101,9 +104,11 @@ export async function buscarProdutosPorCodigo(
       const idProd = texto(registro.codigo_produto);
       if (!codigo || !idProd) continue;
       const controleLote = texto(registro.produto_lote)?.toUpperCase() === "S";
+      const unidade = texto(registro.unidade)?.trim();
       mapa.set(codigo, {
         idProd,
         descricao: texto(registro.descricao) ?? "",
+        ...(unidade ? { unidade } : {}),
         ...(controleLote ? { controleLote: true } : {}),
       });
     }
@@ -114,6 +119,7 @@ export async function buscarProdutosPorCodigo(
 export interface ProdutoResumo {
   codigo: string; // SKU (o que o solicitante escolhe)
   descricao: string;
+  unidade?: string; // KG, M3, UN... (cadastro do Omie; só exibição)
 }
 
 // Busca de catálogo para o autocomplete (requisição/baixa). Uma leitura por
@@ -148,7 +154,8 @@ export async function buscarProdutosPorDescricao(
       // "INATIVO1-"/"INATIVO-" na DESCRIÇÃO (o cadastro segue ativo no Omie,
       // então o campo `inativo` não pega). Fora da busca.
       if (semAcento(descricao).trimStart().startsWith("inativo")) continue;
-      saida.push({ codigo, descricao });
+      const unidade = texto(registro.unidade)?.trim();
+      saida.push({ codigo, descricao, ...(unidade ? { unidade } : {}) });
     }
   }
   if (saida.length > 0) return saida;
@@ -158,7 +165,11 @@ export async function buscarProdutosPorDescricao(
   const porCodigo = await buscarProdutosPorCodigo([q], chamar);
   const doCodigo: ProdutoResumo[] = [];
   for (const [codigo, produto] of porCodigo) {
-    doCodigo.push({ codigo, descricao: produto.descricao });
+    doCodigo.push({
+      codigo,
+      descricao: produto.descricao,
+      ...(produto.unidade ? { unidade: produto.unidade } : {}),
+    });
   }
   return doCodigo;
 }

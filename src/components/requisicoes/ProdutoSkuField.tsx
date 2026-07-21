@@ -20,7 +20,9 @@ interface ProdutoSkuFieldProps {
   value: string;
   descricao?: string;
   onChange: (value: string) => void;
-  onPick: (codigo: string, descricao: string) => void;
+  // `unidade` (KG, M3, UN...) vem do cadastro do Omie; ausente quando o produto
+  // não tem unidade lá. Quem não usa o dado só declara os dois primeiros params.
+  onPick: (codigo: string, descricao: string, unidade?: string) => void;
   index: number;
   buscar: BuscarProdutosFn;
   saldoDe: SaldoProdutoFn;
@@ -99,7 +101,7 @@ export function ProdutoSkuField({
   }
 
   async function escolher(produto: ProdutoResumo) {
-    onPick(produto.codigo, produto.descricao);
+    onPick(produto.codigo, produto.descricao, produto.unidade);
     setAberto(false);
     setResultados([]);
     setAtivo(-1);
@@ -141,7 +143,9 @@ export function ProdutoSkuField({
 
   return (
     <div
-      className="relative flex-1"
+      // `min-w-0`: sem isso o input (largura intrínseca ~20 caracteres) impede o
+      // flex item de encolher e a linha estoura no celular.
+      className="relative min-w-0 flex-1"
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAberto(false);
       }}
@@ -198,7 +202,12 @@ export function ProdutoSkuField({
                       i === ativo ? "bg-muted" : ""
                     }`}
                   >
-                    <span className="font-mono text-xs text-card-foreground">{produto.codigo}</span>
+                    <span className="font-mono text-xs text-card-foreground">
+                      {produto.codigo}
+                      {produto.unidade ? (
+                        <span className="ml-1.5 font-sans text-muted-foreground">({produto.unidade})</span>
+                      ) : null}
+                    </span>
                     <span className="text-sm text-card-foreground">{produto.descricao}</span>
                   </button>
                 </li>

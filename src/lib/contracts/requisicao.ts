@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+// A exclusão pelo gestor NÃO é um status: é a flag `cancelada` na Requisicao
+// (ortogonal à decisão, igual a `arquivada`) — um pedido excluído preserva se
+// tinha sido aprovado ou recusado antes.
 export const requisicaoStatusSchema = z.enum(["PENDENTE", "CONFIRMADA", "RECUSADA"]);
 export type RequisicaoStatus = z.infer<typeof requisicaoStatusSchema>;
 
@@ -39,6 +42,15 @@ export const decidirRequisicaoSchema = z.object({
     .optional(),
 });
 export type DecidirRequisicaoInput = z.infer<typeof decidirRequisicaoSchema>;
+
+// Exclusão (cancelamento) de um pedido pelo gestor. O motivo é OBRIGATÓRIO: dá
+// pra cancelar em qualquer status, inclusive um já confirmado — cujos itens já
+// baixaram estoque no Omie —, então o registro tem que explicar o porquê.
+export const cancelarRequisicaoSchema = z.object({
+  id: z.string().min(1),
+  motivo: z.string().trim().min(3).max(500),
+});
+export type CancelarRequisicaoInput = z.infer<typeof cancelarRequisicaoSchema>;
 
 // Número sequencial exibido como "REQ-0001" (o inteiro vem do autoincrement).
 export function formatarNumeroRequisicao(numero: number): string {

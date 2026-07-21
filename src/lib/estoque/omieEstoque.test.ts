@@ -87,6 +87,22 @@ describe("buscarProdutosPorCodigo", () => {
     expect(mapa.get("SEM LOTE")?.controleLote).toBeUndefined();
     expect(mapa.get("OMISSO")?.controleLote).toBeUndefined();
   });
+
+  it("traz a unidade de medida do cadastro (ausente/vazia fica indefinida)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      produto_servico_cadastro: [
+        { codigo: "POR KG", codigo_produto: 1, descricao: "Chapa", unidade: "KG" },
+        { codigo: "POR M3", codigo_produto: 2, descricao: "Madeira", unidade: " M3 " },
+        { codigo: "VAZIA", codigo_produto: 3, descricao: "Sem unidade", unidade: "  " },
+        { codigo: "OMISSA", codigo_produto: 4, descricao: "Nada" },
+      ],
+    });
+    const mapa = await buscarProdutosPorCodigo(["POR KG", "POR M3", "VAZIA", "OMISSA"], chamar);
+    expect(mapa.get("POR KG")?.unidade).toBe("KG");
+    expect(mapa.get("POR M3")?.unidade).toBe("M3");
+    expect(mapa.get("VAZIA")?.unidade).toBeUndefined();
+    expect(mapa.get("OMISSA")?.unidade).toBeUndefined();
+  });
 });
 
 describe("saldosPorCodigo", () => {
@@ -368,6 +384,27 @@ describe("buscarProdutosPorDescricao", () => {
     expect(call2).toBe("ListarProdutos");
     expect(param2).toMatchObject({ produtosPorCodigo: [{ codigo: "PRD00026" }] });
     expect(produtos).toEqual([{ codigo: "PRD00026", descricao: "Cama box" }]);
+  });
+
+  it("leva a unidade de medida junto — nos dois caminhos (descrição e código)", async () => {
+    const porDescricao = vi.fn<ChamarFn>().mockResolvedValue({
+      produto_servico_cadastro: [{ codigo: "P1", descricao: "Chapa MDF", unidade: "M3" }],
+    });
+    expect(await buscarProdutosPorDescricao("chapa", porDescricao)).toEqual([
+      { codigo: "P1", descricao: "Chapa MDF", unidade: "M3" },
+    ]);
+
+    const porCodigo = vi
+      .fn<ChamarFn>()
+      .mockResolvedValueOnce({ produto_servico_cadastro: [] })
+      .mockResolvedValueOnce({
+        produto_servico_cadastro: [
+          { codigo: "PRD00026", codigo_produto: 5, descricao: "Espuma", unidade: "KG" },
+        ],
+      });
+    expect(await buscarProdutosPorDescricao("PRD00026", porCodigo)).toEqual([
+      { codigo: "PRD00026", descricao: "Espuma", unidade: "KG" },
+    ]);
   });
 });
 

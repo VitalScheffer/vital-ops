@@ -6,7 +6,7 @@
 
 import { formatarNumeroRequisicao } from "@/lib/contracts";
 import {
-  quantidadeTexto,
+  quantidadeComUnidade,
   statusItemLabel,
   statusRequisicaoLabel,
   resumoRelatorio,
@@ -65,8 +65,22 @@ export async function gerarRelatorioPdf(
     ambar: rgb(0.74, 0.5, 0.11),
   };
 
-  const corStatusReq = (status: string) =>
-    status === "CONFIRMADA" ? COR.verde : status === "RECUSADA" ? COR.vermelho : COR.ambar;
+  const corStatusReq = (req: RequisicaoRelatorio) =>
+    req.cancelada
+      ? COR.cinza
+      : req.status === "CONFIRMADA"
+        ? COR.verde
+        : req.status === "RECUSADA"
+          ? COR.vermelho
+          : COR.ambar;
+
+  // Rótulo do cabeçalho: excluída ganha destaque, mantendo a decisão anterior
+  // entre parênteses (ex.: "EXCLUÍDA (APROVADA)").
+  const rotuloStatusReq = (req: RequisicaoRelatorio) => {
+    const decisao = statusRequisicaoLabel(req.status).toUpperCase();
+    if (!req.cancelada) return decisao;
+    return req.status === "PENDENTE" ? "EXCLUÍDA" : `EXCLUÍDA (${decisao})`;
+  };
   const corStatusItem = (status: string) =>
     status === "BAIXADO" ? COR.verde : status === "FALHA" ? COR.vermelho : COR.cinza;
 
@@ -200,9 +214,10 @@ export async function gerarRelatorioPdf(
     escrever(rotulo, x + larguraDe(String(valor), 12, true) + 5, y - 15.5, { size: 8.5, cor: COR.cinza });
   };
   chip("pedidos", resumo.total, MARGEM + 12, COR.tinta);
-  chip("aprovados", resumo.aprovadas, MARGEM + 130, COR.verde);
-  chip("recusados", resumo.recusadas, MARGEM + 265, COR.vermelho);
-  chip("aguardando", resumo.pendentes, MARGEM + 395, COR.ambar);
+  chip("aprovados", resumo.aprovadas, MARGEM + 110, COR.verde);
+  chip("recusados", resumo.recusadas, MARGEM + 218, COR.vermelho);
+  chip("excluídos", resumo.excluidas, MARGEM + 326, COR.cinza);
+  chip("aguardando", resumo.pendentes, MARGEM + 428, COR.ambar);
   y -= 24 + 16;
 
   if (requisicoes.length === 0) {
@@ -215,12 +230,12 @@ export async function gerarRelatorioPdf(
     assegurar(22 + 14 + 16 + 15);
 
     pagina.drawRectangle({ x: MARGEM, y: y - 20, width: DIR - MARGEM, height: 20, color: COR.faixaSecao });
-    pagina.drawRectangle({ x: MARGEM, y: y - 20, width: 3, height: 20, color: corStatusReq(req.status) });
+    pagina.drawRectangle({ x: MARGEM, y: y - 20, width: 3, height: 20, color: corStatusReq(req) });
     escrever(formatarNumeroRequisicao(req.numero), MARGEM + 10, y - 14, { size: 11, bold: true, cor: COR.tinta });
-    escrever(statusRequisicaoLabel(req.status).toUpperCase(), DIR - 8, y - 14, {
+    escrever(rotuloStatusReq(req), DIR - 8, y - 14, {
       size: 9,
       bold: true,
-      cor: corStatusReq(req.status),
+      cor: corStatusReq(req),
       alinhar: "dir",
     });
     y -= 20 + 6;
@@ -234,6 +249,8 @@ export async function gerarRelatorioPdf(
     );
     y -= 12;
 
+    // Linha da decisão do gestor (uma requisição excluída pode ter sido decidida
+    // antes: as duas linhas saem, na ordem em que aconteceram).
     if (req.status !== "PENDENTE") {
       const partes: string[] = [
         `${req.status === "CONFIRMADA" ? "Aprovada" : "Recusada"}${req.gestor ? ` por ${req.gestor}` : ""}`,
@@ -244,13 +261,20 @@ export async function gerarRelatorioPdf(
       escrever(partes.join(" "), MARGEM + 2, y, { size: 8.5, cor: COR.cinza, larguraMax: DIR - MARGEM - 4 });
       y -= 12;
     }
+    if (req.cancelada) {
+      const partes: string[] = [`Excluída${req.canceladaPor ? ` por ${req.canceladaPor}` : ""}`];
+      if (req.canceladaEm) partes.push(`em ${req.canceladaEm}`);
+      if (req.motivoCancelamento) partes.push(`· motivo: ${req.motivoCancelamento}`);
+      escrever(partes.join(" "), MARGEM + 2, y, { size: 8.5, cor: COR.vermelho, larguraMax: DIR - MARGEM - 4 });
+      y -= 12;
+    }
     y -= 3;
 
     // Cabeçalho da tabela de itens.
     assegurar(14 + 14);
     escrever("CÓDIGO", COL.sku, y, { size: 7.5, bold: true, cor: COR.cinza });
     escrever("DESCRIÇÃO", COL.desc, y, { size: 7.5, bold: true, cor: COR.cinza });
-    escrever("QTD", COL.qtdDir, y, { size: 7.5, bold: true, cor: COR.cinza, alinhar: "dir" });
+    escrever("QTD / UN.", COL.qtdDir, y, { size: 7.5, bold: true, cor: COR.cinza, alinhar: "dir" });
     escrever("SITUAÇÃO", COL.sit, y, { size: 7.5, bold: true, cor: COR.cinza });
     y -= 4;
     pagina.drawLine({ start: { x: MARGEM, y }, end: { x: DIR, y }, thickness: 0.7, color: COR.regua });
@@ -260,7 +284,11 @@ export async function gerarRelatorioPdf(
       assegurar(13 + 10);
       escrever(item.sku, COL.sku, y, { size: 8.5, cor: COR.tinta, larguraMax: COL.desc - COL.sku - 6 });
       escrever(item.descricao, COL.desc, y, { size: 8.5, cor: COR.tinta, larguraMax: COL.descW });
-      escrever(quantidadeTexto(item.quantidade), COL.qtdDir, y, { size: 8.5, cor: COR.tinta, alinhar: "dir" });
+      escrever(quantidadeComUnidade(item.quantidade, item.unidade), COL.qtdDir, y, {
+        size: 8.5,
+        cor: COR.tinta,
+        alinhar: "dir",
+      });
       escrever(statusItemLabel(item.status), COL.sit, y, {
         size: 8.5,
         bold: item.status !== "PENDENTE",

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
 import {
+  cancelarRequisicaoSchema,
   criarRequisicaoSchema,
   decidirRequisicaoSchema,
   formatarNumeroRequisicao,
@@ -32,7 +33,7 @@ import type { FormState } from "@/lib/form";
 import { chamar } from "@/lib/omie";
 import { OmieBlocked } from "@/lib/omie/errors";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
-import { canDecideRequisicao, canViewRequisicoes } from "@/lib/rbac";
+import { canCancelRequisicao, canDecideRequisicao, canViewRequisicoes } from "@/lib/rbac";
 import { agruparPorLocal, localEfetivo } from "@/lib/requisicoes/locaisPorItem";
 import { requestHeaders } from "@/lib/request";
 
@@ -190,6 +191,9 @@ export async function criarRequisicao(_prev: FormState, formData: FormData): Pro
           sku: item.sku,
           descricao: produtos.get(item.sku)?.descricao ?? "",
           quantidade: item.quantidade,
+          // Unidade congelada no momento do pedido (o cadastro do Omie pode
+          // mudar depois; o pedido tem que mostrar em que unidade foi feito).
+          unidade: produtos.get(item.sku)?.unidade ?? null,
           omieIdProd: produtos.get(item.sku)?.idProd,
         })),
       },
@@ -249,6 +253,9 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
   });
   if (!requisicao) {
     return { status: "error", message: "Requisição não encontrada." };
+  }
+  if (requisicao.cancelada) {
+    return { status: "error", message: "Esta requisição foi excluída e não pode mais ser decidida." };
   }
   if (requisicao.status !== "PENDENTE") {
     return { status: "error", message: "Esta requisição já foi decidida." };
@@ -499,10 +506,13 @@ export async function arquivarRequisicao(id: string, arquivar: boolean = true): 
 
   const requisicao = await prisma.requisicao.findUnique({
     where: { id: alvo },
-    select: { id: true, numero: true, status: true, arquivada: true },
+    select: { id: true, numero: true, status: true, arquivada: true, cancelada: true },
   });
   if (!requisicao) {
     return { status: "error", message: "Requisição não encontrada." };
+  }
+  if (requisicao.cancelada) {
+    return { status: "error", message: "Esta requisição foi excluída — o arquivamento dela é definitivo." };
   }
   if (arquivar && requisicao.status === "PENDENTE") {
     return { status: "error", message: "Só dá para arquivar pedidos já confirmados ou recusados." };
@@ -529,6 +539,89 @@ export async function arquivarRequisicao(id: string, arquivar: boolean = true): 
 
   revalidatePath("/requisicoes");
   return { status: "success", message: `Requisição ${numero} ${arquivar ? "arquivada" : "desarquivada"}.` };
+}
+
+// Exclui (cancela) um pedido — gestor da fábrica/gestor/admin, em QUALQUER
+// status. É soft delete: liga a flag `cancelada` e arquiva, guardando quem
+// excluiu e o motivo, SEM mexer no `status` (a decisão anterior é preservada).
+// Nada é apagado — o pedido continua no relatório e em "Meus pedidos", pra quem
+// pediu entender por que sumiu da fila.
+//
+// ATENÇÃO: cancelar NÃO estorna estoque. Itens já baixados seguem baixados no
+// Omie; o estorno, se for o caso, é feito lá. A UI avisa isso antes de excluir.
+export async function cancelarRequisicao(id: string, motivo: string): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user?.email || !session.user.id) {
+    return unauthenticated();
+  }
+  const permissions = await getRolePermissionsMap();
+  if (!canCancelRequisicao(session.user.role, permissions)) {
+    return { status: "error", message: "Apenas o Gestor da Fábrica, Gestor ou Administrador exclui requisições." };
+  }
+
+  const parsed = cancelarRequisicaoSchema.safeParse({ id, motivo });
+  if (!parsed.success) {
+    return { status: "error", message: "Informe o motivo da exclusão (pelo menos 3 caracteres)." };
+  }
+
+  const requisicao = await prisma.requisicao.findUnique({
+    where: { id: parsed.data.id },
+    select: {
+      id: true,
+      numero: true,
+      status: true,
+      cancelada: true,
+      solicitanteNome: true,
+      itens: { select: { status: true } },
+    },
+  });
+  if (!requisicao) {
+    return { status: "error", message: "Requisição não encontrada." };
+  }
+
+  const numero = formatarNumeroRequisicao(requisicao.numero);
+  if (requisicao.cancelada) {
+    return { status: "error", message: `Requisição ${numero} já estava excluída.` };
+  }
+
+  const baixados = requisicao.itens.filter((item) => item.status === "BAIXADO").length;
+  const agora = new Date();
+
+  // `status` fica como estava (preserva a decisão); arquiva junto pra o pedido
+  // já sair das listas do dia a dia pelo filtro que já existe.
+  await prisma.requisicao.update({
+    where: { id: parsed.data.id },
+    data: {
+      cancelada: true,
+      canceladaPorId: session.user.id,
+      canceladaEm: agora,
+      motivoCancelamento: parsed.data.motivo,
+      arquivada: true,
+      arquivadaEm: agora,
+    },
+  });
+
+  await audit({
+    actor: { id: session.user.id, email: session.user.email },
+    action: "requisicao.cancelar",
+    entity: "Requisicao",
+    entityId: parsed.data.id,
+    summary:
+      `Excluiu a requisição ${numero} (solicitante ${requisicao.solicitanteNome}). Motivo: ${parsed.data.motivo}` +
+      (baixados > 0 ? ` — ATENÇÃO: ${baixados} item(ns) já baixado(s) no Omie NÃO foram estornados.` : ""),
+    before: { status: requisicao.status, cancelada: false },
+    after: { status: requisicao.status, cancelada: true, motivo: parsed.data.motivo, itensJaBaixados: baixados },
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/requisicoes");
+  if (baixados > 0) {
+    return {
+      status: "success",
+      message: `Requisição ${numero} excluída. Atenção: ${baixados} item(ns) já tinham baixado no Omie e NÃO foram estornados — faça o estorno no Omie se precisar.`,
+    };
+  }
+  return { status: "success", message: `Requisição ${numero} excluída.` };
 }
 
 // -----------------------------------------------------------------------------
@@ -575,6 +668,7 @@ export async function relatorioRequisicoes(input: unknown): Promise<DadosRelator
       itens: { orderBy: { sku: "asc" } },
       setor: { select: { nome: true } },
       gestor: { select: { name: true } },
+      canceladaPor: { select: { name: true } },
     },
     orderBy: { numero: "asc" },
     take: 1000,
@@ -590,10 +684,15 @@ export async function relatorioRequisicoes(input: unknown): Promise<DadosRelator
     decididaEm: req.decididaEm ? formatarDataHora(req.decididaEm) : null,
     motivoDecisao: req.motivoDecisao,
     localEstoqueNome: req.localEstoqueNome,
+    cancelada: req.cancelada,
+    canceladaPor: req.canceladaPor?.name ?? null,
+    canceladaEm: req.canceladaEm ? formatarDataHora(req.canceladaEm) : null,
+    motivoCancelamento: req.motivoCancelamento,
     itens: req.itens.map((item) => ({
       sku: item.sku,
       descricao: item.descricao,
       quantidade: Number(item.quantidade),
+      unidade: item.unidade,
       status: item.status,
       motivoErro: item.motivoErro,
     })),

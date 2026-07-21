@@ -6,13 +6,14 @@ export interface ItemRelatorio {
   sku: string;
   descricao: string;
   quantidade: number;
+  unidade?: string | null; // KG, M3, UN... (cadastro do Omie; null nos itens antigos)
   status: string; // PENDENTE | BAIXADO | FALHA
   motivoErro?: string | null;
 }
 
 export interface RequisicaoRelatorio {
   numero: number;
-  status: string; // PENDENTE | CONFIRMADA | RECUSADA
+  status: string; // PENDENTE | CONFIRMADA | RECUSADA (a decisão, mesmo se excluída)
   solicitanteNome: string;
   setor: string;
   criadoEm: string; // já formatado (dd/mm/aaaa hh:mm)
@@ -20,6 +21,11 @@ export interface RequisicaoRelatorio {
   decididaEm?: string | null;
   motivoDecisao?: string | null;
   localEstoqueNome?: string | null;
+  // Excluída pelo gestor (soft delete) — independe do status da decisão.
+  cancelada?: boolean;
+  canceladaPor?: string | null;
+  canceladaEm?: string | null;
+  motivoCancelamento?: string | null;
   itens: ItemRelatorio[];
 }
 
@@ -47,17 +53,30 @@ export function quantidadeTexto(quantidade: number): string {
   return quantidade.toLocaleString("pt-BR");
 }
 
+// Quantidade com a unidade do Omie ao lado (ex.: "1.500 KG"). Sem unidade
+// cadastrada, sai só o número.
+export function quantidadeComUnidade(quantidade: number, unidade?: string | null): string {
+  const numero = quantidadeTexto(quantidade);
+  const un = unidade?.trim();
+  return un ? `${numero} ${un}` : numero;
+}
+
 export interface ResumoRelatorio {
   total: number;
   aprovadas: number;
   recusadas: number;
+  excluidas: number;
   pendentes: number;
 }
 
-// Totais por status (o "aguardando" é o que sobra — cobre qualquer status novo).
+// Totais por bucket EXCLUSIVO (somam o total): excluída conta como excluída,
+// independente da decisão que tinha antes; o "aguardando" é o que sobra —
+// cobre qualquer status novo.
 export function resumoRelatorio(requisicoes: readonly RequisicaoRelatorio[]): ResumoRelatorio {
   const total = requisicoes.length;
-  const aprovadas = requisicoes.filter((r) => r.status === "CONFIRMADA").length;
-  const recusadas = requisicoes.filter((r) => r.status === "RECUSADA").length;
-  return { total, aprovadas, recusadas, pendentes: total - aprovadas - recusadas };
+  const vivas = requisicoes.filter((r) => !r.cancelada);
+  const aprovadas = vivas.filter((r) => r.status === "CONFIRMADA").length;
+  const recusadas = vivas.filter((r) => r.status === "RECUSADA").length;
+  const excluidas = total - vivas.length;
+  return { total, aprovadas, recusadas, excluidas, pendentes: total - aprovadas - recusadas - excluidas };
 }

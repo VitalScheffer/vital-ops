@@ -2804,3 +2804,87 @@ errado. A identidade agora sao os tres blocos.
 - O formato antigo nao tem arquivo de desenho real aqui para validar o
   casamento fim a fim (so o BOM `C4MEC M01 R00`). Confirmar com o Lucas se
   desenho antigo ainda sera impresso por essa tela.
+
+## 2026-07-21 - Requisicoes: excluir pedido (gestor da fabrica) + unidade de medida do Omie
+
+### Resumo
+Dois pedidos na tela de Requisicoes:
+1. **Excluir requisicao** disponivel para o Gestor da Fabrica.
+2. **Unidade de medida do produto** (a `unidade` do cadastro do Omie: KG, M3, UN...)
+   aparecendo ao lado da quantidade, preenchida sozinha e bloqueada, so para
+   mostrar em que unidade o item esta sendo pedido.
+
+Escopo confirmado com o usuario antes de codar: exclusao e **soft delete**
+(cancelamento com registro de quem excluiu e por que), liberada para o gestor da
+fabrica em **qualquer status**.
+
+### Arquivos criados
+- `prisma/migrations/20260721190000_requisicao_cancelada_e_unidade/migration.sql`
+  4 colunas em `Requisicao` (`cancelada`, `canceladaPorId`, `canceladaEm`,
+  `motivoCancelamento`) + `unidade` em `RequisicaoItem` + FK para `User`.
+- `src/components/requisicoes/ExcluirRequisicao.tsx` botao "Excluir" que abre um
+  confirmar inline com motivo obrigatorio e o aviso de estoque ja baixado.
+
+### Arquivos alterados
+- `prisma/schema.prisma` campos acima + relacao `Cancelador` em `User`.
+- `src/lib/estoque/omieEstoque.ts` `ProdutoEstoque.unidade` e `ProdutoResumo.unidade`,
+  lidos de `registro.unidade` em `buscarProdutosPorCodigo` e nos dois caminhos de
+  `buscarProdutosPorDescricao` (descricao e fallback por codigo). Zero chamada nova
+  ao Omie: o campo ja vinha na mesma resposta de `ListarProdutos` e era descartado.
+- `src/lib/contracts/requisicao.ts` `cancelarRequisicaoSchema` (motivo min 3, max 500).
+- `src/lib/rbac.ts` `canCancelRequisicao`.
+- `src/app/(app)/requisicoes/actions.ts` Server Action `cancelarRequisicao(id, motivo)`;
+  `criarRequisicao` grava a `unidade`; `decidirRequisicao` e `arquivarRequisicao`
+  recusam pedido ja excluido; relatorio carrega os campos novos.
+- `src/app/(app)/requisicoes/page.tsx` coluna "Un." na tabela de itens, selo
+  "Excluida (Confirmada)", linha com quem excluiu/motivo, botao de excluir nos dois
+  paineis do gestor, filtros das listas.
+- `src/components/requisicoes/CriarRequisicaoForm.tsx` campo de unidade `readOnly`
+  + `disabled` ao lado da quantidade, preenchido ao escolher o produto.
+- `src/components/requisicoes/ProdutoSkuField.tsx` `onPick` passa a unidade;
+  unidade tambem aparece no dropdown de busca; `min-w-0` para a linha nao estourar
+  no celular (agora sao 4 elementos na mesma linha).
+- `src/lib/requisicoes/relatorio.ts` + `relatorioPdf.ts` `quantidadeComUnidade`,
+  coluna "QTD / UN.", chip "excluidos" no resumo, linha de exclusao no bloco.
+- Testes: `omieEstoque.test.ts` (+2), `relatorio.test.ts` (+2), `navigation.test.ts` (+1).
+
+### Decisoes importantes
+- **`cancelada` e uma FLAG, nao um status.** Primeira versao usava
+  `status: "CANCELADA"`, mas isso apaga a informacao de quem tinha aprovado ou
+  recusado o pedido antes. Virou booleano ortogonal (mesmo padrao do `arquivada`
+  que ja existia), entao um pedido excluido preserva a decisao anterior e a tela
+  mostra "Excluida (Confirmada)".
+- **Excluir arquiva junto.** Reaproveita o filtro que ja existia: o pedido sai das
+  listas do dia a dia e reaparece em "Ver arquivadas", sem painel novo.
+- **Motivo obrigatorio.** Da para excluir pedido ja confirmado, cujos itens ja
+  baixaram estoque no Omie, entao o registro precisa explicar o porque. Se pesar no
+  dia a dia, e so afrouxar o `min(3)` no `cancelarRequisicaoSchema`.
+- **Exclusao NAO estorna estoque no Omie.** O aviso aparece no confirmar (com a
+  contagem de itens ja baixados), na mensagem de sucesso e na auditoria.
+- **Unidade e copiada na criacao, nao lida na hora de exibir.** O cadastro do Omie
+  pode mudar depois; o pedido tem que mostrar a unidade em que foi feito. Itens
+  criados antes desta mudanca ficam com `unidade` null e a tela mostra "-".
+- **Unidade nao vai no payload do cliente.** O form so exibe; o servidor le a
+  unidade do Omie de novo na criacao (o cliente nao define esse dado).
+- **`min-w-0` no ProdutoSkuField.** Input tem largura intrinseca de ~20 caracteres,
+  o que trava o encolhimento do flex item e estouraria a linha no mobile.
+
+### Comandos relevantes
+- `npx prisma generate` (obrigatorio: o client estava desatualizado, era a causa
+  dos 17 erros de tsc anotados na pendencia da sessao anterior).
+- `npx tsc --noEmit` -> 0. `npx eslint src` -> 0. `npm run test` -> 27 arquivos,
+  319 testes passando. `npm run build` -> sucesso.
+
+### Pendencias / proximos passos
+- **Migration ainda NAO aplicada no banco.** Ela roda sozinha no deploy
+  (`vercel-build` = `prisma migrate deploy`). Nao rodei `prisma migrate dev` aqui
+  para nao tocar o banco de producao.
+- **Falta validar com produto real do Omie** que o campo `unidade` vem preenchido
+  para os itens de KG/M3. Atencao: produto cadastrado pelo proprio Vital Ops sai
+  com `UNIDADE_FIXA = "UN"` (`src/lib/produtos/envioOmie.ts`); KG/M3 so aparecem em
+  produto cadastrado direto no Omie.
+- **Bug pre-existente, fora do escopo:** ~30 usos de `text-destructive` /
+  `bg-destructive` em 12 arquivos nao correspondem a nenhum token do tema. O
+  `globals.css` define `--color-danger`, nao `destructive`, entao essas mensagens de
+  erro nao ficam vermelhas: herdam a cor do pai. Meus arquivos novos usam `danger`.
+  Vale uma troca em massa `destructive` -> `danger` numa proxima passada.
