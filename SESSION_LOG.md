@@ -2875,6 +2875,20 @@ fabrica em **qualquer status**.
 - `npx tsc --noEmit` -> 0. `npx eslint src` -> 0. `npm run test` -> 27 arquivos,
   319 testes passando. `npm run build` -> sucesso.
 
+### Correcao no mesmo dia (apos teste do usuario em producao)
+Excluida ainda aparecia em "Meus pedidos" (print do REQ-0008 "Excluida (Recusada)").
+Eu tinha deixado de proposito, pro solicitante entender por que o pedido sumiu;
+o usuario decidiu que excluida **nao aparece em tela nenhuma**, e so no banco,
+na auditoria e no relatorio PDF.
+- `src/app/(app)/requisicoes/page.tsx`: constante `VISIVEL = { cancelada: false }`
+  espalhada nas 4 buscas da tela (minhas, pendentes, decididas, arquivadas), pra
+  lista nova nao esquecer o filtro. Removi o que virou codigo morto: linha
+  "Excluida por ... em ... motivo", o include de `canceladaPor` e o ramo que
+  escondia o botao de desarquivar. `decididaRecentemente` voltou ao original.
+- Mantive de proposito o ramo de excluida no `selo()`: e rede de seguranca. Se
+  alguma busca futura esquecer o `VISIVEL`, o pedido aparece marcado
+  "Excluida (Recusada)" em vermelho em vez de se passar por pedido normal.
+
 ### Pendencias / proximos passos
 - **Migration ainda NAO aplicada no banco.** Ela roda sozinha no deploy
   (`vercel-build` = `prisma migrate deploy`). Nao rodei `prisma migrate dev` aqui

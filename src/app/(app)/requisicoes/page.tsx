@@ -40,8 +40,9 @@ function formatarQuantidade(quantidade: unknown): string {
   return Number(quantidade).toLocaleString("pt-BR");
 }
 
-// Rótulo/estilo do selo: excluída tem prioridade sobre a decisão, mas mantém a
-// decisão anterior à vista (ex.: "Excluída (Confirmada)").
+// Rede de segurança: as listas já filtram excluída (VISIVEL), então isto só
+// aparece se alguma busca nova esquecer o filtro. Sem esse ramo, um pedido
+// excluído que vazasse se passaria por pedido normal ("Aguardando gestor").
 function selo(requisicao: RequisicaoComTudo): { texto: string; classe: string } {
   const decisao = STATUS_LABEL[requisicao.status] ?? requisicao.status;
   if (!requisicao.cancelada) {
@@ -60,12 +61,19 @@ const TRES_DIAS_MS = 3 * 24 * 60 * 60 * 1000;
 // Notificação in-app: destaca no "Meus pedidos" o que o gestor decidiu nos
 // últimos 3 dias, pra o solicitante perceber sem precisar de e-mail/WhatsApp.
 function decididaRecentemente(requisicao: RequisicaoComTudo): boolean {
-  // Excluída também é "novidade" pro solicitante: o pedido dele sumiu da fila e
-  // ele precisa ver o motivo.
-  const marco = requisicao.cancelada ? requisicao.canceladaEm : requisicao.decididaEm;
-  if (!requisicao.cancelada && requisicao.status === "PENDENTE") return false;
-  return marco != null && Date.now() - marco.getTime() < TRES_DIAS_MS;
+  return (
+    requisicao.status !== "PENDENTE" &&
+    requisicao.decididaEm != null &&
+    Date.now() - requisicao.decididaEm.getTime() < TRES_DIAS_MS
+  );
 }
+
+// Requisição EXCLUÍDA não aparece em tela nenhuma — nem pro gestor, nem pro
+// solicitante em "Meus pedidos", nem atrás do filtro de arquivadas. O registro
+// continua no banco, na auditoria e no relatório PDF (é soft delete, não some
+// nada). Filtro único, espalhado em TODA busca desta tela: lista nova que
+// esqueça de aplicar volta a vazar pedido excluído.
+const VISIVEL = { cancelada: false };
 
 // A fila do gestor é FIFO ("asc": o pedido mais antigo primeiro, ninguém fica
 // pra trás); as listas de acompanhamento mostram o mais recente primeiro.
@@ -77,7 +85,6 @@ function buscarRequisicoes(where: object, take: number, ordem: "asc" | "desc" = 
       setor: { select: { nome: true } },
       solicitante: { select: { name: true, email: true } },
       gestor: { select: { name: true } },
-      canceladaPor: { select: { name: true } },
     },
     orderBy: { criadoEm: ordem },
     take,
@@ -238,15 +245,6 @@ function CartaoRequisicao({
         </p>
       ) : null}
 
-      {requisicao.cancelada ? (
-        <p className="text-xs text-danger">
-          Excluída
-          {requisicao.canceladaPor ? ` por ${requisicao.canceladaPor.name}` : null}
-          {requisicao.canceladaEm ? ` em ${formatarDataHora(requisicao.canceladaEm)}` : null}
-          {requisicao.motivoCancelamento ? ` — ${requisicao.motivoCancelamento}` : null}
-        </p>
-      ) : null}
-
       {acoes}
     </article>
   );
@@ -274,18 +272,18 @@ export default async function RequisicoesPage({
   const [setores, membership, minhas, pendentes, decididas, arquivadas, locais] = await Promise.all([
     prisma.setor.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     prisma.userSetor.findFirst({ where: { userId }, select: { setorId: true } }),
-    // "Meus pedidos" mostra TODOS os do solicitante (inclusive arquivados pelo
-    // gestor): a lista já é pequena e escopada, e ele não tem filtro de
-    // arquivadas — arquivar é decluttering das listas do GESTOR, não some com o
-    // pedido de quem o criou.
-    buscarRequisicoes({ solicitanteId: userId }, 30),
-    decide ? buscarRequisicoes({ status: "PENDENTE", cancelada: false }, 100, "asc") : Promise.resolve([]),
+    // "Meus pedidos" mostra os arquivados pelo gestor (a lista já é pequena e
+    // escopada, e ele não tem filtro de arquivadas — arquivar é decluttering das
+    // listas do GESTOR, não some com o pedido de quem o criou), mas NÃO os
+    // excluídos: excluir some pra todo mundo.
+    buscarRequisicoes({ solicitanteId: userId, ...VISIVEL }, 30),
+    decide ? buscarRequisicoes({ status: "PENDENTE", ...VISIVEL }, 100, "asc") : Promise.resolve([]),
     decide
-      ? buscarRequisicoes({ status: { not: "PENDENTE" }, cancelada: false, arquivada: false }, 15)
+      ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: false, ...VISIVEL }, 15)
       : Promise.resolve([]),
-    // Arquivadas inclui as excluídas (a exclusão arquiva junto) — inclusive as
-    // que estavam PENDENTES quando foram excluídas, por isso sem filtro de status.
-    mostrarArquivadas ? buscarRequisicoes({ arquivada: true }, 50) : Promise.resolve([]),
+    mostrarArquivadas
+      ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: true, ...VISIVEL }, 50)
+      : Promise.resolve([]),
     decide ? locaisDisponiveis() : Promise.resolve([]),
   ]);
 
@@ -408,7 +406,7 @@ export default async function RequisicoesPage({
       {mostrarArquivadas ? (
         <Panel
           title={`Arquivadas (${arquivadas.length})`}
-          description="Pedidos arquivados e excluídos — fora das listas do dia a dia, mas preservados aqui e no relatório."
+          description="Pedidos arquivados — fora das listas do dia a dia, mas preservados aqui e no relatório."
         >
           {arquivadas.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhuma requisição arquivada.</p>
@@ -419,13 +417,7 @@ export default async function RequisicoesPage({
                   key={requisicao.id}
                   requisicao={requisicao}
                   mostrarSolicitante
-                  // Excluída não desarquiva (a action recusa) — o cartão só mostra
-                  // quem excluiu e por quê.
-                  acoes={
-                    requisicao.cancelada ? null : (
-                      <ArquivarRequisicao requisicaoId={requisicao.id} arquivada={true} />
-                    )
-                  }
+                  acoes={<ArquivarRequisicao requisicaoId={requisicao.id} arquivada={true} />}
                 />
               ))}
             </div>
