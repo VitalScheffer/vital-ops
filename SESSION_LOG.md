@@ -2964,3 +2964,66 @@ O botao do cabecalho tambem e a saida de quem fechou o modal em "Agora nao".
 - Falta teste humano: subir duas versoes seguidas e ver o modal aparecer.
 - O changelog do Pranchas foi escrito agora; a entrega anterior tinha ficado
   sem entrada em /novidades.
+
+## 2026-07-21 (parte 4) - Modo brilho escondido (easter egg da logo)
+
+### Resumo
+Pedido: estilizar o Vital Ops com animacoes profissionais (topo, barra lateral,
+fundo e botoes) que a pessoa liga se quiser. No meio da sessao o usuario trocou
+o botao visivel por um easter egg: DOIS CLIQUES rapidos na logo do cabecalho
+ligam/desligam o "modo brilho". A escolha persiste por navegador (localStorage
+`vs-sparkle` -> atributo `data-sparkle` no `<html>`, reaplicado antes do
+primeiro paint pelo mesmo script do tema). Por pedido explicito, NADA foi
+escrito no changelog (/novidades): o modo e segredo.
+
+O que o modo liga (tudo CSS puro, escopado em `:root[data-sparkle="on"]`):
+- Fundo: "aurora" fixa no topo da tela (3 brilhos radiais petroleo/turquesa/
+  agua deslocando devagar, mask esvaindo pra baixo). Sem as bolhas do login
+  (o usuario nao gosta delas).
+- Header: fio de 2px com gradiente da marca deslizando na borda inferior,
+  titulo "Vital Ops" com gradiente + brilho que vai e volta, halo pulsando
+  atras da logo.
+- Barra lateral: entrada em cascata (35ms por item), barrinha turquesa que
+  DESLIZA ate o item ativo ao navegar, glow + gradiente animado no ativo,
+  "pop" no icone e 2px de deslocamento no hover.
+- Botoes: micro-lift (sobe 1px no hover, afunda no clique) em todos; gradiente
+  animado + reflexo diagonal ("shine") no hover dos primarios.
+- Burst de 8 estrelinhas (Sparkles/lucide) saindo da logo ao ligar.
+
+### Arquivos alterados
+- `src/app/globals.css` - secao "Modo brilho" inteira: keyframes vs-*,
+  variaveis `--sparkle-grad-acao`/`--sparkle-grad-titulo` por tema, e bloco
+  `prefers-reduced-motion` desligando tudo.
+- `src/app/layout.tsx` - `THEME_INIT` tambem aplica `data-sparkle` antes do
+  primeiro paint.
+- `src/components/AppShell.tsx` - a logo saiu do `<Link>` e virou botao com
+  detector de clique duplo (400ms) + burst; classes `app-header`/`app-title`/
+  `app-logo`/`nav-item`; barrinha `.nav-glide` posicionada por medicao real
+  (offsetTop/offsetHeight do item ativo, remedida em pathname/mobileOpen).
+  O caminho pra home continua no titulo "Vital Ops" ao lado da logo.
+
+### Decisoes importantes
+- **Logo fora do Link**: clique duplo em link navegaria no primeiro clique;
+  agora um clique na logo nao faz nada (o titulo ao lado leva pra home).
+- **`[class~="bg-primary"]`** casa so o token exato (nao pega `bg-primary/10`
+  de chips) e `:is(button, a)`: spans (badge do sino, bolinhas do Tutorial)
+  ficam de fora. `:not(:disabled)` preserva o visual de desabilitado
+  (`disabled:bg-muted` continuaria escondido atras do gradiente sem isso).
+- **Cascata com `animation-fill-mode: backwards`** (nao forwards/both):
+  forwards travaria o `transform` no fim da animacao e mataria o hover.
+- **Contraste**: gradiente de acao termina no teal no claro (texto branco
+  >= 4.5:1) e vai de turquesa a agua no escuro (texto escuro). Titulo passa
+  pelo turquesa so numa faixa estreita do gradiente.
+- **Transicao de pagina intocada** (fade puro sem deslocamento, escolha
+  registrada no proprio globals.css).
+- Animacoes so de transform/opacity/background-position; com o modo desligado
+  nenhuma regra se aplica e o app fica identico ao de antes.
+
+### Comandos relevantes
+- `npx tsc --noEmit` e `npx eslint` nos arquivos alterados (ver abaixo).
+
+### Pendencias / proximos passos
+- Falta teste humano: ligar o modo (2 cliques na logo), conferir claro/escuro,
+  mobile e se a intensidade agrada; ajustar se precisar.
+- O diff de outra frente (ConfiguracaoCard.tsx + entrada de changelog de
+  Projetos) continua no working tree, FORA deste commit.

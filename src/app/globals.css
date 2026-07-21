@@ -215,6 +215,282 @@
   }
 }
 
+/* ===================== Modo brilho (easter egg) =====================
+   Liga/desliga com dois cliques rápidos na logo do topo (AppShell) e persiste
+   por navegador (localStorage "vs-sparkle" -> atributo data-sparkle no <html>,
+   reaplicado antes do primeiro paint pelo script do layout, igual ao tema).
+   Tudo abaixo só existe com data-sparkle="on"; as animações usam
+   transform/opacity/background-position (leves) e respeitam
+   prefers-reduced-motion. */
+
+:root {
+  /* Gradiente de ação (botões primários/item ativo): termina no teal pra
+     manter o contraste do texto branco. */
+  --sparkle-grad-acao: linear-gradient(115deg, var(--vs-petroleo), var(--vs-teal) 55%, var(--vs-petroleo));
+  --sparkle-grad-titulo: linear-gradient(100deg, var(--vs-petroleo), var(--vs-teal) 38%, var(--vs-turquesa) 50%, var(--vs-teal) 62%, var(--vs-petroleo));
+}
+/* No escuro o texto de ação é escuro, então o gradiente vai mais claro. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sparkle-grad-acao: linear-gradient(115deg, var(--vs-turquesa), var(--vs-agua) 55%, var(--vs-turquesa));
+    --sparkle-grad-titulo: linear-gradient(100deg, var(--vs-agua), var(--vs-turquesa) 38%, #c2f2ec 50%, var(--vs-turquesa) 62%, var(--vs-agua));
+  }
+}
+:root[data-theme="dark"] {
+  --sparkle-grad-acao: linear-gradient(115deg, var(--vs-turquesa), var(--vs-agua) 55%, var(--vs-turquesa));
+  --sparkle-grad-titulo: linear-gradient(100deg, var(--vs-agua), var(--vs-turquesa) 38%, #c2f2ec 50%, var(--vs-turquesa) 62%, var(--vs-agua));
+}
+
+/* Desliza o background (gradientes com background-size > 100%). Reusado por
+   título, botões primários e item ativo da navegação. */
+@keyframes vs-grad-slide {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: 100% 0;
+  }
+}
+
+/* Aurora no topo da tela: camada fixa atrás de tudo com três brilhos radiais
+   (petróleo/turquesa/água) que se deslocam bem devagar. Só transform/opacity. */
+:root[data-sparkle="on"] body::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: -25%;
+  width: 150%;
+  height: 45vh;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 40% 85% at 25% 0%, color-mix(in srgb, var(--vs-teal) 20%, transparent), transparent 70%),
+    radial-gradient(ellipse 35% 70% at 55% 0%, color-mix(in srgb, var(--vs-turquesa) 17%, transparent), transparent 70%),
+    radial-gradient(ellipse 40% 85% at 80% 0%, color-mix(in srgb, var(--vs-agua) 15%, transparent), transparent 70%);
+  mask-image: linear-gradient(to bottom, black 25%, transparent);
+  animation: vs-aurora 16s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+@keyframes vs-aurora {
+  from {
+    transform: translate3d(-4%, 0, 0);
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+  to {
+    transform: translate3d(4%, 0, 0);
+    opacity: 0.8;
+  }
+}
+
+/* Fio "aurora" na borda inferior do header: gradiente da marca deslizando.
+   background-size 200% + posição -200% = ciclo exato, emenda invisível. */
+:root[data-sparkle="on"] .app-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--vs-petroleo) 15%,
+    var(--vs-turquesa) 40%,
+    var(--vs-agua) 50%,
+    var(--vs-turquesa) 60%,
+    var(--vs-petroleo) 85%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: vs-aurora-line 7s linear infinite;
+}
+@keyframes vs-aurora-line {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Título "Vital Ops" com gradiente da marca e brilho que vai e volta. */
+:root[data-sparkle="on"] .app-title {
+  background-image: var(--sparkle-grad-titulo);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: vs-grad-slide 6s ease-in-out infinite alternate;
+}
+
+/* Halo pulsando atrás da logo (opacidade num ::after, composição na GPU). */
+:root[data-sparkle="on"] .app-logo::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 16px 3px color-mix(in srgb, var(--vs-turquesa) 50%, transparent);
+  opacity: 0;
+  animation: vs-halo 3.5s ease-in-out infinite;
+}
+@keyframes vs-halo {
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Navegação lateral: barrinha que desliza até o item ativo (posição medida
+   no AppShell e passada por style), entrada em cascata, "pop" no hover e
+   gradiente animado + glow no ativo. */
+.nav-glide {
+  display: none;
+}
+:root[data-sparkle="on"] .nav-glide {
+  display: block;
+  position: absolute;
+  left: -8px;
+  width: 3px;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, var(--vs-turquesa), var(--vs-agua));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--vs-turquesa) 60%, transparent);
+  transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1), height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+/* "backwards" (e não "both/forwards"): depois que a cascata acaba, o item
+   volta ao estilo natural; forwards travaria o transform e mataria o hover. */
+:root[data-sparkle="on"] .nav-item {
+  animation: vs-nav-in 0.4s ease backwards;
+  animation-delay: calc(var(--nav-i, 0) * 35ms);
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+:root[data-sparkle="on"] .nav-item:hover {
+  transform: translateX(2px);
+}
+:root[data-sparkle="on"] .nav-item svg {
+  transition: transform 0.15s ease;
+}
+:root[data-sparkle="on"] .nav-item:hover svg {
+  transform: scale(1.1);
+}
+:root[data-sparkle="on"] .nav-item-active {
+  background-image: var(--sparkle-grad-acao);
+  background-size: 180% 100%;
+  box-shadow: 0 4px 16px -6px color-mix(in srgb, var(--vs-turquesa) 60%, transparent);
+  animation:
+    vs-nav-in 0.4s ease backwards,
+    vs-grad-slide 7s ease-in-out infinite alternate;
+  animation-delay: calc(var(--nav-i, 0) * 35ms), 0s;
+}
+@keyframes vs-nav-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+/* Botões: micro-lift em todos; gradiente animado + reflexo ("shine") no hover
+   dos primários. [class~="bg-primary"] casa só o token exato (não bg-primary/10),
+   então pega os botões/links sólidos sem tocar em chips e badges (spans). */
+:root[data-sparkle="on"] button:not(:disabled) {
+  transition:
+    transform 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    box-shadow 0.15s ease;
+}
+:root[data-sparkle="on"] button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+:root[data-sparkle="on"] button:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+}
+/* :not(:disabled) importa: desabilitado precisa continuar caindo no
+   disabled:bg-muted/opacity de cada botão, sem gradiente por cima. */
+:root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(:disabled) {
+  position: relative;
+  overflow: hidden;
+  background-image: var(--sparkle-grad-acao);
+  background-size: 180% 100%;
+  animation: vs-grad-slide 7s ease-in-out infinite alternate;
+}
+:root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(:disabled)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -80%;
+  width: 60%;
+  transform: skewX(-18deg);
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  opacity: 0;
+}
+:root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(:disabled):hover::before {
+  animation: vs-shine 0.65s ease;
+}
+@keyframes vs-shine {
+  from {
+    left: -80%;
+    opacity: 1;
+  }
+  to {
+    left: 130%;
+    opacity: 1;
+  }
+}
+
+/* Estrelinhas que explodem da logo ao ligar o modo (direções via --dx/--dy).
+   opacity 0 fora da animação = nada aparece antes do delay nem depois do fim. */
+.sparkle-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sparkle-star {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  animation: vs-star 0.7s ease-out;
+}
+@keyframes vs-star {
+  from {
+    transform: translate(-50%, -50%) scale(0.4) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1) rotate(var(--dr, 60deg));
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-sparkle="on"] body::after,
+  :root[data-sparkle="on"] .app-header::after,
+  :root[data-sparkle="on"] .app-title,
+  :root[data-sparkle="on"] .app-logo::after,
+  :root[data-sparkle="on"] .nav-item,
+  :root[data-sparkle="on"] .nav-item-active,
+  :root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(:disabled),
+  :root[data-sparkle="on"] :is(button, a)[class~="bg-primary"]:not(:disabled):hover::before,
+  .sparkle-star {
+    animation: none;
+  }
+  :root[data-sparkle="on"] .nav-glide {
+    transition: none;
+  }
+  :root[data-sparkle="on"] .nav-item:hover,
+  :root[data-sparkle="on"] .nav-item:hover svg,
+  :root[data-sparkle="on"] button:not(:disabled):hover,
+  :root[data-sparkle="on"] button:not(:disabled):active {
+    transform: none;
+  }
+}
+
 /* Reserva o espaço da barra de rolagem sempre. Sem isso, ao trocar de tela
    (página curta -> longa e vice-versa) a barra some/aparece e empurra o layout
    ~15px, e a barra lateral "retraía e voltava". */
