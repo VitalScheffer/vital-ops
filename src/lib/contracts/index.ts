@@ -4,3 +4,4 @@ export * from "./user";
 export * from "./produto";
 export * from "./requisicao";
 export * from "./baixa";
+export * from "./configuracao";

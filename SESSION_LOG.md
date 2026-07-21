@@ -2498,3 +2498,84 @@ Corrigido para usar `nQuantDisponivel`. Achei e corrigi tambem um bug latente de
 - A conferencia (tela) continua mostrando o saldo FISICO do local (`nSaldo`), que inclui reserva.
   Entao da pra conferir 138 e a baixa falhar por lote em 132. Se incomodar, o proximo passo e a
   conferencia tambem olhar o disponivel por lote (custa 1 leitura por SKU com lote).
+
+## 2026-07-21 - Configurador de produto (Maca Padiola): viabilidade e plano
+
+### Resumo
+Pedido: tela no vital-ops onde o comercial configura um produto por opcoes (Maca
+Padiola como primeiro caso), e o resultado cai numa tela NOVA no nextstep para a
+equipe de Projetos (Jonathan / projetos02@). Esta sessao foi so levantamento de
+viabilidade nos 3 repos envolvidos + plano. Nenhum codigo alterado.
+
+### Levantamento
+- vital-ops: nao existe nada de configurador (greenfield). Os 5 papeis fixos nao
+  incluem comercial e nenhum vendedor esta cadastrado (prisma/seed.ts so tem
+  admin@ e gestor@). Escrita = Server Actions + audit() + changelog.
+- nextstep (origin/main): acesso por membership de Sector. Setores existentes em
+  apps/accounts/sectors.py: Comercial, Financeiro, Logistica, Geral. NAO existe
+  setor Projetos. NAO existe auth por token/API key para sistema externo: as
+  unicas portas nao-sessao sao os webhooks HMAC (Meta, D4Sign) e o form publico
+  de lead. Molde de modulo de setor = apps/logistica (models + services + board +
+  auditoria campo a campo). "Tela nova" = novo ViewId em frontend/app/page.tsx,
+  nao rota nova. ATENCAO: o checkout local esta na branch
+  feat/disparo-multiselect-vendedor, defasado (a main tem apps/pcp e apps/reports).
+- configurador-cama-hospitalar: ja faz configuracao por opcoes para a cama
+  (EC2+SQLite, HTML monolitico com as opcoes chumbadas no markup). Nao sera
+  reaproveitado como codigo, mas 2 ideias vem dele: o codigo determinstico da
+  configuracao e a checagem "essa combinacao ja tem projeto CAD?".
+
+### Decisoes (usuario, 2026-07-21)
+1. Configurador no vital-ops; tela de Projetos no nextstep. Implica construir a
+   ponte entre os dois sistemas (foi apresentada a alternativa de fazer tudo no
+   nextstep, sem integracao; o usuario optou pelo split).
+2. Configuracao AVULSA, sem vinculo com lead/cliente. Quem preenche e o pessoal
+   do comercial (ex.: Rodrigo Sefas).
+3. Setor novo "Projetos" no nextstep, com membership dupla (Projetos + Logistica).
+4. A tela do Jonathan: ve, responde (status + numero do projeto CAD) e detecta
+   combinacoes repetidas.
+
+### Arquitetura
+- Catalogo orientado a DADOS, nao chumbado: Produto -> Grupo -> Opcao, com flag
+  isPadrao, ordem, e tipos alem de radio (opcao que exige texto, caso do "OUTRO
+  PESO - INDICAR" e "OUTRA MEDIDA"). Assim a Maca Padiola e o primeiro registro e
+  o proximo produto e cadastro, nao deploy. (A Maca ja esta definida: 10 grupos +
+  observacoes adicionais.)
+- Codigo de identidade determinstico, derivado de grupo+opcao numa ordem estavel
+  (derivado do catalogo, nao escrito a mao como no configurador da cama). As
+  observacoes adicionais NAO entram no codigo, senao a deteccao de repetidos
+  nunca casa; entram como flag "tem observacao".
+- "Fora do padrao" calculado comparando a selecao com a opcao padrao. E o
+  destaque principal da tela do Jonathan, mais util que a lista completa.
+- No nextstep, snapshot desnormalizado (padrao Delivery/Pickup): o board nao
+  consulta o vital-ops para renderizar.
+- Ponte: POST assinado com HMAC SHA-256 do vital-ops para o nextstep, no molde de
+  apps/webhooks (services/signature.py reutilizavel + WebhookEvent para raw,
+  idempotencia e reprocesso). Outbox com retry do lado do vital-ops. Callback na
+  direcao inversa (nextstep -> vital-ops) devolvendo status e numero do CAD, mesmo
+  mecanismo, segredo separado.
+
+### Plano por fases (fatiado para entregar valor antes do encanamento)
+- Fase 1 (vital-ops, ja testavel sozinha): schema do catalogo + seed da Maca
+  Padiola + modulo/tela do configurador + codigo de identidade + destaque de fora
+  do padrao + persistencia local. Acesso: perfil customizado "Comercial" (model
+  Perfil ja existe, criado por /configuracoes) com apenas o modulo novo, em vez de
+  inventar papel fixo. Criar os logins do comercial.
+- Fase 2 (nextstep): apps/projetos + setor Projetos + is_projetos no
+  UserSerializer + nav-access + projetos-view + deteccao de repetidos + resposta
+  com numero do CAD. Alimentada por seed/import manual nesta fase.
+- Fase 3: a ponte HMAC + outbox/retry.
+- Fase 4: callback de resposta (status + CAD) de volta para o vital-ops.
+
+### Pendencias / proximos passos
+- Confirmar a lista de logins do comercial no vital-ops. ATENCAO: o Rodrigo Sefas
+  loga como vendas10@ mas o e-mail dele e vendas01@; o login do vital-ops e por
+  e-mail @vitalscheffer.com.br, entao definir qual vale.
+- O usuario vai compilar as opcoes dos demais produtos; o catalogo tem que
+  aguentar isso sem deploy.
+- Imagem do produto: a render da maca ja existe e nao muda por enquanto.
+- Lembrar: entrada em src/lib/changelog.ts em toda entrega do vital-ops;
+  responsividade mobile (breakpoint 768) na tela do nextstep.
+- Seguranca (achado colateral, fora do escopo): CamaHospitalarFTP/send.php tem a
+  senha do e-mail em texto puro, e o SESSION_LOG do configurador-cama-hospitalar
+  tem AWS access key + secret em texto puro (a rotacao ja esta anotada la como
+  pendencia aberta). Vale rotacionar.

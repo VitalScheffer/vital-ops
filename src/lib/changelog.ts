@@ -13,6 +13,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-07-21",
+    title: "Novo: Configurador de produto (Maca Padiola)",
+    items: [
+      "Nova tela Configurador: escolha as opções do produto (material, estrutura, leito, rodízios, grades, soro, oxigênio, peso e medidas) olhando a foto de referência. A opção marcada como \"padrão\" é a do modelo da foto.",
+      "Precisa de um peso ou uma medida diferente do padrão? Escolha \"Outro peso\" ou \"Outra medida\" e digite o valor. Tem um pedido do cliente que não está nas opções? Use Observações adicionais.",
+      "Enquanto você marca, o resumo à direita mostra o código da configuração e a lista do que ficou FORA do padrão — que é justamente o que a equipe de Projetos precisa ver.",
+      "Ao enviar, a configuração ganha um número (ex.: CFG-0001) e fica registrada na própria tela, com o código e os desvios. A entrega automática na tela da equipe de Projetos (NextStep) vem na próxima etapa.",
+      "Acesso: o Administrador libera o módulo Configurador em Configurações, inclusive para um perfil próprio do comercial.",
+    ],
+  },
+  {
     date: "2026-07-20",
     title: "Baixa de produto com lote: corrigida a recusa do Omie",
     items: [

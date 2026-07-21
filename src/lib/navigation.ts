@@ -1,12 +1,19 @@
 import type { Role } from "@/lib/contracts";
 import { hasModuleAccess, type RolePermissionsMap } from "@/lib/permissions";
-import { canManageUsers, canViewAudit, canViewBaixas, canViewRequisicoes } from "@/lib/rbac";
+import {
+  canManageUsers,
+  canViewAudit,
+  canViewBaixas,
+  canViewConfigurador,
+  canViewRequisicoes,
+} from "@/lib/rbac";
 
 // Chaves de ícone (mapeadas para SVGs do lucide no componente cliente da barra).
 export type NavIcon =
   | "home"
   | "products"
   | "pranchas"
+  | "configurador"
   | "requisicoes"
   | "baixas"
   | "users"
@@ -58,6 +65,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description: "Junte os desenhos de um conjunto num PDF único pronto para imprimir.",
     icon: "pranchas",
     visibleTo: (role, permissions) => hasModuleAccess(role, "pranchas", permissions),
+  },
+  {
+    key: "configurador",
+    href: "/configurador",
+    label: "Configurador",
+    description: "Monte o produto opção por opção e envie a especificação para a equipe de Projetos.",
+    icon: "configurador",
+    visibleTo: canViewConfigurador,
   },
   {
     key: "requisicoes",

@@ -12,6 +12,7 @@ import { MODULES, type Module, type PerfilView, type RolePermissionsMap } from "
 const MODULE_LABEL: Record<Module, string> = {
   products: "Produtos",
   pranchas: "Pranchas",
+  configurador: "Configurador",
   requisicoes: "Requisições",
   baixas: "Baixa de estoque",
   users: "Usuários e setores",

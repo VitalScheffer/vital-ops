@@ -7,6 +7,7 @@ import {
   PackageMinus,
   ScrollText,
   Settings,
+  SlidersHorizontal,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -21,6 +22,7 @@ const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
   products: Boxes,
   pranchas: Layers,
+  configurador: SlidersHorizontal,
   requisicoes: ClipboardList,
   baixas: PackageMinus,
   users: Users,

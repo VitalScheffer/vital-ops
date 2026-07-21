@@ -19,6 +19,7 @@ describe("buildRolePermissionsMap", () => {
     expect(map.GESTOR).toEqual({
       products: true,
       pranchas: true,
+      configurador: true,
       requisicoes: true,
       baixas: true,
       users: true,
@@ -31,6 +32,7 @@ describe("buildRolePermissionsMap", () => {
     expect(buildRolePermissionsMap([]).FABRICA).toEqual({
       products: false,
       pranchas: false,
+      configurador: false,
       requisicoes: true,
       baixas: false,
       users: false,
@@ -65,6 +67,7 @@ describe("buildRolePermissionsMap", () => {
     expect(map["perfil-abc"]).toEqual({
       products: false,
       pranchas: false,
+      configurador: false,
       requisicoes: true,
       baixas: false,
       users: false,
@@ -82,10 +85,12 @@ describe("buildRolePermissionsMap", () => {
       { role: "ADMIN", module: "baixas", enabled: false },
       { role: "ADMIN", module: "users", enabled: false },
       { role: "ADMIN", module: "products", enabled: false },
+      { role: "ADMIN", module: "configurador", enabled: false },
     ]);
     expect(map.ADMIN).toEqual({
       products: true,
       pranchas: true,
+      configurador: true,
       requisicoes: true,
       baixas: true,
       users: true,

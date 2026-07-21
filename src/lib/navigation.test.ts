@@ -8,6 +8,7 @@ import {
   canManageUsers,
   canViewAudit,
   canViewBaixas,
+  canViewConfigurador,
   canViewPranchas,
   canViewRequisicoes,
 } from "@/lib/rbac";
@@ -17,7 +18,7 @@ const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 describe("visibleNavFor", () => {
   it("FUNCIONARIO vê os módulos operacionais (sem Usuários, Auditoria nem Configurações)", () => {
     const keys = visibleNavFor("FUNCIONARIO", DEFAULT).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "pranchas", "requisicoes", "baixas"]);
+    expect(keys).toEqual(["home", "produtos", "pranchas", "configurador", "requisicoes", "baixas"]);
   });
 
   it("FABRICA vê SÓ Início e Requisições", () => {
@@ -36,6 +37,7 @@ describe("visibleNavFor", () => {
       "home",
       "produtos",
       "pranchas",
+      "configurador",
       "requisicoes",
       "baixas",
       "usuarios",
@@ -49,6 +51,7 @@ describe("visibleNavFor", () => {
       "home",
       "produtos",
       "pranchas",
+      "configurador",
       "requisicoes",
       "baixas",
       "usuarios",
@@ -69,7 +72,15 @@ describe("visibleNavFor", () => {
       GESTOR: { ...DEFAULT.GESTOR, audit: false },
     };
     const keys = visibleNavFor("GESTOR", semAuditoria).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "pranchas", "requisicoes", "baixas", "usuarios"]);
+    expect(keys).toEqual([
+      "home",
+      "produtos",
+      "pranchas",
+      "configurador",
+      "requisicoes",
+      "baixas",
+      "usuarios",
+    ]);
   });
 
   it("respeita permissões customizadas: Pranchas some sem afetar Produtos", () => {
@@ -78,7 +89,7 @@ describe("visibleNavFor", () => {
       FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
     };
     const keys = visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "requisicoes", "baixas"]);
+    expect(keys).toEqual(["home", "produtos", "configurador", "requisicoes", "baixas"]);
   });
 
   it("Configurações continua fora do menu de GESTOR mesmo com todos os módulos habilitados", () => {
@@ -125,6 +136,30 @@ describe("rbac", () => {
       GESTOR: { ...DEFAULT.GESTOR, requisicoes: false },
     };
     expect(canDecideRequisicao("GESTOR", semRequisicoes)).toBe(false);
+  });
+
+  it("configurador: papéis de fábrica não têm por padrão (é módulo do comercial)", () => {
+    expect(canViewConfigurador("FUNCIONARIO", DEFAULT)).toBe(true);
+    expect(canViewConfigurador("FABRICA", DEFAULT)).toBe(false);
+    expect(canViewConfigurador("FABRICA_GESTOR", DEFAULT)).toBe(false);
+  });
+
+  it("configurador é liberável por perfil customizado (o caso do Comercial)", () => {
+    const comercial: RolePermissionsMap = {
+      ...DEFAULT,
+      "perfil-comercial": {
+        products: false,
+        pranchas: false,
+        configurador: true,
+        requisicoes: false,
+        baixas: false,
+        users: false,
+        audit: false,
+      },
+    };
+    expect(canViewConfigurador("perfil-comercial", comercial)).toBe(true);
+    const keys = visibleNavFor("perfil-comercial", comercial).map((item) => item.key);
+    expect(keys).toEqual(["home", "configurador"]);
   });
 
   it("baixas por planilha: FABRICA não tem por padrão", () => {

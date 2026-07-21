@@ -26,6 +26,13 @@ export function canViewPranchas(role: Role, permissions: RolePermissionsMap): bo
   return hasModuleAccess(role, "pranchas", permissions);
 }
 
+// Configurador de produto: quem tem o módulo monta a configuração e acompanha as
+// que enviou. Módulo próprio (não pendurado em "products") porque o público é o
+// comercial, que não deve enxergar BOM/estoque.
+export function canViewConfigurador(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "configurador", permissions);
+}
+
 // Requisições de fábrica: quem tem o módulo pode SOLICITAR e acompanhar os
 // próprios pedidos (inclui o papel FABRICA, que só vê esta tela por padrão).
 export function canViewRequisicoes(role: Role, permissions: RolePermissionsMap): boolean {

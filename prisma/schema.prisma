@@ -46,6 +46,7 @@ model User {
   baixas               BaixaImport[] @relation("BaixaAutor")
   reports              Report[]     @relation("ReportAutor")
   reportsResolvidos    Report[]     @relation("ReportResolvedor")
+  configuracoes        Configuracao[] @relation("ConfiguracaoAutor")
 
   @@index([role])
 }
@@ -373,6 +374,67 @@ model MovimentoEstoque {
   @@index([requisicaoItemId])
   @@index([baixaItemId])
   @@index([sku])
+}
+
+// ---------------------------------------------------------------------------
+// Módulo Configurador de produto
+//
+// O comercial monta um produto escolhendo opção por opção (material, estrutura,
+// rodízios...) e envia; a equipe de Projetos recebe a especificação já com o que
+// FUGIU do padrão destacado, e devolve o número do projeto CAD.
+//
+// O CATÁLOGO de produtos/grupos/opções NÃO está no banco: vive em
+// `src/lib/configurador/catalogo.ts` (dados tipados em código). Enquanto não
+// existir tela de cadastro de catálogo, editar um arquivo + deploy é mais
+// simples e mais seguro do que semear tabelas na mão. Aqui fica só o que o
+// usuário PREENCHEU.
+//
+// `selecoes` é um snapshot desnormalizado (rótulos inclusive, não só as siglas):
+// se amanhã uma opção mudar de nome ou sair do catálogo, a configuração antiga
+// continua legível exatamente como foi enviada. Mesmo raciocínio do board de
+// logística do nextstep.
+//
+// `codigo` é a identidade determinística da combinação (mesmas escolhas = mesmo
+// código), o que permite detectar "essa maca já foi desenhada antes?". As
+// observações livres NÃO entram no código de propósito: se entrassem, todo texto
+// digitado geraria um código novo e a detecção de repetidos nunca casaria.
+//
+// status: ENVIADA | EM_ANALISE | ATENDIDA | RECUSADA (o ciclo é fechado pela
+// equipe de Projetos no nextstep; os campos de sincronização são a ponte).
+// ---------------------------------------------------------------------------
+
+model Configuracao {
+  id           String   @id @default(cuid())
+  numero       Int      @unique @default(autoincrement())
+  produtoSlug  String
+  produtoNome  String // snapshot do rótulo do catálogo no momento do envio
+  autorId      String
+  autorNome    String
+  autorEmail   String
+  codigo       String
+  selecoes     Json
+  foraDoPadrao Int      @default(0) // quantas escolhas diferem do padrão
+  observacoes  String?
+  status       String   @default("ENVIADA")
+  // Resposta da equipe de Projetos (chega pela ponte com o nextstep).
+  projetoCad     String?
+  respostaNota   String?
+  respondidoPor  String?
+  respondidoEm   DateTime?
+  // Ponte com o nextstep: enquanto `sincronizadoEm` for nulo, a configuração
+  // ainda não chegou na tela da equipe de Projetos.
+  sincronizadoEm    DateTime?
+  sincronizacaoErro String?
+  tentativasSync    Int       @default(0)
+  criadoEm          DateTime  @default(now())
+
+  autor User @relation("ConfiguracaoAutor", fields: [autorId], references: [id])
+
+  @@index([autorId])
+  @@index([codigo])
+  @@index([status])
+  @@index([produtoSlug])
+  @@index([criadoEm])
 }
 
 // ---------------------------------------------------------------------------

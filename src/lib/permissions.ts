@@ -11,7 +11,15 @@ import { PAPEIS_FIXOS, ROTULO_PAPEL_FIXO, type Role } from "@/lib/contracts";
 // marcados na matriz; não têm poderes especiais (decidir/relatórios são só dos
 // fixos).
 
-export const MODULES = ["products", "pranchas", "requisicoes", "baixas", "users", "audit"] as const;
+export const MODULES = [
+  "products",
+  "pranchas",
+  "configurador",
+  "requisicoes",
+  "baixas",
+  "users",
+  "audit",
+] as const;
 export type Module = (typeof MODULES)[number];
 
 export type RolePermissionsMap = Record<string, Record<Module, boolean>>;
@@ -19,16 +27,27 @@ export type RolePermissionsMap = Record<string, Record<Module, boolean>>;
 // Padrões dos papéis FIXOS: ADMIN e GESTOR têm tudo; FUNCIONARIO tem os módulos
 // operacionais menos Usuários/Auditoria; FABRICA e FABRICA_GESTOR veem SÓ
 // Requisições. Seed E fallback de qualquer combinação ainda sem linha no banco.
+// O Configurador é do COMERCIAL: os papéis fixos daqui são de fábrica/engenharia,
+// então quem usa a tela entra por um perfil customizado ("Comercial") com só esse
+// módulo marcado — por isso FABRICA/FABRICA_GESTOR ficam de fora por padrão.
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<Module, boolean>> = {
-  ADMIN: { products: true, pranchas: true, requisicoes: true, baixas: true, users: true, audit: true },
-  GESTOR: { products: true, pranchas: true, requisicoes: true, baixas: true, users: true, audit: true },
-  FUNCIONARIO: { products: true, pranchas: true, requisicoes: true, baixas: true, users: false, audit: false },
-  FABRICA: { products: false, pranchas: false, requisicoes: true, baixas: false, users: false, audit: false },
-  FABRICA_GESTOR: { products: false, pranchas: false, requisicoes: true, baixas: false, users: false, audit: false },
+  ADMIN: { products: true, pranchas: true, configurador: true, requisicoes: true, baixas: true, users: true, audit: true },
+  GESTOR: { products: true, pranchas: true, configurador: true, requisicoes: true, baixas: true, users: true, audit: true },
+  FUNCIONARIO: { products: true, pranchas: true, configurador: true, requisicoes: true, baixas: true, users: false, audit: false },
+  FABRICA: { products: false, pranchas: false, configurador: false, requisicoes: true, baixas: false, users: false, audit: false },
+  FABRICA_GESTOR: { products: false, pranchas: false, configurador: false, requisicoes: true, baixas: false, users: false, audit: false },
 };
 
 function moduloVazio(): Record<Module, boolean> {
-  return { products: false, pranchas: false, requisicoes: false, baixas: false, users: false, audit: false };
+  return {
+    products: false,
+    pranchas: false,
+    configurador: false,
+    requisicoes: false,
+    baixas: false,
+    users: false,
+    audit: false,
+  };
 }
 
 function isModule(value: string): value is Module {
