@@ -3022,8 +3022,31 @@ O que o modo liga (tudo CSS puro, escopado em `:root[data-sparkle="on"]`):
 ### Comandos relevantes
 - `npx tsc --noEmit` e `npx eslint` nos arquivos alterados (ver abaixo).
 
+### Ajustes na mesma sessao (feedback apos teste do usuario)
+1. **Barra lateral estava sutil demais; usuario pediu as cores da interface
+   nova do app do Gemini.** Entraram `--gem-azul #3e6de8`, `--gem-roxo #8b5cd6`
+   e `--gem-rosa #cc5069` (o degrade do Gemini levemente escurecido pra texto
+   branco ficar legivel). Aplicadas no item ativo da navegacao (degrade animado
+   + glow roxo + texto branco forcado, porque no escuro o
+   text-primary-foreground e escuro), na barrinha deslizante (4px, era 3px),
+   numa lavagem de gradiente no hover dos itens inativos, e nos botoes
+   primarios (degrade + glow, hover com glow maior). Aurora do fundo, fio do
+   header e titulo continuam nas cores da marca.
+2. **Flash no texto do item ao clicar na barra lateral.** Causa: ao trocar o
+   ativo, a lista de `animation` do item mudava ([vs-nav-in] <-> [vs-grad-slide])
+   e o navegador reiniciava a entrada em cascata (item sumia e reaparecia).
+   Correcao: itens de navegacao sairam da regra generica de `bg-primary`
+   (`:not(.nav-item)`) e o `.nav-item-active` mantem `vs-nav-in` NA MESMA
+   POSICAO da lista da regra `.nav-item`; só a `vs-grad-slide` entra/sai e a
+   entrada nao reinicia.
+3. **Shine removido de tudo.** O reflexo branco atravessando a escrita ficou
+   feio (lateral e botoes). Sairam o ::before, a keyframe vs-shine e o
+   overflow:hidden/position:relative que so existiam por causa dele.
+
 ### Pendencias / proximos passos
 - Falta teste humano: ligar o modo (2 cliques na logo), conferir claro/escuro,
   mobile e se a intensidade agrada; ajustar se precisar.
+- Se o usuario quiser, estender as cores Gemini tambem pra aurora do fundo,
+  fio do header e titulo (hoje seguem a marca petroleo/turquesa/agua).
 - O diff de outra frente (ConfiguracaoCard.tsx + entrada de changelog de
   Projetos) continua no working tree, FORA deste commit.
