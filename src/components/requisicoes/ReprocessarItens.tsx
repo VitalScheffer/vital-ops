@@ -12,6 +12,7 @@ import { FormFeedback } from "@/components/FormFeedback";
 import type { LocalOpcao } from "@/components/requisicoes/DecidirRequisicao";
 import { Select } from "@/components/ui/Select";
 import { IDLE_FORM_STATE } from "@/lib/form";
+import { itensCobertos, localQueCobreTudo } from "@/lib/requisicoes/saldoLocais";
 
 export interface ItemComFalhaOpcao {
   id: string;
@@ -140,16 +141,49 @@ export function ReprocessarItens({
   const [saldos, setSaldos] = useState<ResultadoSaldosPorLocal | null>(null);
   const [carregando, iniciarLeitura] = useTransition();
   const padrao = locais.find((local) => local.padrao)?.codigo;
-  const localDefault = localAtualCodigo ?? padrao ?? "";
+  // O local salvo no pedido é o que ACABOU DE FALHAR, então ele é só o ponto de
+  // partida até o saldo chegar: aí o seletor pula sozinho pro local que atende.
+  const [localEscolhido, setLocalEscolhido] = useState(localAtualCodigo ?? padrao ?? "");
 
   function carregarSaldos() {
     iniciarLeitura(async () => {
+      let resultado: ResultadoSaldosPorLocal;
       try {
-        setSaldos(await saldosPorLocalDosItens(requisicaoId));
+        resultado = await saldosPorLocalDosItens(requisicaoId);
       } catch {
-        setSaldos({ ok: false, erro: "Não consegui ler o saldo por local.", locais: [], itens: [] });
+        resultado = { ok: false, erro: "Não consegui ler o saldo por local.", locais: [], itens: [] };
+      }
+      setSaldos(resultado);
+      if (resultado.ok) {
+        const cobre = localQueCobreTudo(resultado.locais, resultado.itens);
+        if (cobre) setLocalEscolhido(cobre);
       }
     });
+  }
+
+  // Quantos dos itens com falha cada local atende, pra anotar no seletor. Sem o
+  // saldo lido ainda, fica vazio e o seletor mostra só o nome do local.
+  const cobertura = new Map<string, number>();
+  if (saldos?.ok) {
+    for (const local of saldos.locais) {
+      cobertura.set(local.codigo, itensCobertos(local.codigo, saldos.itens));
+    }
+  }
+
+  function rotuloLocal(local: LocalOpcao): string {
+    const base = `${local.descricao}${local.padrao ? " (padrão)" : ""}`;
+    const cobertos = cobertura.get(local.codigo);
+    if (cobertos === undefined || !saldos?.ok) return base;
+    return `${base} · ${cobertos}/${saldos.itens.length} com saldo`;
+  }
+
+  // No seletor DE UM ITEM o que importa é o saldo daquele item ali, não a
+  // cobertura do lote inteiro.
+  function rotuloLocalDoItem(local: LocalOpcao, sku: string): string {
+    const base = `${local.descricao}${local.padrao ? " (padrão)" : ""}`;
+    const item = saldos?.ok ? saldos.itens.find((linha) => linha.sku === sku) : undefined;
+    if (!item) return base;
+    return `${base} · saldo ${formatarQuantidade(item.saldos[local.codigo] ?? 0)}`;
   }
 
   if (!aberto) {
@@ -183,11 +217,14 @@ export function ReprocessarItens({
         <>
           <label className="flex flex-col gap-1.5 text-sm font-medium text-card-foreground">
             Local de estoque desta tentativa
-            <Select name="localCodigo" defaultValue={localDefault}>
+            <Select
+              name="localCodigo"
+              value={localEscolhido}
+              onChange={(e) => setLocalEscolhido(e.target.value)}
+            >
               {locais.map((local) => (
                 <option key={local.codigo} className="bg-card text-foreground" value={local.codigo}>
-                  {local.descricao}
-                  {local.padrao ? " (padrão)" : ""}
+                  {rotuloLocal(local)}
                 </option>
               ))}
             </Select>
@@ -207,7 +244,7 @@ export function ReprocessarItens({
         </>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Não consegui listar os locais do Omie agora — esta tentativa sai do local padrão.
+          Não consegui listar os locais do Omie agora, esta tentativa sai do local padrão.
         </p>
       )}
 
@@ -225,8 +262,7 @@ export function ReprocessarItens({
                   </option>
                   {locais.map((local) => (
                     <option key={local.codigo} className="bg-card text-foreground" value={local.codigo}>
-                      {local.descricao}
-                      {local.padrao ? " (padrão)" : ""}
+                      {rotuloLocalDoItem(local, item.sku)}
                     </option>
                   ))}
                 </Select>

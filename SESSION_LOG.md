@@ -3258,3 +3258,68 @@ trocando o seletor pra descobrir. Mesmo custo (4 locais = 4 leituras em lote).
 - Os 4 locais cabem na tabela; se a empresa cadastrar muitos locais, a tabela
   rola na horizontal (overflow-x-auto). Se virar problema, filtrar pra mostrar so
   os locais com saldo > 0.
+
+---
+
+## 2026-07-22 (continuacao 2) - Correcao: o seletor vinha no local que TINHA FALHADO
+
+### Resumo
+Victor reportou a REQ-0011 (PRD00063 STRETCH S/ TUBET, 16 KG): "troco de estoque
+e continua isso, disponivel 0, pedido 16. ta certo? todos vir com 0?".
+
+Diagnostico feito no Omie e na auditoria, nao no chute:
+- O produto TEM 168 KG, mas no `Estoque de Materia - Prima` (5940905787).
+  No `Local de Estoque Padrao` (5702636851) ele tem 0. A mensagem estava CERTA.
+- Auditoria da REQ-0011 (horarios BRT):
+  - 10:14 confirmada no Local de Estoque Padrao -> 0 baixados, 1 falha
+  - 10:15 reprocessar **no Local de Estoque Padrao** -> 0 baixados, ainda falha
+  - 10:19 reprocessar no Estoque de Materia - Prima -> **1 baixado**
+    (omieRef 12140825940)
+
+Ou seja: o fluxo funciona, e o item ja esta baixado. Mas a tentativa das 10:15
+rodou no MESMO local que tinha acabado de falhar, e isso e culpa de uma escolha
+minha: eu fiz o seletor vir marcado em `requisicao.localEstoqueCodigo`, que e
+exatamente o local onde a baixa falhou. Quem abre e clica repete o erro.
+
+Padrao mais amplo que isso revelou: o Local de Estoque Padrao da empresa e
+praticamente vazio; o material real fica no Estoque de Materia - Prima. Entao
+TODO pedido confirmado no padrao falha com "disponivel 0". Vale rever qual local
+o gestor escolhe na CONFIRMACAO (hoje o default e o padrao do Omie).
+
+### Arquivos alterados/criados
+- `src/lib/requisicoes/saldoLocais.ts` (novo) - logica pura: `itensCobertos`
+  (quantos itens o local atende, saldo >= quantidade, a MESMA conta do
+  `baixarEstoque`) e `localQueCobreTudo` (primeiro local que atende todos).
+- `src/lib/requisicoes/saldoLocais.test.ts` (novo) - 7 testes, incluindo o caso
+  real da REQ-0011 e o caso "nenhum local sozinho da conta".
+- `src/components/requisicoes/ReprocessarItens.tsx`:
+  - seletor virou CONTROLADO (`localEscolhido`). O local salvo no pedido e so o
+    ponto de partida; quando o saldo chega, ele **pula sozinho** pro local que
+    atende todos os itens.
+  - opcoes do seletor do lote ganharam `· N/M com saldo`; as do seletor POR ITEM
+    ganharam `· saldo X` (no item, o que importa e o saldo daquele item).
+
+### Decisoes importantes
+- **Auto-selecao dentro do handler, nao em `useEffect`.** A leitura ja roda numa
+  `useTransition` disparada pelo clique, entao o `setLocalEscolhido` acontece no
+  mesmo lugar, sem esbarrar no `react-hooks/set-state-in-effect`.
+- **Nenhum local cobre tudo -> nao mexe na selecao.** Nao ha resposta certa
+  automatica (o gestor pode querer local por item, ou acertar o saldo no Omie
+  antes); forcar uma escolha esconderia o problema.
+- **Empate resolvido pela ordem dos locais** (o primeiro que cobre vence), com
+  teste fixando isso pra nao virar comportamento acidental.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint`, `npm test` (28 arquivos, 332 testes),
+  `npm run build` -> tudo OK
+- Diagnostico feito com scripts `tsx` temporarios (SO leitura): `ListarPosEstoque`
+  cru do PRD00063 nos 4 locais + dump da REQ-0011 e do AuditLog dela.
+
+### Pendencias / proximos passos
+1. A REQ-0011 ja esta resolvida (item baixado 10:19). Nada a fazer nela.
+2. **Rever o default do local na CONFIRMACAO** (`DecidirRequisicao`): hoje cai no
+   local padrao do Omie, que e o vazio. Se a regra da empresa for "requisicao de
+   fabrica sai da Materia-Prima", vale mudar o default ali e evitar a falha na
+   origem, em vez de so facilitar o conserto depois.
+3. Perguntar ao Victor se existe regra fixa de qual local atende requisicao de
+   fabrica, ou se depende do item.
