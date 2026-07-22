@@ -3367,3 +3367,64 @@ nova aqui", e o trabalho de Requisicoes de hoje nao tinha nenhuma. Como o
   na CONFIRMACAO, que ataca a causa das falhas em vez do conserto).
 - Se o Victor quiser o atalho so pra alguns papeis, e trocar o `NEXTSTEP_URL`
   fixo por um item com `visibleTo`, igual aos modulos.
+
+---
+
+## 2026-07-22 (continuacao 4) - Modo brilho: Inicio vira o painel do Xbox 360 (NXE)
+
+### Resumo
+Pedido do Victor com screenshot do dashboard NXE de 2008 ("Open Tray / 1 of 8"):
+no modo animado (brilho), a home podia ser aquela esteira de cards. Pedido
+explicito: fazer SO no Inicio, "pra eu ver como fica", e NAO mexer na barra
+lateral por enquanto.
+
+Com o modo ligado e tela larga (lg, >= 1024px), a grade de atalhos do Inicio
+vira a esteira em perspectiva: primeiro card grande e de frente (o "1 of 8"),
+os demais recuando pra direita inclinados (rotateY 14deg), cada um menor que o
+anterior e espiando 5rem atras do outro. O foco anda com o mouse/Tab: o card
+focado endireita, cresce (scale 1.05), ganha borda/sombra turquesa e mostra a
+descricao; os cards DEPOIS dele dao um passo pra direita (--push), como a
+esteira do console andando. Entrada a cada visita: cards deslizam da direita e
+sobem ate assentar, escalonados 70ms.
+
+### Arquivos alterados
+- `src/app/(app)/page.tsx` - `deck` na section, `deck-card` + `--card-i` (indice
+  do map) em cada Link. So classes/vars: sem o modo, nada muda.
+- `src/app/globals.css` - secao "Deck do Inicio" no bloco do modo brilho +
+  entradas no prefers-reduced-motion.
+
+### Decisoes importantes
+- **Entrada via propriedade `translate`, perspectiva via `transform`.** Sao
+  propriedades separadas: a keyframe de entrada nao briga com a inclinacao/
+  escala permanente do card. (Primeira ideia era um "bob" infinito tambem, mas
+  ele animaria a MESMA propriedade da entrada e uma pisaria na outra; ficou de
+  fora desta primeira versao.)
+- **`backwards`, nunca `forwards`** na entrada (mesma licao da cascata da nav).
+- **Foco padrao no primeiro card** via `.deck:not(:hover):not(:focus-within)
+  .deck-card:first-child` - sem mouse na esteira o primeiro e o selecionado;
+  `:focus-within` na guarda pro Tab mover o foco de verdade.
+- **Descricao so no card focado** (`.deck-card p` com opacity 0): de lado o
+  texto viraria ruido ilegivel - na NXE os cards de tras so mostram titulo.
+- **So desktop (>= 1024px)**: sobreposicao em tela estreita e inutilizavel; no
+  mobile a grade fica a de sempre (regra da casa: mobile sempre funcional).
+- **reduced-motion**: some a entrada e as transicoes, mas o transform estatico
+  FICA - zera-lo desmontaria o layout sobreposto (nao e movimento).
+- **z-index em flex item** funciona sem position (spec); `calc(50 - --card-i)`.
+- Sem changelog: modo brilho e easter egg, fora do changelog por decisao antiga.
+
+### Limite conhecido (avaliar depois que o Victor ver)
+- Papel com MUITOS atalhos (ADMIN = 9 cards: 17rem + 8x5rem = 912px) estoura o
+  container em janela entre ~1024 e ~1280px de largura - os ultimos cards
+  vazam pra direita (overflow visivel, sem scrollbar). Em monitor comum
+  (>= 1366) cabe. Se incomodar, da pra reduzir o "espia" ou subir o breakpoint.
+- Foco anda por hover/Tab; navegar com setinha como no console exigiria JS.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint`, `npm test` (332), `npm run build` -> OK.
+  (Um erro de sintaxe no meio: comentario JSX em posicao de expressao dentro do
+  ternario; movido pra fora e resolvido.)
+
+### Pendencias / proximos passos
+- Victor ver no ar (ligar o modo com 2 cliques na logo e ir pro Inicio) e
+  decidir: ajustes (inclinacao/tamanho/espia/velocidade), aplicar algo na barra
+  lateral (explicitamente fora por enquanto) ou reverter.

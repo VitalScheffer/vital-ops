@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 
 import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/contracts";
@@ -63,20 +64,24 @@ export default async function DashboardPage() {
         <p className="mt-1 text-sm text-muted-foreground">{ROLE_INTRO[role]}</p>
       </section>
 
+      {/* `deck`/`deck-card`/`--card-i` só têm efeito no modo brilho em tela
+          larga (globals.css): a grade vira a esteira de cards do painel do
+          Xbox 360. Modo desligado, é a grade de sempre. */}
       {shortcuts.length === 0 ? (
         <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
           Nenhum módulo adicional disponível para o seu papel no momento. Novos
           módulos (Produtos e Requisições) chegam nas próximas fases.
         </p>
       ) : (
-        <section className="grid gap-4 sm:grid-cols-2">
-          {shortcuts.map((item) => {
+        <section className="deck grid gap-4 sm:grid-cols-2">
+          {shortcuts.map((item, index) => {
             const Icon = ICONS[item.icon];
             return (
               <Link
                 key={item.key}
                 href={item.href}
-                className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary"
+                style={{ "--card-i": index } as CSSProperties}
+                className="deck-card group flex flex-col gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Icon className="h-6 w-6" />
