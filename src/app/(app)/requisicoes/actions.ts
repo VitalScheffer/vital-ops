@@ -10,6 +10,7 @@ import {
   criarRequisicaoSchema,
   decidirRequisicaoSchema,
   formatarNumeroRequisicao,
+  reprocessarRequisicaoSchema,
 } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
 import type { RequisicaoRelatorio } from "@/lib/requisicoes/relatorio";
@@ -219,6 +220,108 @@ export async function criarRequisicao(_prev: FormState, formData: FormData): Pro
   };
 }
 
+interface ItemParaBaixa {
+  id: string;
+  sku: string;
+  quantidade: number;
+}
+
+interface ResultadoBaixaItens {
+  itens: { chave: string; sku: string; outcome: string; motivo?: string; omieRef?: string }[];
+  interrompido: boolean;
+  bloqueado: boolean;
+  motivoInterrupcao?: string;
+}
+
+type ExecucaoBaixa =
+  | { ok: true; resultado: ResultadoBaixaItens; nomesPorLocal: Map<string, string | undefined> }
+  | { ok: false; erro: string };
+
+// Miolo da baixa de itens de requisição no Omie, compartilhado pela CONFIRMAÇÃO
+// (`decidirRequisicao`) e pelo REPROCESSAMENTO dos itens com falha
+// (`reprocessarItensRequisicao`): as duas fazem exatamente a mesma coisa com o
+// Omie, o que muda é quais itens entram e o que o banco vira depois.
+//
+// Agrupa por local efetivo, lê produtos/saldos/lotes uma vez por local (leitura
+// cacheada, sequencial) e baixa grupo a grupo. Interrompeu num grupo (bloqueio
+// da Omie ou pausa de segurança), os grupos seguintes nem começam: os itens
+// saem como "nao_baixado" pra próxima tentativa (a baixa é idempotente pelo
+// `cod_int_ajuste` = id do item).
+async function executarBaixaPorLocal(
+  itens: readonly ItemParaBaixa[],
+  localPorItem: ReadonlyMap<string, string>,
+  obs: string,
+): Promise<ExecucaoBaixa> {
+  const grupos = agruparPorLocal(itens, (item) => localPorItem.get(item.id) ?? LOCAL_PADRAO);
+
+  let produtos: Map<string, ProdutoEstoque>;
+  const saldosPorLocal = new Map<string, Awaited<ReturnType<typeof saldosPorCodigo>>>();
+  const lotesPorLocal = new Map<string, Map<string, LoteDisponivel[]>>();
+  try {
+    // Resolvemos os produtos de novo (em vez de reusar só o id salvo na criação)
+    // porque precisamos do `produto_lote` pra saber quais itens exigem lote.
+    produtos = await buscarProdutosPorCodigo([...new Set(itens.map((item) => item.sku))], chamar);
+    for (const [local, itensDoLocal] of grupos) {
+      const skusDoLocal = itensDoLocal.map((item) => item.sku);
+      saldosPorLocal.set(local, await saldosPorCodigo(skusDoLocal, dataOmieHoje(), chamar, local));
+      lotesPorLocal.set(local, await lotesPorCodigo(produtos, skusDoLocal, chamar, local));
+    }
+  } catch (erro) {
+    if (erro instanceof OmieBlocked) {
+      return {
+        ok: false,
+        erro: "O Omie está temporariamente indisponível (bloqueio de consumo). Tente de novo em alguns minutos.",
+      };
+    }
+    return { ok: false, erro: "Não consegui consultar o saldo no Omie agora. Tente novamente." };
+  }
+
+  const nomesPorLocal = new Map<string, string | undefined>();
+  for (const local of grupos.keys()) {
+    nomesPorLocal.set(local, await nomeDoLocal(local, chamar));
+  }
+
+  const resultado: ResultadoBaixaItens = { itens: [], interrompido: false, bloqueado: false };
+  for (const [local, itensDoLocal] of grupos) {
+    if (resultado.interrompido) {
+      for (const item of itensDoLocal) {
+        resultado.itens.push({
+          chave: item.id,
+          sku: item.sku,
+          outcome: "nao_baixado",
+          motivo: "Baixa interrompida antes de chegar neste item.",
+        });
+      }
+      continue;
+    }
+    const itensBaixa: ItemBaixa[] = itensDoLocal.map((item) => ({
+      chave: item.id,
+      sku: item.sku,
+      quantidade: item.quantidade,
+      obs,
+    }));
+    const parcial = await baixarEstoque(
+      itensBaixa,
+      {
+        data: dataOmieHoje(),
+        produtos,
+        saldos: saldosPorLocal.get(local) ?? new Map(),
+        lotes: lotesPorLocal.get(local),
+        codigoLocal: local,
+      },
+      chamar,
+    );
+    resultado.itens.push(...parcial.itens);
+    if (parcial.interrompido) {
+      resultado.interrompido = true;
+      resultado.bloqueado = parcial.bloqueado;
+      resultado.motivoInterrupcao = parcial.motivoInterrupcao;
+    }
+  }
+
+  return { ok: true, resultado, nomesPorLocal };
+}
+
 // Decisão do gestor (GESTOR/ADMIN — regra fixa). RECUSAR só marca o status;
 // CONFIRMAR dispara a baixa de estoque no Omie item a item (local padrão).
 // Se o Omie interromper (bloqueio/pausa de segurança), a requisição CONTINUA
@@ -304,94 +407,27 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
   const localPorItem = new Map(
     pendentes.map((item) => [item.id, localEfetivo(formData.get(`localItem__${item.id}`), localCodigo)]),
   );
-  const grupos = agruparPorLocal(pendentes, (item) => localPorItem.get(item.id) ?? localCodigo);
-
-  // Produtos (id interno + controle de lote) e saldos/lotes POR LOCAL — uma
-  // leitura por local distinto, sequencial e cacheada. Resolvemos os produtos de
-  // novo (em vez de reusar só o id salvo na criação) porque precisamos do
-  // `produto_lote` pra saber quais itens exigem lote na baixa.
-  let produtos: Map<string, ProdutoEstoque>;
-  const saldosPorLocal = new Map<string, Awaited<ReturnType<typeof saldosPorCodigo>>>();
-  const lotesPorLocal = new Map<string, Map<string, LoteDisponivel[]>>();
-  try {
-    produtos = await buscarProdutosPorCodigo([...new Set(pendentes.map((item) => item.sku))], chamar);
-    for (const [local, itensDoLocal] of grupos) {
-      const skusDoLocal = itensDoLocal.map((item) => item.sku);
-      saldosPorLocal.set(local, await saldosPorCodigo(skusDoLocal, dataOmieHoje(), chamar, local));
-      lotesPorLocal.set(local, await lotesPorCodigo(produtos, skusDoLocal, chamar, local));
-    }
-  } catch (erro) {
-    if (erro instanceof OmieBlocked) {
-      return {
-        status: "error",
-        message: "O Omie está temporariamente indisponível (bloqueio de consumo). Tente confirmar de novo em alguns minutos.",
-      };
-    }
-    return { status: "error", message: "Não consegui consultar o saldo no Omie agora. Tente novamente." };
-  }
 
   const obs = `Requisição ${numero} — solicitante: ${requisicao.solicitanteNome} (setor ${requisicao.setor.nome}). Confirmada por ${session.user.email}.`;
 
-  // Persiste o local do PEDIDO antes da baixa: numa interrupção, a tela mostra
-  // de onde a baixa parcial saiu e a reconfirmação sugere o mesmo local.
+  // Persiste o local do PEDIDO antes da baixa: numa interrupção (ou numa falha
+  // de leitura), a tela mostra de onde a baixa saiu e a reconfirmação já sugere
+  // o mesmo local.
   const localNome = await nomeDoLocal(localCodigo, chamar);
   await prisma.requisicao.update({
     where: { id },
     data: { localEstoqueCodigo: localCodigo, localEstoqueNome: localNome },
   });
-  const nomesPorLocal = new Map<string, string | undefined>([[localCodigo, localNome]]);
-  for (const local of grupos.keys()) {
-    if (!nomesPorLocal.has(local)) {
-      nomesPorLocal.set(local, await nomeDoLocal(local, chamar));
-    }
-  }
 
-  // Baixa por grupo de local, sequencial. Interrompeu num grupo (bloqueio ou
-  // pausa de segurança), os grupos seguintes nem começam: itens ficam
-  // pendentes pra próxima confirmação (idempotente).
-  const resultado: {
-    itens: { chave: string; sku: string; outcome: string; motivo?: string; omieRef?: string }[];
-    interrompido: boolean;
-    bloqueado: boolean;
-    motivoInterrupcao?: string;
-  } = { itens: [], interrompido: false, bloqueado: false };
-
-  for (const [local, itensDoLocal] of grupos) {
-    if (resultado.interrompido) {
-      for (const item of itensDoLocal) {
-        resultado.itens.push({
-          chave: item.id,
-          sku: item.sku,
-          outcome: "nao_baixado",
-          motivo: "Baixa interrompida antes de chegar neste item.",
-        });
-      }
-      continue;
-    }
-    const itensBaixa: ItemBaixa[] = itensDoLocal.map((item) => ({
-      chave: item.id,
-      sku: item.sku,
-      quantidade: Number(item.quantidade),
-      obs,
-    }));
-    const parcial = await baixarEstoque(
-      itensBaixa,
-      {
-        data: dataOmieHoje(),
-        produtos,
-        saldos: saldosPorLocal.get(local) ?? new Map(),
-        lotes: lotesPorLocal.get(local),
-        codigoLocal: local,
-      },
-      chamar,
-    );
-    resultado.itens.push(...parcial.itens);
-    if (parcial.interrompido) {
-      resultado.interrompido = true;
-      resultado.bloqueado = parcial.bloqueado;
-      resultado.motivoInterrupcao = parcial.motivoInterrupcao;
-    }
+  const execucao = await executarBaixaPorLocal(
+    pendentes.map((item) => ({ id: item.id, sku: item.sku, quantidade: Number(item.quantidade) })),
+    localPorItem,
+    obs,
+  );
+  if (!execucao.ok) {
+    return { status: "error", message: execucao.erro };
   }
+  const { resultado, nomesPorLocal } = execucao;
 
   // Reflete o resultado por item no banco + trilha de movimentos dos baixados.
   const agora = new Date();
@@ -480,10 +516,184 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
   if (falhas > 0) {
     return {
       status: "success",
-      message: `Requisição ${numero} confirmada: ${baixados} baixado(s), ${falhas} com falha — veja o motivo em cada item.`,
+      message: `Requisição ${numero} confirmada: ${baixados} baixado(s), ${falhas} com falha. O pedido foi para "Itens com falha", onde dá para tentar a baixa de novo em outro local.`,
     };
   }
   return { status: "success", message: `Requisição ${numero} confirmada e estoque baixado no Omie.` };
+}
+
+// Nova tentativa de baixa dos itens que ficaram em FALHA num pedido JÁ
+// CONFIRMADA — o caso típico é saldo insuficiente NAQUELE local: o material
+// existe, só está em outro estoque. Sem isto, o item falho ficava travado pra
+// sempre (a confirmação exige status PENDENTE) e a única saída era excluir o
+// pedido e refazer.
+//
+// Só entram os itens com status FALHA: os já baixados nem são tocados, então
+// nada baixa duas vezes. O pedido CONTINUA CONFIRMADA e a decisão original
+// (gestor, data, motivo) fica preservada — isto não é uma re-decisão, é uma
+// nova tentativa de execução. A baixa usa o mesmo `cod_int_ajuste` (id do item)
+// da confirmação: se a baixa original tinha entrado no Omie sem a gente saber, o
+// Omie devolve duplicado e o item vira "já baixado" em vez de duplicar a saída.
+export async function reprocessarItensRequisicao(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user?.email || !session.user.id) {
+    return unauthenticated();
+  }
+
+  const permissions = await getRolePermissionsMap();
+  if (!canDecideRequisicao(session.user.role, permissions)) {
+    return { status: "error", message: "Apenas o Gestor da Fábrica, Gestor ou Administrador reprocessa itens." };
+  }
+
+  const parsed = reprocessarRequisicaoSchema.safeParse({
+    id: formData.get("id"),
+    localCodigo: String(formData.get("localCodigo") ?? "").trim() || undefined,
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Pedido inválido." };
+  }
+  const { id } = parsed.data;
+  const localCodigo = parsed.data.localCodigo ?? LOCAL_PADRAO;
+
+  const requisicao = await prisma.requisicao.findUnique({
+    where: { id },
+    include: { itens: true, setor: { select: { nome: true } } },
+  });
+  if (!requisicao) {
+    return { status: "error", message: "Requisição não encontrada." };
+  }
+  if (requisicao.cancelada) {
+    return { status: "error", message: "Esta requisição foi excluída e não pode ser reprocessada." };
+  }
+  if (requisicao.status !== "CONFIRMADA") {
+    return {
+      status: "error",
+      message:
+        requisicao.status === "PENDENTE"
+          ? "Este pedido ainda não foi confirmado — use \"Confirmar e baixar estoque\"."
+          : "Só dá para reprocessar itens de um pedido confirmado.",
+    };
+  }
+
+  const falhos = requisicao.itens.filter((item) => item.status === "FALHA");
+  if (falhos.length === 0) {
+    return { status: "error", message: "Nenhum item com falha para reprocessar neste pedido." };
+  }
+
+  if (!omieConfigurado()) {
+    return {
+      status: "error",
+      message: "Integração com o Omie não configurada no servidor (OMIE_APP_KEY/OMIE_APP_SECRET).",
+    };
+  }
+
+  const numero = formatarNumeroRequisicao(requisicao.numero);
+  // Local por item (opcional), igual à confirmação: sem escolha pro item, ele
+  // sai do local escolhido pra esta rodada.
+  const localPorItem = new Map(
+    falhos.map((item) => [item.id, localEfetivo(formData.get(`localItem__${item.id}`), localCodigo)]),
+  );
+  const obs = `Requisição ${numero} — solicitante: ${requisicao.solicitanteNome} (setor ${requisicao.setor.nome}). Reprocessada por ${session.user.email}.`;
+
+  const execucao = await executarBaixaPorLocal(
+    falhos.map((item) => ({ id: item.id, sku: item.sku, quantidade: Number(item.quantidade) })),
+    localPorItem,
+    obs,
+  );
+  if (!execucao.ok) {
+    return { status: "error", message: execucao.erro };
+  }
+  const { resultado, nomesPorLocal } = execucao;
+
+  const agora = new Date();
+  for (const item of resultado.itens) {
+    if (item.outcome === "baixado" || item.outcome === "ja_baixado") {
+      const localDoItem = localPorItem.get(item.chave) ?? localCodigo;
+      await prisma.requisicaoItem.update({
+        where: { id: item.chave },
+        data: {
+          status: "BAIXADO",
+          motivoErro: null,
+          omieRef: item.omieRef,
+          baixadoEm: agora,
+          localEstoqueCodigo: localDoItem,
+          localEstoqueNome: nomesPorLocal.get(localDoItem),
+        },
+      });
+      const original = falhos.find((p) => p.id === item.chave);
+      if (item.outcome === "baixado" && original) {
+        await prisma.movimentoEstoque.create({
+          data: {
+            tipo: "SAIDA",
+            sku: item.sku,
+            quantidade: original.quantidade,
+            omieRef: item.omieRef,
+            requisicaoItemId: item.chave,
+          },
+        });
+      }
+      continue;
+    }
+    // Continua em FALHA (é o status que faz o item aparecer pra nova tentativa),
+    // mas com o motivo ATUALIZADO — inclusive no "nao_baixado", pra o gestor não
+    // ler o erro da rodada passada achando que foi o desta.
+    await prisma.requisicaoItem.update({
+      where: { id: item.chave },
+      data: { status: "FALHA", motivoErro: item.motivo ?? "Falha na baixa." },
+    });
+  }
+
+  const baixados = resultado.itens.filter((i) => i.outcome === "baixado" || i.outcome === "ja_baixado").length;
+  const restantes = resultado.itens.length - baixados;
+
+  await audit({
+    actor: { id: session.user.id, email: session.user.email },
+    action: "requisicao.reprocessar",
+    entity: "Requisicao",
+    entityId: id,
+    summary:
+      `Reprocessou ${falhos.length} item(ns) com falha da requisição ${numero}: ` +
+      `${baixados} baixado(s), ${restantes} ainda com falha.` +
+      (resultado.interrompido ? ` Interrompido: ${resultado.motivoInterrupcao ?? ""}` : ""),
+    before: { itensComFalha: falhos.map((item) => ({ sku: item.sku, motivo: item.motivoErro })) },
+    after: {
+      baixados,
+      restantes,
+      interrompido: resultado.interrompido,
+      locais: [...new Set(localPorItem.values())].map((local) => nomesPorLocal.get(local) ?? local),
+    },
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/requisicoes");
+
+  if (resultado.interrompido) {
+    return {
+      status: "error",
+      message:
+        resultado.motivoInterrupcao ??
+        "A baixa foi interrompida. Os itens que saíram ficaram salvos, tente de novo mais tarde para o restante.",
+    };
+  }
+  if (baixados === 0) {
+    return {
+      status: "error",
+      message: `Nenhum item da ${numero} saiu nesta tentativa. Veja o motivo atualizado em cada item.`,
+    };
+  }
+  if (restantes > 0) {
+    return {
+      status: "success",
+      message: `${numero}: ${baixados} item(ns) baixado(s) agora, ${restantes} ainda com falha.`,
+    };
+  }
+  return {
+    status: "success",
+    message: `${numero}: os ${baixados} item(ns) que faltavam foram baixados no Omie.`,
+  };
 }
 
 // Arquiva / desarquiva um pedido JÁ DECIDIDO (gestor/admin). Não apaga nada: só

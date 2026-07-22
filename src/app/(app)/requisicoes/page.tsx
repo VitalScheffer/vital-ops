@@ -8,6 +8,7 @@ import { CriarRequisicaoForm } from "@/components/requisicoes/CriarRequisicaoFor
 import { DecidirRequisicao } from "@/components/requisicoes/DecidirRequisicao";
 import { ExcluirRequisicao } from "@/components/requisicoes/ExcluirRequisicao";
 import { RelatorioRequisicoes } from "@/components/requisicoes/RelatorioRequisicoes";
+import { ReprocessarItens } from "@/components/requisicoes/ReprocessarItens";
 import { auth } from "@/lib/auth";
 import { formatarNumeroRequisicao } from "@/lib/contracts";
 import { formatarDataHora } from "@/lib/datas";
@@ -75,6 +76,11 @@ function decididaRecentemente(requisicao: RequisicaoComTudo): boolean {
 // esqueça de aplicar volta a vazar pedido excluído.
 const VISIVEL = { cancelada: false };
 
+// Pedido confirmado em que algum item NÃO saiu (o caso comum: sem saldo naquele
+// local). Ele fica na fila de "Itens com falha" do gestor até alguém resolver —
+// baixando de outro local ou arquivando o pedido.
+const TEM_ITEM_COM_FALHA = { itens: { some: { status: "FALHA" } } };
+
 // A fila do gestor é FIFO ("asc": o pedido mais antigo primeiro, ninguém fica
 // pra trás); as listas de acompanhamento mostram o mais recente primeiro.
 function buscarRequisicoes(where: object, take: number, ordem: "asc" | "desc" = "desc") {
@@ -117,8 +123,9 @@ function ComoFunciona({ decide }: { decide: boolean }) {
     {
       icon: PackageMinus,
       titulo: "4. Baixa automática no Omie",
-      texto:
-        "Quando o gestor confirma, ele escolhe o local de estoque, o sistema confere o saldo lá e lança a saída no Omie item por item. O resultado de cada item fica visível no pedido — ninguém precisa mexer no Omie na mão.",
+      texto: decide
+        ? "Ao confirmar, você escolhe o local de estoque, o sistema confere o saldo lá e lança a saída no Omie item por item. Se algum item não sair (ex.: sem saldo naquele local), o pedido vai para \"Itens com falha\" e você tenta de novo em outro local, reenviando só os itens que falharam."
+        : "Quando o gestor confirma, ele escolhe o local de estoque, o sistema confere o saldo lá e lança a saída no Omie item por item. O resultado de cada item fica visível no seu pedido. Se algum falhar, o gestor consegue tentar de novo em outro estoque.",
     },
   ];
 
@@ -269,7 +276,7 @@ export default async function RequisicoesPage({
   const userId = session!.user.id;
   const mostrarArquivadas = decide && (await searchParams).arquivadas === "1";
 
-  const [setores, membership, minhas, pendentes, decididas, arquivadas, locais] = await Promise.all([
+  const [setores, membership, minhas, pendentes, comFalha, decididas, arquivadas, locais] = await Promise.all([
     prisma.setor.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     prisma.userSetor.findFirst({ where: { userId }, select: { setorId: true } }),
     // "Meus pedidos" mostra os arquivados pelo gestor (a lista já é pequena e
@@ -278,8 +285,22 @@ export default async function RequisicoesPage({
     // excluídos: excluir some pra todo mundo.
     buscarRequisicoes({ solicitanteId: userId, ...VISIVEL }, 30),
     decide ? buscarRequisicoes({ status: "PENDENTE", ...VISIVEL }, 100, "asc") : Promise.resolve([]),
+    // Fila de pendências do gestor: confirmados com item que não saiu, do mais
+    // antigo pro mais novo (quem está travado há mais tempo aparece primeiro).
     decide
-      ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: false, ...VISIVEL }, 15)
+      ? buscarRequisicoes(
+          { status: "CONFIRMADA", arquivada: false, ...VISIVEL, ...TEM_ITEM_COM_FALHA },
+          100,
+          "asc",
+        )
+      : Promise.resolve([]),
+    // Sem os que estão na fila acima: o mesmo pedido em duas listas, uma com
+    // botão de reprocessar e outra sem, confunde mais do que ajuda.
+    decide
+      ? buscarRequisicoes(
+          { status: { not: "PENDENTE" }, arquivada: false, ...VISIVEL, NOT: TEM_ITEM_COM_FALHA },
+          15,
+        )
       : Promise.resolve([]),
     mostrarArquivadas
       ? buscarRequisicoes({ status: { not: "PENDENTE" }, arquivada: true, ...VISIVEL }, 50)
@@ -333,6 +354,48 @@ export default async function RequisicoesPage({
               ))}
             </div>
           )}
+        </Panel>
+      ) : null}
+
+      {decide && comFalha.length > 0 ? (
+        <Panel
+          title={`Itens com falha (${comFalha.length})`}
+          description="Pedidos já confirmados em que algum item não saiu do estoque, normalmente por falta de saldo NAQUELE local. Escolha o local que tem o material e mande baixar de novo: só os itens com falha são reenviados, os que já saíram ficam como estão."
+        >
+          <div className="flex flex-col gap-4">
+            {comFalha.map((requisicao) => (
+              <CartaoRequisicao
+                key={requisicao.id}
+                requisicao={requisicao}
+                mostrarSolicitante
+                acoes={
+                  <div className="flex flex-col gap-3">
+                    <ReprocessarItens
+                      requisicaoId={requisicao.id}
+                      locais={locais}
+                      itens={requisicao.itens
+                        .filter((item) => item.status === "FALHA")
+                        .map((item) => ({
+                          id: item.id,
+                          sku: item.sku,
+                          descricao: item.descricao,
+                          motivoErro: item.motivoErro,
+                        }))}
+                      localAtualCodigo={requisicao.localEstoqueCodigo ?? undefined}
+                    />
+                    {/* Saídas de quem resolveu por fora (baixou na mão no Omie,
+                        ou o item não vai sair mesmo): arquivar tira o pedido
+                        desta fila sem apagar nada. */}
+                    <ArquivarRequisicao requisicaoId={requisicao.id} arquivada={false} />
+                    <ExcluirRequisicao
+                      requisicaoId={requisicao.id}
+                      itensBaixados={requisicao.itens.filter((item) => item.status === "BAIXADO").length}
+                    />
+                  </div>
+                }
+              />
+            ))}
+          </div>
         </Panel>
       ) : null}
 

@@ -3095,3 +3095,103 @@ clicando rapido ela acumula e sobe alto, parado ela desce sozinha ate a base.
   mare ou a amplitude das ondas se precisar.
 - O diff de outra frente (ConfiguracaoCard.tsx + entrada de changelog de
   Projetos) continua no working tree, FORA deste commit.
+
+---
+
+## 2026-07-22 - Requisicoes: fila "Itens com falha" + reprocessar a baixa em outro local
+
+### Resumo
+Pedido do Victor a partir da REQ-0009 (confirmada por Daniel em 22/07, dois itens
+em falha: PRD02486 e PRD08238, ambos "Saldo insuficiente neste local de estoque:
+disponivel 0, pedido 1"). Duas coisas: (1) o pedido com item falho tem que
+APARECER pro gestor da fabrica e pro gestor; (2) eles precisam poder trocar o
+local de estoque de cada item (ou de todos de uma vez) e mandar lancar de novo.
+
+Buraco real que isso fecha: `decidirRequisicao` so aceita `status === "PENDENTE"`,
+e a confirmacao marca o pedido como CONFIRMADA mesmo com itens em FALHA (o
+contador de falhas era so informativo). Ou seja: item que falhava numa confirmacao
+ficava TRAVADO pra sempre, sem nenhuma UI de retentativa. A unica saida era
+excluir o pedido (que nao estorna nada) e refazer. So o caminho de INTERRUPCAO
+(bloqueio Omie / pausa de seguranca) preservava o PENDENTE e permitia retomar.
+
+### O que entrou
+- **Painel "Itens com falha (N)"** na tela de Requisicoes, logo abaixo de
+  "Aguardando decisao", visivel pra quem decide (ADMIN | GESTOR | FABRICA_GESTOR).
+  Lista pedidos CONFIRMADA, nao arquivados, com pelo menos um item em FALHA,
+  do mais antigo pro mais novo.
+- **Botao "Tentar baixar de novo (N itens)"** em cada cartao. Abre um form com:
+  seletor de local pra tentativa inteira, checkbox opcional "escolher o local por
+  item" (mesmos campos `localItem__<id>` da confirmacao) e a lista dos itens
+  falhos com o motivo do erro de cada um.
+- **Server Action `reprocessarItensRequisicao`**: reenvia SO os itens em FALHA,
+  no(s) local(is) escolhido(s). Item que sai vira BAIXADO + MovimentoEstoque;
+  item que falha de novo continua FALHA com o motivo ATUALIZADO.
+
+### Arquivos alterados/criados
+- `src/lib/contracts/requisicao.ts` - `reprocessarRequisicaoSchema` (id +
+  localCodigo opcional, mesmo regex `/^\d{1,15}$/` do resto).
+- `src/app/(app)/requisicoes/actions.ts`:
+  - novo helper privado `executarBaixaPorLocal(itens, localPorItem, obs)` com o
+    miolo que a confirmacao e o reprocessamento compartilham: agrupa por local,
+    le produtos/saldos/lotes uma vez por local, baixa grupo a grupo, devolve
+    `{resultado, nomesPorLocal}` ou `{ok:false, erro}`.
+  - `decidirRequisicao` passou a usar o helper (mesmo comportamento, ~90 linhas
+    a menos duplicadas).
+  - nova action `reprocessarItensRequisicao`.
+- `src/components/requisicoes/ReprocessarItens.tsx` (novo) - o form, fechado por
+  padrao pra nao poluir o cartao.
+- `src/app/(app)/requisicoes/page.tsx` - constante `TEM_ITEM_COM_FALHA`, nova
+  busca `comFalha`, painel novo, exclusao dos mesmos pedidos de "Decididas
+  recentemente" (`NOT: TEM_ITEM_COM_FALHA`) e passo 4 do "Como funciona"
+  reescrito (agora explica o que acontece quando um item falha).
+
+### Decisoes importantes
+- **Nao e uma re-decisao, e uma nova tentativa de EXECUCAO.** O pedido continua
+  CONFIRMADA e a decisao original (gestor, data, motivo) fica intacta. Por isso
+  action separada em vez de afrouxar o guard de `decidirRequisicao`: reabrir a
+  decisao de um pedido confirmado sobrescreveria `gestorId`/`decididaEm` e
+  bagunçaria o historico.
+- **So itens FALHA entram.** Os BAIXADO nem sao lidos, entao nao existe risco de
+  baixar duas vezes por descuido de filtro. E o `cod_int_ajuste` continua sendo o
+  id do RequisicaoItem, entao se a baixa original TINHA entrado no Omie sem a
+  gente saber, o Omie devolve duplicado e o item vira "ja baixado" em vez de
+  duplicar a saida.
+- **Motivo do erro sempre atualizado** no reprocessamento, inclusive no
+  `nao_baixado` (interrupcao antes de chegar no item). Sem isso o gestor leria o
+  erro da rodada passada achando que era o desta.
+- **Pedido com falha sai de "Decididas recentemente".** O mesmo cartao em duas
+  listas, uma com botao de reprocessar e outra sem, confunde. E "Decididas"
+  pegava so os 15 mais recentes, entao um pedido travado sumiria da tela com o
+  tempo; a fila nova nao tem esse limite pratico (take 100).
+- **Arquivar e excluir continuam no cartao da fila nova**: e a saida pra quem
+  resolveu por fora (baixou na mao no Omie) ou pra item que nao vai sair mesmo.
+  Arquivar tira da fila sem apagar nada.
+- **Persistencia do local do pedido subiu pra antes da leitura de saldo** em
+  `decidirRequisicao` (efeito do refactor). Diferenca so no caminho de erro: se a
+  leitura do Omie falhar, o pedido ja fica com `localEstoqueCodigo` gravado. Como
+  ele segue PENDENTE e o campo so serve de default pra proxima tentativa, o
+  efeito e ate melhor (a tela ja sugere o local que o gestor tinha escolhido).
+- Sem teste unitario novo: a logica pura envolvida (`localEfetivo`,
+  `agruparPorLocal`) ja e coberta por `locaisPorItem.test.ts`, e o projeto nao
+  testa Server Actions (convencao: so `lib/` puro).
+
+### Comandos relevantes
+- `npx tsc --noEmit` -> OK
+- `npx eslint` nos 4 arquivos alterados -> OK
+- `npm test` -> 27 arquivos, 325 testes, todos passando
+- `npm run build` -> OK (rota /requisicoes no output)
+- Script temporario com `tsx` batendo no banco (SELECT puro) pra validar os
+  filtros Prisma novos: `comFalha` devolveu exatamente a REQ-0009 com
+  PRD02486 + PRD08238, e a REQ-0010 (sem falha) ficou em "Decididas".
+
+### Pendencias / proximos passos
+1. **Teste humano**: entrar como Daniel (FABRICA_GESTOR), ver a REQ-0009 no
+   painel novo, trocar o local dos dois itens pro estoque que tem o material e
+   mandar baixar. Conferir que os itens viram "baixado" com o local certo e que
+   o pedido some da fila.
+2. **Deploy**: nao ha migration nova (nenhuma mudanca de schema), entao e so o
+   build da Vercel.
+3. Ideia pra depois, se incomodar: mostrar o saldo POR LOCAL de cada item falho
+   no form, pro gestor nao ter que adivinhar onde tem material. Custa uma leitura
+   `ListarPosEstoque` por local, entao pesa no orcamento de ban do Omie (§6);
+   por isso ficou de fora agora.

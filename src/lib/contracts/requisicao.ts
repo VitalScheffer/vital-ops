@@ -43,6 +43,20 @@ export const decidirRequisicaoSchema = z.object({
 });
 export type DecidirRequisicaoInput = z.infer<typeof decidirRequisicaoSchema>;
 
+// Nova tentativa de baixa dos itens que ficaram em FALHA num pedido JÁ
+// confirmado. NÃO é uma nova decisão (o pedido segue CONFIRMADA): o gestor só
+// escolhe de qual local o item sai desta vez — um local pro lote todo e,
+// opcionalmente, um por item (mesmos campos `localItem__<id>` da confirmação).
+export const reprocessarRequisicaoSchema = z.object({
+  id: z.string().min(1),
+  localCodigo: z
+    .string()
+    .trim()
+    .regex(/^\d{1,15}$/)
+    .optional(),
+});
+export type ReprocessarRequisicaoInput = z.infer<typeof reprocessarRequisicaoSchema>;
+
 // Exclusão (cancelamento) de um pedido pelo gestor. O motivo é OBRIGATÓRIO: dá
 // pra cancelar em qualquer status, inclusive um já confirmado — cujos itens já
 // baixaram estoque no Omie —, então o registro tem que explicar o porquê.
