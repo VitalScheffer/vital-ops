@@ -24,6 +24,27 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-07-22",
+    title: "Atalho para o NextStep na barra lateral",
+    items: [
+      "No pé da barra lateral, abaixo dos módulos, tem agora um atalho NextStep que leva direto para o sistema de atendimento, sem precisar guardar o endereço.",
+      "Ele abre em outra aba: o que você estiver fazendo no Vital Ops continua aberto, do jeito que estava.",
+      "Fica separado dos módulos por um traço porque não é uma tela daqui, é outro sistema, com o login próprio dele.",
+    ],
+  },
+  {
+    date: "2026-07-22",
+    title: "Requisições: item que falhou pode ser baixado de novo em outro estoque",
+    items: [
+      "Quando um pedido é confirmado mas algum item não sai (o caso comum é não ter saldo NAQUELE local), ele agora aparece para o gestor numa lista própria, \"Itens com falha\", em vez de ficar parado sem solução.",
+      "No pedido tem o botão Tentar baixar de novo: escolha o estoque certo e mande baixar. Só os itens que falharam são reenviados, os que já saíram não são tocados de novo.",
+      "Ao abrir, uma tabela mostra o saldo de hoje de cada item em CADA local de estoque, com destaque em quem tem quantidade suficiente. Não é mais preciso adivinhar onde está o material.",
+      "O estoque já vem escolhido no local que atende o pedido. Antes dessa entrega, era preciso trocar na mão e dava para repetir o mesmo erro sem perceber.",
+      "Atenção ao escolher: produto com controle de lote pode ter parte do saldo reservada em pedidos ou OPs, então a baixa ainda pode ser recusada mesmo aparecendo saldo.",
+      "Se o item não vai sair mesmo, ou você resolveu direto no Omie, é só arquivar o pedido para tirá-lo da lista. Nada é apagado.",
+    ],
+  },
+  {
     date: "2026-07-21",
     title: "Projetos mostra a especificação inteira, não só o que fugiu do padrão",
     items: [

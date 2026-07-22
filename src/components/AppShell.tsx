@@ -3,6 +3,7 @@
 import {
   Boxes,
   ClipboardList,
+  ExternalLink,
   HelpCircle,
   Home,
   Layers,
@@ -29,7 +30,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Tutorial } from "@/components/Tutorial";
 import { VitalLogo } from "@/components/VitalLogo";
 import type { Role } from "@/lib/contracts";
-import type { NavIcon, PublicNavItem } from "@/lib/navigation";
+import { NEXTSTEP_URL, type NavIcon, type PublicNavItem } from "@/lib/navigation";
 import type { Notificacao } from "@/lib/notificacoes";
 
 const ICONS: Record<NavIcon, typeof Home> = {
@@ -297,6 +298,23 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
               );
             })}
           </nav>
+
+          {/* Atalho pro NextStep. Fora do <nav> e com um traço separando porque
+              não é uma tela daqui: é outro sistema, com login próprio. Abre em
+              aba nova pra não derrubar o que estiver aberto no Vital Ops. */}
+          <div className="relative mt-4 border-t border-border pt-4">
+            <a
+              href={NEXTSTEP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={closeMobile}
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-muted"
+              title="Abrir o NextStep em outra aba"
+            >
+              <ExternalLink className="h-5 w-5 shrink-0" />
+              <span className="flex-1">NextStep</span>
+            </a>
+          </div>
         </aside>
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">

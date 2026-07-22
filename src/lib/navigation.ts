@@ -22,6 +22,11 @@ export type NavIcon =
   | "audit"
   | "settings";
 
+// Sistema irmão da empresa (atendimento/WhatsApp). NÃO entra no NAV_ITEMS de
+// propósito: não é um módulo do Vital Ops, é outro sistema, com login próprio.
+// Fica como atalho externo no pé da barra lateral, separado da navegação.
+export const NEXTSTEP_URL = "https://nextstep.vitalscheffer.com.br/";
+
 export interface NavItem {
   key: string;
   href: string;

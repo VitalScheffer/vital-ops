@@ -3323,3 +3323,47 @@ o gestor escolhe na CONFIRMACAO (hoje o default e o padrao do Omie).
    origem, em vez de so facilitar o conserto depois.
 3. Perguntar ao Victor se existe regra fixa de qual local atende requisicao de
    fabrica, ou se depende do item.
+
+---
+
+## 2026-07-22 (continuacao 3) - Atalho pro NextStep + changelog em atraso
+
+### Resumo
+Victor: "vital ops podia ter um botao que redireciona pro nextstep ne". Feito.
+Junto, corrigi uma coisa que EU tinha deixado passar nas tres entregas de hoje:
+o `changelog.ts` diz em comentario "toda entrega nova precisa de uma entrada
+nova aqui", e o trabalho de Requisicoes de hoje nao tinha nenhuma. Como o
+`VERSAO_ATUAL` sai da PRIMEIRA entrada do array, sem entrada nova o aviso de
+"chegou versao nova" nem dispararia pros usuarios.
+
+### Arquivos alterados
+- `src/lib/navigation.ts` - constante `NEXTSTEP_URL`. Fica FORA do `NAV_ITEMS` de
+  proposito: nao e um modulo do Vital Ops, e outro sistema com login proprio,
+  entao nao deve entrar na navegacao nem no `visibleNavFor` (que alimenta o
+  Tutorial e o guard das telas).
+- `src/components/AppShell.tsx` - atalho no pe da barra lateral, fora do `<nav>`,
+  separado por um `border-t`. `target="_blank"` + `rel="noopener noreferrer"`,
+  icone `ExternalLink` (SVG do lucide, como o resto). `onClick={closeMobile}`
+  pra fechar o menu no mobile (a aba nova abre por cima, o menu ficaria aberto
+  atras). `relative` no container porque o "mar" do modo brilho pinta atras.
+- `src/lib/changelog.ts` - DUAS entradas novas no topo: o atalho do NextStep e a
+  de Requisicoes (fila "Itens com falha" + reprocessar + saldo por local +
+  selecao automatica do estoque), escritas pra quem USA, nao pra quem programa.
+  A de Requisicoes inclui a ressalva do controle de lote.
+
+### Decisoes importantes
+- **Aba nova, nao redirect.** Sao dois sistemas, e trocar de aba perderia o que
+  estivesse aberto aqui (uma configuracao no meio, uma pasta de desenhos
+  carregada). O `rel="noopener"` e obrigatorio com `_blank`.
+- **Visivel pra todo mundo.** Nao pendurei em papel/permissao: e so um link, e o
+  NextStep tem login proprio. Se incomodar (ex.: chao de fabrica que nao usa),
+  da pra esconder por papel depois, mas nao inventei essa regra sozinho.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint`, `npm test` (332), `npm run build` -> OK
+
+### Pendencias / proximos passos
+- Seguem valendo os itens da entrada anterior (principalmente o default do local
+  na CONFIRMACAO, que ataca a causa das falhas em vez do conserto).
+- Se o Victor quiser o atalho so pra alguns papeis, e trocar o `NEXTSTEP_URL`
+  fixo por um item com `visibleTo`, igual aos modulos.
