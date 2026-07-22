@@ -533,85 +533,39 @@
   }
 }
 
-/* Deck do Início (o painel do Xbox 360 de 2008): com o modo ligado e tela
-   larga, a grade de atalhos vira uma esteira em perspectiva — o primeiro card
-   grande e de frente, os demais recuando pra direita, cada um espiando atrás
-   do anterior. O "foco" anda com o mouse (ou Tab): o card focado endireita,
-   cresce e vem pra frente, e os seguintes dão um passo pro lado.
-   Só desktop (lg): cards sobrepostos em tela estreita ficam inutilizáveis —
-   no mobile/tablet a grade continua a de sempre, mesmo com o modo ligado. */
-@media (min-width: 1024px) {
-  :root[data-sparkle="on"] .deck {
-    display: flex;
-    align-items: stretch;
-    perspective: 1400px;
-    perspective-origin: 12% 40%;
-    /* O respiro de baixo também é a área onde a sombra do card focado pinta —
-       com overflow, o que passar do padding é cortado. */
-    padding: 0.75rem 0.25rem 2.25rem;
-    /* A esteira ROLA (arrasto com o mouse no DeckInicio; trackpad/shift+roda
-       também funcionam), com a barra escondida — no console não tem barra.
-       Papel com muitos atalhos deixou de vazar pra fora do contêiner. */
-    overflow-x: auto;
-    scrollbar-width: none;
-    overscroll-behavior-x: contain;
-    cursor: grab;
-    /* Arrastando sobre os títulos, sem isto o mouse sai selecionando texto. */
-    user-select: none;
-  }
-  :root[data-sparkle="on"] .deck::-webkit-scrollbar {
-    display: none;
-  }
-  :root[data-sparkle="on"] .deck-card {
-    flex: 0 0 17rem;
-    /* z-index vale em item de flex sem position; o primeiro fica na frente. */
-    z-index: calc(50 - var(--card-i, 0));
-    transform: rotateY(14deg) scale(calc(1 - var(--card-i, 0) * 0.045));
-    transform-origin: left center;
-    transition:
-      transform 0.35s cubic-bezier(0.25, 0.9, 0.3, 1.15),
-      border-color 0.35s ease,
-      box-shadow 0.35s ease;
-    box-shadow: 10px 14px 26px -16px rgb(0 0 0 / 0.45);
-    /* Entrada a cada visita ao Início: desliza da direita e SOBE até assentar.
-       `translate` é propriedade separada — não briga com o transform da
-       perspectiva. `backwards` (nunca forwards): forwards travaria o valor e
-       mataria o hover, a mesma lição da cascata da navegação. */
-    animation: vs-deck-in 0.55s cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
-    animation-delay: calc(var(--card-i, 0) * 70ms);
-  }
-  /* Sobreposição: do segundo em diante, cada card espia 6rem atrás do outro. */
-  :root[data-sparkle="on"] .deck-card + .deck-card {
-    margin-left: -11rem;
-  }
-  /* Como na NXE, os cards recuados mostram só ícone + título; a descrição é do
-     card em foco (de lado ela viraria texto ilegível). */
-  :root[data-sparkle="on"] .deck-card p {
-    opacity: 0;
-    transition: opacity 0.25s ease;
-  }
-  /* Foco: sem mouse na esteira, o primeiro card é o selecionado (o "1 of 8");
-     com mouse ou Tab, o focado assume. Os vizinhos NÃO se mexem de propósito:
-     a primeira versão empurrava os cards seguintes e o alvo fugia do cursor —
-     era quase impossível clicar no último. */
-  :root[data-sparkle="on"] .deck:not(:hover):not(:focus-within) .deck-card:first-child,
-  :root[data-sparkle="on"] .deck-card:hover,
-  :root[data-sparkle="on"] .deck-card:focus-visible {
-    transform: rotateY(0deg) scale(1.05);
-    z-index: 60;
-    border-color: color-mix(in srgb, var(--vs-turquesa) 55%, var(--border));
-    box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--vs-teal) 55%, rgb(0 0 0 / 0.4));
-  }
-  :root[data-sparkle="on"] .deck:not(:hover):not(:focus-within) .deck-card:first-child p,
-  :root[data-sparkle="on"] .deck-card:hover p,
-  :root[data-sparkle="on"] .deck-card:focus-visible p {
-    opacity: 1;
-  }
+/* Grade viva do Início: a MESMA grade de sempre (nada sobreposto, todo card
+   inteiro e clicável — o deck estilo Xbox 360 foi testado e reprovado: o card
+   de trás ficava quase inclicável). A vida vem de três efeitos: entrada em
+   cascata (cards sobem e assentam a cada visita), levantar + brilho no hover,
+   e inclinação 3D seguindo o mouse — os ângulos --tx/--ty vêm do GradeInicio,
+   o canto sob o cursor "afunda" como numa carta de verdade. */
+:root[data-sparkle="on"] .grade {
+  perspective: 1100px;
 }
-@keyframes vs-deck-in {
+:root[data-sparkle="on"] .grade-card {
+  --tx: 0deg;
+  --ty: 0deg;
+  transform: rotateX(var(--tx)) rotateY(var(--ty));
+  transition:
+    transform 0.15s ease-out,
+    border-color 0.25s ease,
+    box-shadow 0.3s ease;
+  /* Entrada a cada visita ao Início. `translate`/`scale` são propriedades
+     separadas — não brigam com o transform da inclinação. `backwards` (nunca
+     forwards): forwards travaria o valor e mataria o hover, a lição de sempre. */
+  animation: vs-card-in 0.5s cubic-bezier(0.2, 0.75, 0.3, 1.1) backwards;
+  animation-delay: calc(var(--card-i, 0) * 60ms);
+}
+:root[data-sparkle="on"] .grade-card:hover {
+  transform: rotateX(var(--tx)) rotateY(var(--ty)) translateY(-4px) scale(1.02);
+  border-color: color-mix(in srgb, var(--vs-turquesa) 55%, var(--border));
+  box-shadow: 0 16px 34px -16px color-mix(in srgb, var(--vs-teal) 55%, rgb(0 0 0 / 0.35));
+}
+@keyframes vs-card-in {
   from {
     opacity: 0;
-    translate: 90px 26px;
+    translate: 0 28px;
+    scale: 0.96;
   }
 }
 
@@ -634,13 +588,14 @@
   .agua {
     transition: none;
   }
-  /* Deck do Início: some a ENTRADA e as transições; a perspectiva estática
-     fica (não é movimento) — zerar o transform aqui desmontaria o layout
-     sobreposto e viraria uma pilha ilegível. */
-  :root[data-sparkle="on"] .deck-card,
-  :root[data-sparkle="on"] .deck-card p {
+  /* Grade viva do Início: some tudo (entrada, inclinação e levantar) — a
+     grade é utilizável do mesmo jeito sem efeito nenhum. O :hover entra na
+     lista porque tem especificidade maior que a regra base. */
+  :root[data-sparkle="on"] .grade-card,
+  :root[data-sparkle="on"] .grade-card:hover {
     animation: none;
     transition: none;
+    transform: none;
   }
   :root[data-sparkle="on"] .nav-item:hover,
   :root[data-sparkle="on"] .nav-item:hover svg,

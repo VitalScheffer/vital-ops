@@ -3485,3 +3485,55 @@ podia arrastar ne com o mouse". Duas causas identificadas e atacadas:
 - "talvez de um jeito diferente n sei" do Victor fica em aberto - se o arrasto
   nao agradar, alternativas: setas nas pontas da esteira, ou rolagem por roda
   do mouse vertical mapeada pra horizontal (JS pequeno no DeckInicio).
+
+---
+
+## 2026-07-22 (continuacao 6) - Deck REPROVADO; entra a "grade viva" (cartas 3D)
+
+### Resumo
+Victor testou o deck v2 e reprovou de vez ("nao curti horrivel de outras
+ideias"). Apresentadas 4 opcoes com mockup (grade viva / tiles Kinect /
+cover flow / reverter tudo); ele escolheu a GRADE VIVA, que era a recomendada.
+
+O que e: a grade do Inicio volta EXATAMENTE ao layout normal (2 colunas, nada
+sobreposto, todo card 100% clicavel - a licao do deck) e a "vida" fica em tres
+efeitos: (1) entrada em cascata a cada visita, cards sobem ~28px e assentam com
+leve overshoot, 60ms entre eles; (2) hover levanta o card (translateY -4px,
+scale 1.02) com borda/sombra turquesa; (3) inclinacao 3D seguindo o mouse - o
+canto sob o cursor "afunda" como numa carta fisica apertada (rotateX/rotateY
+ate ~6-8 graus).
+
+### Arquivos alterados/criados
+- `src/components/DeckInicio.tsx` REMOVIDO (git rm).
+- `src/components/GradeInicio.tsx` (novo, client) - so a inclinacao: um
+  pointermove delegado na section acha o `.grade-card` sob o cursor
+  (closest), calcula a posicao relativa ao centro (-0,5..+0,5) e escreve
+  `--ty` (px * 8deg) e `--tx` (-py * 6deg) no style do card; pointerleave/troca
+  de card limpa as vars. So pointerType mouse.
+- `src/app/(app)/page.tsx` - DeckInicio -> GradeInicio, classe `deck-card` ->
+  `grade-card`.
+- `src/app/globals.css` - bloco do deck inteiro (media query lg, overlap,
+  overflow, vs-deck-in) substituido pelo da grade viva; keyframe `vs-card-in`
+  (opacity + translate 0/28px + scale 0.96); reduced-motion zera tudo
+  (`transform: none` inclusive no :hover, que tem especificidade maior).
+
+### Decisoes importantes
+- **Grade identica a normal**: com o modo ligado, o layout nao muda NADA - so
+  ha animacao. Sem media query de largura: a entrada roda tambem no mobile
+  (sutil e inofensiva); a inclinacao ja se auto-limita a mouse.
+- **Inclinacao via vars + transform, entrada via translate/scale** (propriedades
+  separadas): os tres efeitos compoem sem um pisar no outro - mesma tecnica da
+  v1 do deck, que continua valida.
+- **Sentido da inclinacao**: canto sob o cursor afunda (mouse a direita =
+  rotateY positivo, lado direito pra tras; mouse embaixo = rotateX negativo).
+  E o efeito "carta de jogo", nao "porta" (angulos pequenos).
+- **JS minimo**: nenhum estado React, so escrita direta de CSS vars no
+  pointermove (barato, sem re-render).
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint`, `npm test` (332), `npm run build` -> OK
+
+### Pendencias / proximos passos
+- Victor ver a grade viva no ar. Ajustes faceis: angulo da inclinacao (8/6),
+  altura da entrada (28px), velocidade da cascata (60ms).
+- Barra lateral segue INTOCADA (pedido explicito).

@@ -14,7 +14,7 @@ import {
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
-import { DeckInicio } from "@/components/DeckInicio";
+import { GradeInicio } from "@/components/GradeInicio";
 import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/contracts";
 import type { NavIcon } from "@/lib/navigation";
@@ -65,17 +65,17 @@ export default async function DashboardPage() {
         <p className="mt-1 text-sm text-muted-foreground">{ROLE_INTRO[role]}</p>
       </section>
 
-      {/* `deck`/`deck-card`/`--card-i` só têm efeito no modo brilho em tela
-          larga (globals.css): a grade vira a esteira de cards do painel do
-          Xbox 360, que dá pra arrastar com o mouse (DeckInicio). Modo
-          desligado, é a grade de sempre. */}
+      {/* `grade-card`/`--card-i` só têm efeito no modo brilho (globals.css):
+          entrada em cascata + inclinação 3D seguindo o mouse (GradeInicio).
+          A grade em si é a mesma de sempre — o deck sobreposto estilo Xbox
+          foi testado e reprovado (card de trás quase inclicável). */}
       {shortcuts.length === 0 ? (
         <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
           Nenhum módulo adicional disponível para o seu papel no momento. Novos
           módulos (Produtos e Requisições) chegam nas próximas fases.
         </p>
       ) : (
-        <DeckInicio>
+        <GradeInicio>
           {shortcuts.map((item, index) => {
             const Icon = ICONS[item.icon];
             return (
@@ -83,7 +83,7 @@ export default async function DashboardPage() {
                 key={item.key}
                 href={item.href}
                 style={{ "--card-i": index } as CSSProperties}
-                className="deck-card group flex flex-col gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary"
+                className="grade-card group flex flex-col gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Icon className="h-6 w-6" />
@@ -100,7 +100,7 @@ export default async function DashboardPage() {
               </Link>
             );
           })}
-        </DeckInicio>
+        </GradeInicio>
       )}
     </div>
   );
