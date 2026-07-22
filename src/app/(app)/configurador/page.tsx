@@ -1,13 +1,13 @@
 import { ArrowRight, Info } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
+import { FotosProduto } from "@/components/configurador/FotosProduto";
 import { ListaConfiguracoes } from "@/components/configurador/ListaConfiguracoes";
 import { Forbidden } from "@/components/Forbidden";
 import { GradeInicio } from "@/components/GradeInicio";
 import { auth } from "@/lib/auth";
-import { CATALOGO } from "@/lib/configurador/catalogo";
+import { CATALOGO, fotosDoProduto } from "@/lib/configurador/catalogo";
 import { prisma } from "@/lib/db";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canManageUsers, canViewConfigurador } from "@/lib/rbac";
@@ -57,20 +57,15 @@ export default async function ConfiguradorPage() {
 
       <GradeInicio>
         {CATALOGO.map((produto, index) => (
-          <Link
+          // O card é uma div, não o <a>: as setas das fotos precisam ficar FORA
+          // do link (botão dentro de <a> é inválido e o clique navegaria). Quem
+          // torna o card inteiro clicável é o link sobreposto lá embaixo.
+          <div
             key={produto.slug}
-            href={`/configurador/${produto.slug}`}
             style={{ "--card-i": index } as CSSProperties}
-            className="grade-card group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary"
+            className="grade-card group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary"
           >
-            <Image
-              src={produto.imagem}
-              alt={`Foto de referência: ${produto.nome}`}
-              width={produto.imagemLargura}
-              height={produto.imagemAltura}
-              sizes="(min-width: 640px) 50vw, 100vw"
-              className="h-44 w-full bg-white object-contain"
-            />
+            <FotosProduto fotos={fotosDoProduto(produto)} produto={produto.nome} />
             <div className="border-t border-border p-6">
               <h2 className="flex items-center gap-1 text-base font-semibold text-card-foreground">
                 {produto.nome}
@@ -78,7 +73,10 @@ export default async function ConfiguradorPage() {
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">{produto.resumo}</p>
             </div>
-          </Link>
+            <Link href={`/configurador/${produto.slug}`} className="absolute inset-0 z-10">
+              <span className="sr-only">Configurar {produto.nome}</span>
+            </Link>
+          </div>
         ))}
       </GradeInicio>
 

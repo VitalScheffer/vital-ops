@@ -342,3 +342,30 @@ export function produtoPorSlug(slug: string): ProdutoCatalogo | undefined {
 export function opcaoPadrao(grupo: GrupoCatalogo): OpcaoCatalogo | undefined {
   return grupo.opcoes.find((opcao) => opcao.padrao);
 }
+
+export interface FotoProduto {
+  src: string;
+  // Como esta foto se chama para quem olha ("Slim", "Grande").
+  rotulo: string;
+}
+
+// As fotos que representam o produto no card de escolha. São as imagens das
+// OPÇÕES (o carro tem slim e grande), sem repetir; produto que não tem opção com
+// foto fica com a dele. Deriva do catálogo de propósito: cadastrar uma variante
+// nova com foto já a coloca no card, sem uma segunda lista para esquecer de
+// atualizar.
+export function fotosDoProduto(produto: ProdutoCatalogo): FotoProduto[] {
+  const fotos: FotoProduto[] = [];
+  const vistas = new Set<string>();
+
+  for (const grupo of produto.grupos) {
+    for (const opcao of grupo.opcoes) {
+      if (opcao.imagem && !vistas.has(opcao.imagem)) {
+        vistas.add(opcao.imagem);
+        fotos.push({ src: opcao.imagem, rotulo: opcao.rotulo });
+      }
+    }
+  }
+
+  return fotos.length > 0 ? fotos : [{ src: produto.imagem, rotulo: produto.nome }];
+}

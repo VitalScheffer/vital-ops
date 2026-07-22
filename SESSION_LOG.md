@@ -3619,3 +3619,55 @@ e o formulario ja renderiza qualquer produto sem tocar no JSX. O que faltava era
 3. As fotos vieram como PNG de captura do SolidWorks (fundo claro). Se quiser
    igualar ao acabamento da foto da maca, vale recortar/exportar como JPG depois.
 4. Nada de migration: `produtoSlug` e string livre e ja indexada.
+
+---
+
+## 2026-07-22 (continuacao 8) - Card do configurador: fotos passando sozinhas + setas
+
+### Resumo
+Victor, na sequencia: "so na tela inicial onde clico para selecionar coloque uma
+flecha passando as fotos do slim e do grande e que elas passem sozinha a cada 5s".
+
+### Arquivos alterados/criados
+- `src/lib/configurador/catalogo.ts` - `fotosDoProduto(produto)`: as imagens das
+  OPCOES (sem repetir, na ordem do catalogo) com o rotulo de cada uma; produto
+  sem opcao com foto fica com a dele. Deriva do catalogo de proposito - variante
+  nova com foto ja entra no card, sem uma segunda lista pra esquecer.
+- `src/components/configurador/FotosProduto.tsx` (novo, client) - as fotos
+  empilhadas trocando por opacidade, setas e a legenda do modelo.
+- `src/app/(app)/configurador/page.tsx` - o card deixou de ser o proprio `<a>`.
+- `src/lib/configurador/catalogo.test.ts` - 4 testes novos (52 no arquivo).
+- `src/lib/changelog.ts` - bullet novo na entrada de hoje.
+
+### Decisoes importantes
+- **O card virou uma div com o link SOBREPOSTO (`absolute inset-0 z-10`), e as
+  setas sao IRMAS do link (z-20).** Botao dentro de `<a>` e HTML invalido e o
+  clique na seta navegaria em vez de trocar a foto. O `relative` do container das
+  fotos nao cria contexto de empilhamento (z-index auto), entao o z-20 das setas
+  compete direto com o z-10 do link e ganha. Custo aceito: o texto do card deixa
+  de ser selecionavel (fica sob o link).
+- **`setTimeout` re-armado a cada troca, nao um `setInterval` fixo.** O efeito
+  depende de `indice`, entao clicar numa seta da 5s cheios pra olhar aquela foto,
+  em vez do troco do ciclo anterior. Sem `useEffect` com setState sincrono, entao
+  passou longe do `react-hooks/set-state-in-effect` que ja mordeu antes aqui.
+- **Fotos empilhadas com opacidade, nao troca de `src`.** A seguinte ja esta
+  carregada quando entra (sao 2, o custo e irrisorio); trocar src daria o pisca
+  do carregamento. Foto que nao esta na vez recebe `alt=""` + `aria-hidden`.
+- **Setas e legenda fora do tema.** A area da foto e `bg-white` nos DOIS temas
+  (as fotos vem do SolidWorks com fundo claro), entao pilula `bg-card` sumiria no
+  tema claro. Preto translucido + texto branco le bem sobre as duas.
+- **`prefers-reduced-motion` para a passagem automatica**, nao as setas: quem
+  pede menos movimento continua podendo trocar a foto, so nao e atropelado.
+- 32px de alvo nas setas (acima dos 24px minimos da WCAG 2.5.8), sem dominar um
+  card pequeno.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (29 arquivos, 345 testes),
+  `npm run build` -> tudo OK
+
+### Pendencias / proximos passos
+- **Nao validado no navegador** (mesma razao da entrada anterior: sem login e o
+  banco e o Neon compartilhado). Conferir na tela: a troca a cada 5s, o clique
+  na seta trocando a foto SEM navegar, e o clique em qualquer outro ponto do card
+  levando pro configurador.
+- Segue em aberto o padrao do grupo MODELO (hoje SLIM).

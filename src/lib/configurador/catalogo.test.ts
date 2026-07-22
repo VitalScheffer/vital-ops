@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CATALOGO, produtoPorSlug } from "@/lib/configurador/catalogo";
+import { CATALOGO, fotosDoProduto, produtoPorSlug } from "@/lib/configurador/catalogo";
 import { escolhasPadrao, imagemDoProduto, montarCodigo, resolverSelecoes } from "@/lib/configurador/codigo";
 
 // O catálogo é escrito à mão e o formato tem regras que nada valida em tempo de
@@ -63,6 +63,30 @@ describe("imagemDoProduto", () => {
     const maca = produtoPorSlug("maca-padiola")!;
     expect(imagemDoProduto(maca, escolhasPadrao(maca))).toBe(maca.imagem);
   });
+});
+
+describe("fotosDoProduto", () => {
+  it("dá as fotos das variantes do carro, na ordem do catálogo", () => {
+    const carro = produtoPorSlug("carro-emergencia")!;
+    expect(fotosDoProduto(carro)).toEqual([
+      { src: "/configurador/carro-emergencia-slim.png", rotulo: "Slim" },
+      { src: "/configurador/carro-emergencia-grande.png", rotulo: "Grande" },
+    ]);
+  });
+
+  it("cai na foto do produto quando nenhuma opção tem imagem", () => {
+    const maca = produtoPorSlug("maca-padiola")!;
+    expect(fotosDoProduto(maca)).toEqual([{ src: maca.imagem, rotulo: maca.nome }]);
+  });
+
+  it.each(CATALOGO.map((produto) => [produto.nome, produto] as const))(
+    "%s: nunca repete a mesma foto (o carrossel giraria em falso)",
+    (_nome, produto) => {
+      const fontes = fotosDoProduto(produto).map((foto) => foto.src);
+      expect(fontes.length).toBeGreaterThan(0);
+      expect(new Set(fontes).size).toBe(fontes.length);
+    },
+  );
 });
 
 describe("código do carro de emergência", () => {

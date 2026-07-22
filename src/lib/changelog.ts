@@ -30,6 +30,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       "O configurador agora abre numa tela de escolha do produto, com um card e a foto de cada um. Clique no card e você cai na mesma tela de sempre: foto em cima, opções embaixo, envio para Projetos igual a antes.",
       "Novo produto: Carro de Emergência, com 17 grupos de opções (modelo slim ou grande, material, gavetas, tampo superior, rodízios, trava, tábua de massagem, oxigênio, régua de tomadas, divisórias, desfibrilador, soro, lixeira, prancheta, perfuro cortante, régua de gases e para-choque).",
       "A foto acompanha o modelo: marcou Slim, aparece o slim; marcou Grande, aparece o grande.",
+      "No card do Carro de Emergência as duas fotos passam sozinhas a cada 5 segundos, com o nome do modelo no canto. Dá para passar na hora pelas setinhas, e aí a contagem recomeça para você olhar com calma.",
       "A Maca Padiola continua exatamente como estava, agora como um dos cards.",
       "A lista das configurações enviadas passou a aparecer nos dois lugares: na tela de cada produto, só as daquele produto, e na abertura do configurador, as mais recentes de todos.",
     ],
