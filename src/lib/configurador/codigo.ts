@@ -159,6 +159,21 @@ export function escolhasDeSelecoes(
   return escolhas;
 }
 
+// Foto de referência para as escolhas atuais. Uma opção pode trazer `imagem`
+// (o carro de emergência tem foto de slim e de grande); vale a primeira, na
+// ordem dos grupos do catálogo. Sem nenhuma, fica a foto do produto. Puro e sem
+// estado: o formulário recalcula a cada render, junto com o código.
+export function imagemDoProduto(produto: ProdutoCatalogo, escolhas: EscolhasBrutas): string {
+  for (const grupo of produto.grupos) {
+    const escolhido = escolhas[grupo.codigo]?.opcao;
+    const opcao = grupo.opcoes.find((item) => item.codigo === escolhido);
+    if (opcao?.imagem) {
+      return opcao.imagem;
+    }
+  }
+  return produto.imagem;
+}
+
 // Valor escolhido, em texto: "Inox" ou "Outro peso (200 kg)". Fonte única do
 // formato — as três telas do fluxo (configurador, histórico e fila de Projetos)
 // mostram a mesma escolha escrita do mesmo jeito.

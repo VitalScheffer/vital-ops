@@ -17,6 +17,7 @@ import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
 import {
   escolhasPadrao,
   foraDoPadrao,
+  imagemDoProduto,
   montarCodigo,
   resolverSelecoes,
   TEXTO_LIVRE_MAX,
@@ -97,6 +98,7 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
     });
   }
 
+  const imagem = imagemDoProduto(produto, escolhas);
   const resolucao = resolverSelecoes(produto, escolhas);
   const selecoes = resolucao.ok ? resolucao.selecoes : [];
   const desvios = foraDoPadrao(selecoes);
@@ -174,14 +176,17 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
           </p>
         )}
 
+        {/* A foto acompanha a escolha (ex.: modelo slim x grande). `key` força a
+            troca da imagem em vez de reaproveitar a anterior enquanto carrega. */}
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <Image
-            src={produto.imagem}
+            key={imagem}
+            src={imagem}
             alt={`Foto de referência: ${produto.nome}`}
             width={produto.imagemLargura}
             height={produto.imagemAltura}
             className="h-auto w-full bg-white object-contain"
-            priority
+            preload
           />
           <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
             {produto.descricao}

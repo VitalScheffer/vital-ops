@@ -3537,3 +3537,85 @@ ate ~6-8 graus).
 - Victor ver a grade viva no ar. Ajustes faceis: angulo da inclinacao (8/6),
   altura da entrada (28px), velocidade da cascata (60ms).
 - Barra lateral segue INTOCADA (pedido explicito).
+
+---
+
+## 2026-07-22 (continuacao 7) - Configurador: Carro de Emergencia + tela de escolha do produto
+
+### Resumo
+Victor mandou a especificacao completa do CARRO DE EMERGENCIA (17 grupos de
+opcoes, com o padrao de cada um marcado) e as duas fotos (slim e grande), pedindo:
+o configurador passa a ter cards com nome e imagem "igual a inicial"; clicando no
+card, cai na tela que ja existe (foto em cima, opcoes embaixo) e o envio pra
+Projetos continua igual.
+
+O catalogo ja era generico (`CATALOGO` é um array e `produtoPorSlug` já existia),
+e o formulario ja renderiza qualquer produto sem tocar no JSX. O que faltava era
+(1) o produto novo, (2) a tela de escolha e (3) a troca de foto por modelo.
+
+### Arquivos alterados/criados
+- `src/lib/configurador/catalogo.ts` - produto `CARRO_EMERGENCIA` (slug
+  `carro-emergencia`, sigla `CARRO`, 17 grupos) somado ao `CATALOGO`. Dois campos
+  novos no formato: `imagem?` na OPCAO (troca a foto de referencia) e `resumo` no
+  produto (a linha do card). Regras novas documentadas no cabecalho do arquivo.
+- `src/lib/configurador/codigo.ts` - `imagemDoProduto(produto, escolhas)`: primeira
+  opcao escolhida que tenha `imagem`, na ordem dos grupos; senao a foto do produto.
+  Funcao pura, sem estado (o form recalcula a cada render, junto com o codigo).
+- `src/app/(app)/configurador/page.tsx` - REESCRITA: agora e a tela de escolha
+  (header + aviso + grade de cards + lista das 20 configuracoes mais recentes de
+  todos os produtos). Reusa `GradeInicio` + `.grade-card` + `--card-i`, entao
+  herda a cascata e a inclinacao 3D do modo brilho de graca.
+- `src/app/(app)/configurador/[slug]/page.tsx` (novo) - a tela que era o
+  `/configurador` de antes: link de volta, formulario e lista, tudo escopado
+  naquele produto. `notFound()` em slug desconhecido.
+- `src/components/configurador/ListaConfiguracoes.tsx` (novo) - o bloco
+  "Minhas configuracoes" extraido, porque agora aparece nas duas telas com
+  recortes diferentes (todos os produtos x um so).
+- `src/components/configurador/ConfiguradorForm.tsx` - a foto passou a vir de
+  `imagemDoProduto(produto, escolhas)`, com `key={imagem}` pra trocar a imagem em
+  vez de reaproveitar a anterior enquanto carrega.
+- `src/app/(app)/configurador/actions.ts` e `src/app/(app)/projetos/actions.ts` -
+  `revalidatePath("/configurador/[slug]", "page")` alem do `/configurador`.
+- `src/lib/configurador/catalogo.test.ts` (novo) - 8 testes.
+- `src/lib/changelog.ts` - entrada nova no topo.
+- `public/configurador/carro-emergencia-slim.png` e `-grande.png` (1600x759, as
+  mesmas medidas da foto da maca).
+
+### Decisoes importantes
+- **Rota por produto (`/configurador/[slug]`), nao estado no cliente.** URL
+  compartilhavel, botao voltar do navegador funciona e o filtro do historico
+  acontece no servidor (uma consulta menor), em vez de trazer tudo e filtrar na
+  tela. Sem `generateStaticParams`: a pagina usa `auth()` e Prisma, entao e
+  dinamica de qualquer jeito - declarar params estaticos so enganaria quem le.
+- **Rota dinamica exige `revalidatePath(padrao, "page")`.** Sem o segundo
+  argumento o padrao `[slug]` nao casa com nada e a lista da tela do produto
+  continuaria servindo o cache anterior ao envio. Confirmado na doc do Next 16
+  (`node_modules/next/dist/docs`, regra do AGENTS.md).
+- **`preload` no lugar de `priority`** no `<Image>`: `priority` foi DEPRECIADO no
+  Next 16 em favor de `preload` (mesma doc). Trocado no form.
+- **SLIM como padrao do grupo MODELO.** Victor nao marcou `(PADRAO)` nesse grupo
+  (marcou em todos os outros), e o formato exige exatamente um padrao por grupo.
+  Escolhi o primeiro da lista dele. **Trocar e mudar uma palavra** (mover
+  `padrao: true` de SLIM pra GRAND) - confirmar com ele.
+- **Rotulos em caixa normal** ("Carbono", "4 gavetas"), nao em CAIXA ALTA como no
+  pedido: e o padrao da maca e do resto da tela. O sentido e identico.
+- **Siglas escolhidas pra durar**: o cabecalho do catalogo avisa que sigla usada
+  em producao nao pode mudar (o codigo de identidade de configuracoes antigas
+  deixaria de bater com o das novas e a deteccao de repetidos passaria a errar).
+  Como o carro nunca foi enviado ainda, este e o momento livre pra revisar.
+
+### Comandos relevantes
+- `npx vitest run src/lib/configurador` -> 4 arquivos, 48 testes, OK
+- `npx tsc --noEmit` -> OK
+- `npm run lint` -> OK
+- `npm run build` -> OK, com `/configurador/[slug]` no output como rota dinamica
+
+### Pendencias / proximos passos
+1. **Teste humano (nao feito aqui: nao tenho login e o banco e o Neon
+   compartilhado, entao nao semeei nem escrevi nada).** Abrir /configurador, ver
+   os dois cards com foto, entrar no carro, trocar Slim/Grande e confirmar que a
+   foto troca, enviar uma configuracao e ver ela na lista e na fila de Projetos.
+2. **Confirmar o padrao do MODELO** (hoje SLIM), ver decisoes acima.
+3. As fotos vieram como PNG de captura do SolidWorks (fundo claro). Se quiser
+   igualar ao acabamento da foto da maca, vale recortar/exportar como JPG depois.
+4. Nada de migration: `produtoSlug` e string livre e ja indexada.

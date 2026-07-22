@@ -110,6 +110,9 @@ export async function criarConfiguracao(
   });
 
   revalidatePath("/configurador");
+  // A tela de cada produto é rota dinâmica: sem o padrão + "page", a lista e o
+  // histórico de lá continuariam servindo o cache anterior ao envio.
+  revalidatePath("/configurador/[slug]", "page");
 
   const aviso =
     desvios.length === 0

@@ -1,28 +1,23 @@
-import { AlertTriangle, Info } from "lucide-react";
+import { ArrowRight, Info } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import type { CSSProperties } from "react";
 
-import { ConfiguradorForm } from "@/components/configurador/ConfiguradorForm";
+import { ListaConfiguracoes } from "@/components/configurador/ListaConfiguracoes";
 import { Forbidden } from "@/components/Forbidden";
-import { Panel } from "@/components/Panel";
+import { GradeInicio } from "@/components/GradeInicio";
 import { auth } from "@/lib/auth";
 import { CATALOGO } from "@/lib/configurador/catalogo";
-import { rotuloDaSelecao } from "@/lib/configurador/codigo";
-import { classeStatus, mapaRespostas } from "@/lib/configurador/fila";
-import { desviosDoSnapshot, montarHistorico } from "@/lib/configurador/historico";
-import { formatarNumeroConfiguracao } from "@/lib/contracts";
-import { formatarDataHora } from "@/lib/datas";
 import { prisma } from "@/lib/db";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canManageUsers, canViewConfigurador } from "@/lib/rbac";
 
 export const metadata = { title: "Configurador — Vital Ops" };
 
-const STATUS_LABEL: Record<string, string> = {
-  ENVIADA: "Enviada",
-  EM_ANALISE: "Em análise",
-  ATENDIDA: "Atendida",
-  RECUSADA: "Recusada",
-};
-
+// Abertura do configurador: escolher O QUE vai ser configurado. Mesma grade do
+// Início (cards com cascata e inclinação no modo brilho), só que com a foto do
+// produto no lugar do ícone — é a foto que faz o vendedor reconhecer o produto.
+// Montar a configuração em si acontece em /configurador/[slug].
 export default async function ConfiguradorPage() {
   const session = await auth();
   const permissions = await getRolePermissionsMap();
@@ -34,69 +29,21 @@ export default async function ConfiguradorPage() {
   // Quem administra usuários enxerga tudo que foi configurado; o comercial vê o
   // que ele mesmo enviou.
   const veTudo = canManageUsers(session.user.role, permissions);
-  const produto = CATALOGO[0];
 
-  // Duas leituras com propósitos diferentes: a LISTA é de acompanhamento (as
-  // minhas), e o HISTÓRICO é de reaproveitamento — traz o que qualquer vendedor
-  // já especificou daquele produto, porque repetir a maca que o colega já pediu
-  // é justamente o caso de uso.
-  const [configuracoes, registrosHistorico] = await Promise.all([
-    prisma.configuracao.findMany({
-      where: veTudo ? {} : { autorId: session.user.id },
-      orderBy: { criadoEm: "desc" },
-      take: 20,
-      include: { respondidoPor: { select: { name: true } } },
-    }),
-    prisma.configuracao.findMany({
-      where: { produtoSlug: produto.slug },
-      orderBy: { criadoEm: "desc" },
-      take: 60,
-      select: {
-        numero: true,
-        codigo: true,
-        produtoSlug: true,
-        selecoes: true,
-        observacoes: true,
-        autorNome: true,
-        criadoEm: true,
-        status: true,
-        projetoCad: true,
-        respostaNota: true,
-        respondidoEm: true,
-        respondidoPor: { select: { name: true } },
-      },
-    }),
-  ]);
-
-  const historico = montarHistorico(produto, registrosHistorico);
-
-  // Índice das combinações que a equipe de Projetos já respondeu. Vai inteiro
-  // para o formulário: assim, no instante em que o vendedor monta uma combinação
-  // já conhecida, ele vê o número do projeto e o recado de quem desenhou, sem
-  // precisar enviar de novo nem perguntar a ninguém.
-  const respostas = Object.fromEntries(
-    mapaRespostas(
-      registrosHistorico
-        .filter((registro) => registro.respondidoEm !== null)
-        .sort((a, b) => (b.respondidoEm?.getTime() ?? 0) - (a.respondidoEm?.getTime() ?? 0))
-        .map((registro) => ({
-          codigo: registro.codigo,
-          numero: registro.numero,
-          status: registro.status,
-          projetoCad: registro.projetoCad,
-          respostaNota: registro.respostaNota,
-          respondidoPorNome: registro.respondidoPor?.name ?? null,
-          respondidoQuando: registro.respondidoEm ? formatarDataHora(registro.respondidoEm) : "",
-        })),
-    ),
-  );
+  const configuracoes = await prisma.configuracao.findMany({
+    where: veTudo ? {} : { autorId: session.user.id },
+    orderBy: { criadoEm: "desc" },
+    take: 20,
+    include: { respondidoPor: { select: { name: true } } },
+  });
 
   return (
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-xl font-semibold text-card-foreground">Configurador de produto</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Monte o produto opção por opção e envie a especificação para a equipe de Projetos.
+          Escolha o produto para montar opção por opção e enviar a especificação para a equipe de
+          Projetos.
         </p>
       </header>
 
@@ -108,97 +55,40 @@ export default async function ConfiguradorPage() {
         </span>
       </p>
 
-      <ConfiguradorForm produto={produto} historico={historico} respostas={respostas} />
+      <GradeInicio>
+        {CATALOGO.map((produto, index) => (
+          <Link
+            key={produto.slug}
+            href={`/configurador/${produto.slug}`}
+            style={{ "--card-i": index } as CSSProperties}
+            className="grade-card group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary"
+          >
+            <Image
+              src={produto.imagem}
+              alt={`Foto de referência: ${produto.nome}`}
+              width={produto.imagemLargura}
+              height={produto.imagemAltura}
+              sizes="(min-width: 640px) 50vw, 100vw"
+              className="h-44 w-full bg-white object-contain"
+            />
+            <div className="border-t border-border p-6">
+              <h2 className="flex items-center gap-1 text-base font-semibold text-card-foreground">
+                {produto.nome}
+                <ArrowRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">{produto.resumo}</p>
+            </div>
+          </Link>
+        ))}
+      </GradeInicio>
 
-      <Panel
+      <ListaConfiguracoes
+        configuracoes={configuracoes}
+        veTudo={veTudo}
         title={veTudo ? "Configurações enviadas" : "Minhas configurações"}
-        description="As 20 mais recentes, da mais nova para a mais antiga."
-      >
-        {configuracoes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nenhuma configuração enviada ainda. Monte a primeira no formulário acima.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {configuracoes.map((configuracao) => {
-              const desvios = desviosDoSnapshot(configuracao.selecoes);
-              return (
-                <li
-                  key={configuracao.id}
-                  className="flex flex-col gap-2 rounded-lg border border-border p-3"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-card-foreground">
-                      {formatarNumeroConfiguracao(configuracao.numero)}
-                    </span>
-                    <span className="text-sm text-muted-foreground">{configuracao.produtoNome}</span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${classeStatus(configuracao.status)}`}
-                    >
-                      {STATUS_LABEL[configuracao.status] ?? configuracao.status}
-                    </span>
-                    {configuracao.projetoCad && (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                        Projeto {configuracao.projetoCad}
-                      </span>
-                    )}
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {formatarDataHora(configuracao.criadoEm)}
-                      {veTudo ? ` · ${configuracao.autorNome}` : ""}
-                    </span>
-                  </div>
-
-                  <p className="break-all font-mono text-xs text-muted-foreground">
-                    {configuracao.codigo}
-                  </p>
-
-                  {desvios.length > 0 ? (
-                    <p className="flex items-start gap-1.5 text-xs text-card-foreground">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                      <span>{desvios.map(rotuloDaSelecao).join(" · ")}</span>
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Tudo no padrão.</p>
-                  )}
-
-                  {configuracao.observacoes && (
-                    <p className="rounded-lg bg-muted px-3 py-2 text-xs text-card-foreground">
-                      <span className="text-muted-foreground">Observações: </span>
-                      {configuracao.observacoes}
-                    </p>
-                  )}
-
-                  {/* A resposta da equipe de Projetos fecha o ciclo aqui: é onde
-                      quem pediu descobre o número do projeto e lê o recado, sem
-                      precisar perguntar. */}
-                  {configuracao.respondidoEm && (
-                    <div
-                      className={`rounded-lg px-3 py-2 text-xs ${
-                        configuracao.status === "ATENDIDA"
-                          ? "bg-success-dim text-success"
-                          : "bg-danger-dim text-danger"
-                      }`}
-                    >
-                      <p className="font-medium">
-                        {configuracao.status === "ATENDIDA"
-                          ? `Projetos respondeu: projeto ${configuracao.projetoCad}`
-                          : "Projetos recusou esta configuração"}
-                      </p>
-                      {configuracao.respostaNota && (
-                        <p className="mt-1">{configuracao.respostaNota}</p>
-                      )}
-                      <p className="mt-1 opacity-80">
-                        {configuracao.respondidoPor?.name ?? "—"} ·{" "}
-                        {formatarDataHora(configuracao.respondidoEm)}
-                      </p>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Panel>
+        description="As 20 mais recentes, de todos os produtos, da mais nova para a mais antiga."
+        vazio="Nenhuma configuração enviada ainda. Escolha um produto acima para montar a primeira."
+      />
     </div>
   );
 }

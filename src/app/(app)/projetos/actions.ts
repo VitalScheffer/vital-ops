@@ -21,6 +21,8 @@ import { requestHeaders } from "@/lib/request";
 function revalidarTelas(): void {
   revalidatePath("/projetos");
   revalidatePath("/configurador");
+  // A tela de cada produto é rota dinâmica: o padrão + "page" alcança todas.
+  revalidatePath("/configurador/[slug]", "page");
 }
 
 // Marca "estou olhando esta". Serve para o vendedor saber que o pedido saiu da
