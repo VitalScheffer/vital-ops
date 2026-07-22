@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
+import { DeckInicio } from "@/components/DeckInicio";
 import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/contracts";
 import type { NavIcon } from "@/lib/navigation";
@@ -66,14 +67,15 @@ export default async function DashboardPage() {
 
       {/* `deck`/`deck-card`/`--card-i` só têm efeito no modo brilho em tela
           larga (globals.css): a grade vira a esteira de cards do painel do
-          Xbox 360. Modo desligado, é a grade de sempre. */}
+          Xbox 360, que dá pra arrastar com o mouse (DeckInicio). Modo
+          desligado, é a grade de sempre. */}
       {shortcuts.length === 0 ? (
         <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
           Nenhum módulo adicional disponível para o seu papel no momento. Novos
           módulos (Produtos e Requisições) chegam nas próximas fases.
         </p>
       ) : (
-        <section className="deck grid gap-4 sm:grid-cols-2">
+        <DeckInicio>
           {shortcuts.map((item, index) => {
             const Icon = ICONS[item.icon];
             return (
@@ -98,7 +100,7 @@ export default async function DashboardPage() {
               </Link>
             );
           })}
-        </section>
+        </DeckInicio>
       )}
     </div>
   );

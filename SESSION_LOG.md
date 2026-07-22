@@ -3428,3 +3428,60 @@ sobem ate assentar, escalonados 70ms.
 - Victor ver no ar (ligar o modo com 2 cliques na logo e ir pro Inicio) e
   decidir: ajustes (inclinacao/tamanho/espia/velocidade), aplicar algo na barra
   lateral (explicitamente fora por enquanto) ou reverter.
+
+---
+
+## 2026-07-22 (continuacao 5) - Deck do Inicio v2: arrasto com o mouse, fim do alvo que foge
+
+### Resumo
+Feedback do Victor na v1: "ficou legal mas o ultimo quase n da para clicar e
+podia arrastar ne com o mouse". Duas causas identificadas e atacadas:
+
+1. **O alvo fugia do cursor.** A regra `.deck-card:hover ~ .deck-card
+   { --push: 2.25rem }` empurrava os cards seguintes pra direita a cada hover;
+   perseguindo o ultimo card, cada card que o mouse cruzava empurrava o alvo
+   mais pra longe (com transition de 0.35s, um alvo em movimento constante).
+   REMOVIDA - os vizinhos do focado nao se mexem mais.
+2. **Sem como alcancar o que estava espremido.** A esteira agora ROLA:
+   overflow-x com barra escondida (scrollbar-width none + ::-webkit-scrollbar
+   display none, no console nao tem barra) e ARRASTO com o mouse via wrapper
+   client novo `DeckInicio` (pointer events). Isso tambem resolveu o limite
+   conhecido da v1 (ADMIN com 9 cards vazava do container em janela estreita:
+   agora rola em vez de vazar).
+
+### Arquivos alterados/criados
+- `src/components/DeckInicio.tsx` (novo, client) - so o arrasto: pointerdown
+  (apenas mouse/botao principal) guarda startX+scrollLeft; pointermove alem de
+  6px vira arrasto (setPointerCapture pra seguir fora do container) e move
+  scrollLeft; onClickCapture ENGOLE o clique quando houve arrasto (soltar em
+  cima de um card nao pode navegar); onDragStart preventDefault (arrasto nativo
+  de <a> atropelaria); pointercancel reseta. Modo desligado = no-op (sem
+  overflow, scrollLeft nao faz nada e o clique passa limpo).
+- `src/app/(app)/page.tsx` - a section virou o componente `DeckInicio`.
+- `src/app/globals.css` - .deck: overflow-x auto + barra escondida +
+  overscroll-behavior-x contain + cursor grab + user-select none (arrastando
+  sobre titulo, o mouse saia selecionando texto) + padding de baixo 2.25rem
+  (com overflow, sombra fora do padding e cortada). Espia de 5rem -> 6rem
+  (margin -12rem -> -11rem): alvo maior por card. Removidas a var --push e as
+  regras do empurrao.
+
+### Decisoes importantes
+- **Threshold de 6px** separa clique de arrasto (tremida de clique nao vira
+  arrasto; arrasto de verdade nao navega).
+- **So pointerType mouse**: no touch o navegador ja rola sozinho; capturar o
+  ponteiro brigaria com o scroll nativo. (Deck e desktop-only de todo jeito.)
+- **Trackpad/shift+roda** ja rolam o overflow sem JS nenhum - o arrasto e por
+  cima disso, nao no lugar.
+- 17rem + 8x6rem = 65rem (1040px) pro ADMIN: passa 1 dedo do container de
+  1024px, entao SEMPRE ha um resto de rolagem pro papel cheio - proposital,
+  rolar ate o fim deixa o ultimo card inteiro alcancavel.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint`, `npm test` (332), `npm run build` -> OK
+
+### Pendencias / proximos passos
+- Victor testar de novo: hover no ultimo card (agora para quieto e ele vem pra
+  frente) e o arrasto (segurar e puxar; soltar em cima de card nao navega).
+- "talvez de um jeito diferente n sei" do Victor fica em aberto - se o arrasto
+  nao agradar, alternativas: setas nas pontas da esteira, ou rolagem por roda
+  do mouse vertical mapeada pra horizontal (JS pequeno no DeckInicio).

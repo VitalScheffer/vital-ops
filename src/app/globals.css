@@ -546,17 +546,27 @@
     align-items: stretch;
     perspective: 1400px;
     perspective-origin: 12% 40%;
-    padding: 0.75rem 0 1.5rem;
+    /* O respiro de baixo também é a área onde a sombra do card focado pinta —
+       com overflow, o que passar do padding é cortado. */
+    padding: 0.75rem 0.25rem 2.25rem;
+    /* A esteira ROLA (arrasto com o mouse no DeckInicio; trackpad/shift+roda
+       também funcionam), com a barra escondida — no console não tem barra.
+       Papel com muitos atalhos deixou de vazar pra fora do contêiner. */
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    cursor: grab;
+    /* Arrastando sobre os títulos, sem isto o mouse sai selecionando texto. */
+    user-select: none;
+  }
+  :root[data-sparkle="on"] .deck::-webkit-scrollbar {
+    display: none;
   }
   :root[data-sparkle="on"] .deck-card {
     flex: 0 0 17rem;
-    /* Empurrão lateral quando um card anterior está focado (a esteira "anda").
-       Vive numa var porque transform é propriedade única: mudar só o empurrão
-       não pode apagar a inclinação/escala do card. */
-    --push: 0rem;
     /* z-index vale em item de flex sem position; o primeiro fica na frente. */
     z-index: calc(50 - var(--card-i, 0));
-    transform: translateX(var(--push)) rotateY(14deg) scale(calc(1 - var(--card-i, 0) * 0.045));
+    transform: rotateY(14deg) scale(calc(1 - var(--card-i, 0) * 0.045));
     transform-origin: left center;
     transition:
       transform 0.35s cubic-bezier(0.25, 0.9, 0.3, 1.15),
@@ -570,9 +580,9 @@
     animation: vs-deck-in 0.55s cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
     animation-delay: calc(var(--card-i, 0) * 70ms);
   }
-  /* Sobreposição: do segundo em diante, cada card espia 5rem atrás do outro. */
+  /* Sobreposição: do segundo em diante, cada card espia 6rem atrás do outro. */
   :root[data-sparkle="on"] .deck-card + .deck-card {
-    margin-left: -12rem;
+    margin-left: -11rem;
   }
   /* Como na NXE, os cards recuados mostram só ícone + título; a descrição é do
      card em foco (de lado ela viraria texto ilegível). */
@@ -581,11 +591,13 @@
     transition: opacity 0.25s ease;
   }
   /* Foco: sem mouse na esteira, o primeiro card é o selecionado (o "1 of 8");
-     com mouse ou Tab, o focado assume. */
+     com mouse ou Tab, o focado assume. Os vizinhos NÃO se mexem de propósito:
+     a primeira versão empurrava os cards seguintes e o alvo fugia do cursor —
+     era quase impossível clicar no último. */
   :root[data-sparkle="on"] .deck:not(:hover):not(:focus-within) .deck-card:first-child,
   :root[data-sparkle="on"] .deck-card:hover,
   :root[data-sparkle="on"] .deck-card:focus-visible {
-    transform: translateX(var(--push)) rotateY(0deg) scale(1.05);
+    transform: rotateY(0deg) scale(1.05);
     z-index: 60;
     border-color: color-mix(in srgb, var(--vs-turquesa) 55%, var(--border));
     box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--vs-teal) 55%, rgb(0 0 0 / 0.4));
@@ -594,11 +606,6 @@
   :root[data-sparkle="on"] .deck-card:hover p,
   :root[data-sparkle="on"] .deck-card:focus-visible p {
     opacity: 1;
-  }
-  /* Os cards DEPOIS do focado dão um passo pra direita, abrindo espaço. */
-  :root[data-sparkle="on"] .deck-card:hover ~ .deck-card,
-  :root[data-sparkle="on"] .deck-card:focus-visible ~ .deck-card {
-    --push: 2.25rem;
   }
 }
 @keyframes vs-deck-in {
