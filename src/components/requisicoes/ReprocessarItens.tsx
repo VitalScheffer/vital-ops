@@ -1,9 +1,13 @@
 "use client";
 
 import { RefreshCw, X } from "lucide-react";
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 
-import { reprocessarItensRequisicao } from "@/app/(app)/requisicoes/actions";
+import {
+  reprocessarItensRequisicao,
+  saldosPorLocalDosItens,
+  type ResultadoSaldosPorLocal,
+} from "@/app/(app)/requisicoes/actions";
 import { FormFeedback } from "@/components/FormFeedback";
 import type { LocalOpcao } from "@/components/requisicoes/DecidirRequisicao";
 import { Select } from "@/components/ui/Select";
@@ -27,6 +31,93 @@ interface ReprocessarItensProps {
   localAtualCodigo?: string;
 }
 
+function formatarQuantidade(valor: number): string {
+  return valor.toLocaleString("pt-BR");
+}
+
+// "Onde tem material hoje": uma linha por item com falha, uma coluna por local
+// de estoque. O número fica destacado onde o saldo COBRE o que o pedido precisa
+// — é exatamente a conta que o servidor refaz na hora de baixar, então o que
+// aparece verde aqui é o que deve passar.
+function SaldoPorLocal({
+  saldos,
+  carregando,
+  onAtualizar,
+}: {
+  saldos: ResultadoSaldosPorLocal | null;
+  carregando: boolean;
+  onAtualizar: () => void;
+}) {
+  if (carregando && !saldos) {
+    return <p className="text-xs text-muted-foreground">Lendo o saldo de cada local no Omie…</p>;
+  }
+  if (!saldos) return null;
+  if (!saldos.ok) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {saldos.erro ?? "Não consegui ler o saldo por local."} Dá para escolher o local mesmo assim.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-medium text-card-foreground">Saldo de hoje em cada local</span>
+        <button
+          type="button"
+          onClick={onAtualizar}
+          disabled={carregando}
+          className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-primary hover:underline disabled:opacity-60"
+        >
+          {carregando ? "Atualizando…" : "Atualizar"}
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <table className="w-full min-w-[26rem] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-3 py-1.5 font-medium">Item</th>
+              <th className="px-3 py-1.5 font-medium">Precisa</th>
+              {saldos.locais.map((local) => (
+                <th key={local.codigo} className="px-3 py-1.5 text-right font-medium">
+                  {local.descricao}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {saldos.itens.map((item) => (
+              <tr key={item.sku} className="border-b border-border/60 last:border-0">
+                <td className="px-3 py-1.5 font-mono text-xs text-card-foreground">{item.sku}</td>
+                <td className="px-3 py-1.5 text-card-foreground">{formatarQuantidade(item.quantidade)}</td>
+                {saldos.locais.map((local) => {
+                  const saldo = item.saldos[local.codigo] ?? 0;
+                  const cobre = saldo >= item.quantidade;
+                  return (
+                    <td
+                      key={local.codigo}
+                      className={`px-3 py-1.5 text-right tabular-nums ${
+                        cobre ? "font-semibold text-primary" : "text-muted-foreground"
+                      }`}
+                    >
+                      {formatarQuantidade(saldo)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Em verde, os locais com saldo suficiente. Produto com controle de lote pode ter parte do
+        saldo reservada em pedidos ou OPs, então a baixa ainda pode recusar.
+      </p>
+    </div>
+  );
+}
+
 // Nova tentativa de baixa dos itens que falharam num pedido JÁ confirmado.
 // O caso que motivou isto: "saldo insuficiente NESTE local de estoque" — o
 // material existe, só está em outro estoque. O gestor troca o local (um pra
@@ -42,14 +133,33 @@ export function ReprocessarItens({
   const [state, formAction, pending] = useActionState(reprocessarItensRequisicao, IDLE_FORM_STATE);
   const [aberto, setAberto] = useState(false);
   const [porItem, setPorItem] = useState(false);
+  // Saldo de cada item em cada local, lido do Omie ao abrir o form (e de novo no
+  // botão "Atualizar"). É disparado no EVENTO, não num efeito: abrir o painel é
+  // a ação do usuário, não uma sincronização com estado externo. Dentro de 60s o
+  // client devolve o cache, então reabrir/atualizar não castiga a Omie.
+  const [saldos, setSaldos] = useState<ResultadoSaldosPorLocal | null>(null);
+  const [carregando, iniciarLeitura] = useTransition();
   const padrao = locais.find((local) => local.padrao)?.codigo;
   const localDefault = localAtualCodigo ?? padrao ?? "";
+
+  function carregarSaldos() {
+    iniciarLeitura(async () => {
+      try {
+        setSaldos(await saldosPorLocalDosItens(requisicaoId));
+      } catch {
+        setSaldos({ ok: false, erro: "Não consegui ler o saldo por local.", locais: [], itens: [] });
+      }
+    });
+  }
 
   if (!aberto) {
     return (
       <button
         type="button"
-        onClick={() => setAberto(true)}
+        onClick={() => {
+          setAberto(true);
+          carregarSaldos();
+        }}
         className="inline-flex items-center gap-1.5 self-start rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground transition-colors hover:border-primary/60 hover:text-primary"
       >
         <RefreshCw className="h-3.5 w-3.5" />
@@ -66,6 +176,8 @@ export function ReprocessarItens({
         Só os itens abaixo (os que falharam) são baixados. Os que já saíram não são tocados de novo.
         Se faltou saldo, escolha o local de estoque que tem o material.
       </p>
+
+      <SaldoPorLocal saldos={saldos} carregando={carregando} onAtualizar={carregarSaldos} />
 
       {locais.length > 0 ? (
         <>

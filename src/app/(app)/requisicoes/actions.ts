@@ -15,6 +15,7 @@ import {
 import { formatarDataHora } from "@/lib/datas";
 import type { RequisicaoRelatorio } from "@/lib/requisicoes/relatorio";
 import { prisma } from "@/lib/db";
+import { locaisDisponiveis } from "@/lib/estoque/estoque.server";
 import {
   LOCAL_PADRAO,
   baixarEstoque,
@@ -520,6 +521,97 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     };
   }
   return { status: "success", message: `Requisição ${numero} confirmada e estoque baixado no Omie.` };
+}
+
+export interface SaldoItemPorLocal {
+  sku: string;
+  descricao: string;
+  quantidade: number; // o que o pedido precisa (pra marcar onde dá pra baixar)
+  saldos: Record<string, number>; // código do local → saldo hoje
+}
+
+export interface ResultadoSaldosPorLocal {
+  ok: boolean;
+  erro?: string;
+  locais: { codigo: string; descricao: string; padrao: boolean }[];
+  itens: SaldoItemPorLocal[];
+}
+
+// Saldo de CADA item com falha em CADA local de estoque, pro gestor ver de onde
+// dá pra baixar em vez de ir trocando o local no chute. Uma leitura por local
+// (`ListarPosEstoque` já é em lote pelos SKUs), cacheada 60s pelo client — e com
+// `cExibeTodos: "S"` um local zerado volta 0 sem virar fault, então isto não
+// gasta orçamento de bloqueio da Omie (§6).
+//
+// Best-effort e SÓ LEITURA: qualquer erro devolve `ok:false` e a tela segue
+// funcionando sem os números (o gestor ainda escolhe o local na mão).
+export async function saldosPorLocalDosItens(requisicaoId: string): Promise<ResultadoSaldosPorLocal> {
+  const vazio = { locais: [], itens: [] };
+  const session = await auth();
+  if (!session?.user?.email) {
+    return { ok: false, erro: "Sessão expirada. Entre novamente.", ...vazio };
+  }
+  const permissions = await getRolePermissionsMap();
+  if (!canDecideRequisicao(session.user.role, permissions)) {
+    return { ok: false, erro: "Você não tem permissão para ver o saldo por local.", ...vazio };
+  }
+  if (!omieConfigurado()) {
+    return { ok: false, erro: "Integração com o Omie não configurada no servidor.", ...vazio };
+  }
+
+  const alvo = String(requisicaoId ?? "").trim();
+  if (!alvo) {
+    return { ok: false, erro: "Requisição inválida.", ...vazio };
+  }
+  const requisicao = await prisma.requisicao.findUnique({
+    where: { id: alvo },
+    select: {
+      itens: {
+        where: { status: "FALHA" },
+        select: { sku: true, descricao: true, quantidade: true },
+        orderBy: { sku: "asc" },
+      },
+    },
+  });
+  if (!requisicao || requisicao.itens.length === 0) {
+    return { ok: false, erro: "Nenhum item com falha neste pedido.", ...vazio };
+  }
+
+  const locais = await locaisDisponiveis();
+  if (locais.length === 0) {
+    return { ok: false, erro: "Não consegui listar os locais de estoque do Omie agora.", ...vazio };
+  }
+
+  const skus = [...new Set(requisicao.itens.map((item) => item.sku))];
+  const data = dataOmieHoje();
+  const porLocal = new Map<string, Awaited<ReturnType<typeof saldosPorCodigo>>>();
+  try {
+    for (const local of locais) {
+      porLocal.set(local.codigo, await saldosPorCodigo(skus, data, chamar, local.codigo));
+    }
+  } catch (erro) {
+    if (erro instanceof OmieBlocked) {
+      return { ok: false, erro: "O Omie está indisponível agora. Tente em instantes.", ...vazio };
+    }
+    return { ok: false, erro: "Não consegui ler o saldo por local no Omie agora.", ...vazio };
+  }
+
+  return {
+    ok: true,
+    locais: locais.map((local) => ({
+      codigo: local.codigo,
+      descricao: local.descricao,
+      padrao: local.padrao,
+    })),
+    itens: requisicao.itens.map((item) => ({
+      sku: item.sku,
+      descricao: item.descricao,
+      quantidade: Number(item.quantidade),
+      saldos: Object.fromEntries(
+        locais.map((local) => [local.codigo, porLocal.get(local.codigo)?.get(item.sku)?.saldo ?? 0]),
+      ),
+    })),
+  };
 }
 
 // Nova tentativa de baixa dos itens que ficaram em FALHA num pedido JÁ

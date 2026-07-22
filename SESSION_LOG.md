@@ -3191,7 +3191,70 @@ excluir o pedido (que nao estorna nada) e refazer. So o caminho de INTERRUPCAO
    o pedido some da fila.
 2. **Deploy**: nao ha migration nova (nenhuma mudanca de schema), entao e so o
    build da Vercel.
-3. Ideia pra depois, se incomodar: mostrar o saldo POR LOCAL de cada item falho
-   no form, pro gestor nao ter que adivinhar onde tem material. Custa uma leitura
-   `ListarPosEstoque` por local, entao pesa no orcamento de ban do Omie (§6);
-   por isso ficou de fora agora.
+3. ~~Ideia pra depois: mostrar o saldo POR LOCAL de cada item falho.~~ FEITO na
+   mesma sessao, ver abaixo.
+
+---
+
+## 2026-07-22 (continuacao) - Saldo por local no form de reprocessar
+
+### Resumo
+Victor pediu na sequencia: "podia mostrar quanto tem cada estoque, a medida que
+ele for trocando o estoque do lado dos produtos". Eu tinha deixado isso de fora
+alegando custo de ban no Omie. **Revisei e o custo estava superestimado**: o
+`chamar` cacheia leitura por 60s (DEFAULT_TTL_SECONDS) e `saldosPorCodigo` manda
+`cExibeTodos: "S"`, que faz local zerado voltar 0 SEM virar fault. Ou seja, sao
+leituras BEM-SUCEDIDAS, e o orcamento de bloqueio conta chamada INCORRETA (§6).
+
+Com isso, em vez do que foi pedido (saldo do local selecionado, atualizando a
+cada troca), entregei o superset: **o saldo de cada item em TODOS os locais de
+uma vez**, numa tabela. O gestor ve na hora onde esta o material em vez de ir
+trocando o seletor pra descobrir. Mesmo custo (4 locais = 4 leituras em lote).
+
+### Arquivos alterados/criados
+- `src/app/(app)/requisicoes/actions.ts` - action nova `saldosPorLocalDosItens`
+  (SO LEITURA, guard `canDecideRequisicao`): le os locais, faz uma
+  `ListarPosEstoque` em lote por local pros SKUs em FALHA e devolve
+  `{locais, itens:[{sku, descricao, quantidade, saldos:{codigoLocal: saldo}}]}`.
+  Best-effort: qualquer erro vira `ok:false` e a tela segue funcionando sem os
+  numeros. Novo import de `locaisDisponiveis`.
+- `src/components/requisicoes/ReprocessarItens.tsx` - subcomponente
+  `SaldoPorLocal` (tabela: uma linha por item, uma coluna por local, "Precisa" ao
+  lado; verde/semibold onde o saldo COBRE a quantidade) + botao "Atualizar".
+
+### Decisoes importantes
+- **Leitura disparada no EVENTO (clique que abre o form), nao em `useEffect`.**
+  Primeira versao usava effect e o eslint do React Compiler barrou
+  (`react-hooks/set-state-in-effect`): "calling setState synchronously within an
+  effect can trigger cascading renders". A regra esta certa aqui, abrir o painel
+  e acao do usuario, nao sincronizacao com sistema externo. Virou
+  `useTransition` + handler.
+- **Verde = saldo cobre a quantidade do item**, que e exatamente a conta que
+  `baixarEstoque` refaz antes de chamar o Omie. Entao o que aparece verde e o que
+  deve passar na baixa.
+- **Ressalva escrita na tela**: produto com controle de lote pode ter parte do
+  saldo reservada em pedidos/OPs (o `nQuantDisponivel` do lote e menor que o
+  `nSaldo` do local), entao a baixa ainda pode recusar. Nao inventamos precisao
+  que a leitura de saldo nao tem.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint`, `npm test` (325 testes), `npm run build` -> OK
+- Script temporario `tsx` (SO leitura) batendo no Omie de verdade com os SKUs da
+  REQ-0009. Resultado, que ja explica a falha do dia:
+
+  | SKU | Padrao | Materia-Prima | Locacao | Reservado Licitacao |
+  |---|---|---|---|---|
+  | PRD02486 | 0 | **4** | 0 | 0 |
+  | PRD08238 | 0 | **2** | 0 | 0 |
+
+  A baixa foi tentada no Local de Estoque Padrao, onde os dois estao zerados. O
+  material esta no Estoque de Materia-Prima. Com a tabela nova isso fica obvio
+  antes de tentar.
+
+### Pendencias / proximos passos
+- Segue valendo o teste humano da entrada anterior. Agora com um resultado
+  esperado concreto: abrir a REQ-0009, ver 4 e 2 em verde na coluna
+  "Estoque de Materia - Prima", escolher esse local e os dois itens devem baixar.
+- Os 4 locais cabem na tabela; se a empresa cadastrar muitos locais, a tabela
+  rola na horizontal (overflow-x-auto). Se virar problema, filtrar pra mostrar so
+  os locais com saldo > 0.
