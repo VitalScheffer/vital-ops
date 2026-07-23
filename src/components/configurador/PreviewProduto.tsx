@@ -33,6 +33,9 @@ interface PreviewProdutoProps {
   anotacoes: readonly Destaque[];
   qualidade: Qualidade;
   aoMudarQualidade: (nivel: Qualidade) => void;
+  // Foco externo de peça e aviso de foco (usados pela tela do cliente).
+  foco?: { chave: string; nonce: number };
+  aoFocar?: (chave: string | null) => void;
   // Copia o link da tela de conferência do cliente. Só o configurador passa
   // isto; a própria tela do cliente não mostra o botão.
   aoCopiarLink?: () => Promise<boolean>;
@@ -48,6 +51,8 @@ export function PreviewProduto({
   anotacoes,
   qualidade,
   aoMudarQualidade,
+  foco,
+  aoFocar,
   aoCopiarLink,
   compacto,
 }: PreviewProdutoProps) {
@@ -68,6 +73,8 @@ export function PreviewProduto({
             anotacoes={anotacoes}
             qualidade={qualidade}
             aoMudarQualidade={aoMudarQualidade}
+            foco={foco}
+            aoFocar={aoFocar}
             aoCopiarLink={aoCopiarLink}
             onFalha={aoFalhar}
           />

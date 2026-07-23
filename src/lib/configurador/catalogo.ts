@@ -59,20 +59,37 @@ export interface GrupoCatalogo {
   codigo: string;
   rotulo: string;
   opcoes: readonly OpcaoCatalogo[];
+  // Peça do modelo 3D que este grupo representa. Com ela, clicar no item na
+  // especificação faz a câmera voar até a peça. Só grupos que apontam uma peça
+  // visível do 3D têm; os demais ficam sem.
+  foco3d?: string;
 }
 
 // Modelo 3D do produto, gerado a partir do STEP do CAD por
 // `scripts/step-para-glb.mjs`. Cada nó do arquivo se chama `peca:<chave>`, e é
 // essa chave que as opções acendem e apagam. Produto sem `modelo3d` continua
 // mostrando a foto.
+export interface PecaInfo {
+  nome: string;
+  descricao: string;
+}
+
 export interface Modelo3dCatalogo {
   arquivo: string; // caminho em /public
+  // Variante sem compressão meshopt, para o AR (o model-viewer não decodifica
+  // meshopt). Baixada só quando o cliente abre o "ver no meu espaço".
+  arquivoAr?: string;
   // De qual desenho o modelo saiu. Aparece na prévia, para quem olha saber que
   // aquilo é o CAD de uma configuração específica e não um render genérico.
   desenho: string;
   // Chaves de peça que o arquivo contém, na ordem em que fazem sentido para
   // quem lê. Serve de referência para quem for escrever `pecas3d` numa opção.
   pecas: readonly string[];
+  // Medidas externas do produto, em mm, para a régua de cotas (A×L×P).
+  dimensoesMm?: { altura: number; largura: number; profundidade: number };
+  // Nome amigável e uma linha de descrição por peça, para o cartão que aparece
+  // ao clicar/focar uma peça (hotspot).
+  info?: Readonly<Record<string, PecaInfo>>;
 }
 
 export interface ProdutoCatalogo {
@@ -227,6 +244,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
   imagemAltura: 759,
   modelo3d: {
     arquivo: "/configurador/3d/carro-emergencia.glb",
+    arquivoAr: "/configurador/3d/carro-emergencia-ar.glb",
     desenho: "CREHS MT001 C0PTD R00",
     pecas: [
       "estrutura",
@@ -243,6 +261,31 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
       "tabua",
       "regua",
     ],
+    dimensoesMm: { altura: 960, largura: 477, profundidade: 495 },
+    info: {
+      estrutura: {
+        nome: "Estrutura",
+        descricao: "Corpo do carro em chapa dobrada, com laterais e base reforçadas.",
+      },
+      tampo: { nome: "Tampo superior", descricao: "Superfície de apoio no topo do carro." },
+      gavetas: { nome: "Gavetas", descricao: "Gavetas frontais com puxador e corrediça telescópica." },
+      gavetao: { nome: "Gavetão", descricao: "Gaveta inferior mais alta, para itens maiores." },
+      alca: { nome: "Alça de condução", descricao: "Alça tubular para empurrar o carro." },
+      rodizios: { nome: "Rodízios", descricao: "Rodas giratórias, duas com freio." },
+      trava: { nome: "Trava das gavetas", descricao: "Trava frontal por cadeado." },
+      divisorias: { nome: "Divisórias", descricao: "Separadores internos da gaveta." },
+      soro: { nome: "Suporte de soro", descricao: "Haste de soro com ganchos." },
+      desfibrilador: {
+        nome: "Suporte de desfibrilador",
+        descricao: "Bandeja para acomodar o desfibrilador.",
+      },
+      oxigenio: {
+        nome: "Suporte de oxigênio",
+        descricao: "Apoio lateral para o cilindro de oxigênio.",
+      },
+      tabua: { nome: "Tábua de massagem", descricao: "Tábua de RCP presa na lateral." },
+      regua: { nome: "Régua de tomadas", descricao: "Régua de tomadas com cabo." },
+    },
   },
   grupos: [
     {
@@ -266,6 +309,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "MAT",
       rotulo: "Material",
+      foco3d: "estrutura",
       opcoes: [
         { codigo: "CARB", rotulo: "Carbono", padrao: true, acabamento3d: { acabamento: "pintado" } },
         { codigo: "INOX", rotulo: "Inox", acabamento3d: { acabamento: "inox" } },
@@ -274,6 +318,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "GAV",
       rotulo: "Gavetas",
+      foco3d: "gavetas",
       opcoes: [
         { codigo: "G4", rotulo: "4 gavetas", padrao: true, aviso3d: AVISO_GAVETAS },
         { codigo: "G5", rotulo: "5 gavetas", aviso3d: AVISO_GAVETAS },
@@ -287,6 +332,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "TAM",
       rotulo: "Tampo superior",
+      foco3d: "tampo",
       opcoes: [
         {
           codigo: "TCARB",
@@ -312,6 +358,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "ROD",
       rotulo: "Rodízios",
+      foco3d: "rodizios",
       opcoes: [
         { codigo: "RP3", rotulo: 'Plásticos 3"', padrao: true },
         { codigo: "RC3", rotulo: '3" cama', aviso3d: AVISO_RODIZIOS },
@@ -321,6 +368,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "TRA",
       rotulo: "Trava das gavetas",
+      foco3d: "trava",
       opcoes: [
         { codigo: "TRFC", rotulo: "Frontal por cadeado", padrao: true },
         {
@@ -333,6 +381,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "TAB",
       rotulo: "Tábua de massagem",
+      foco3d: "tabua",
       opcoes: [
         { codigo: "TAB1", rotulo: "Sim", padrao: true, pecas3d: ["tabua"] },
         { codigo: "TAB0", rotulo: "Não", pecas3d: [] },
@@ -341,6 +390,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "OXI",
       rotulo: "Suporte para cilindro de oxigênio",
+      foco3d: "oxigenio",
       opcoes: [
         { codigo: "OXI1", rotulo: "Sim", padrao: true, pecas3d: ["oxigenio"] },
         { codigo: "OXI0", rotulo: "Não", pecas3d: [] },
@@ -349,6 +399,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "REG",
       rotulo: "Régua para tomadas",
+      foco3d: "regua",
       opcoes: [
         { codigo: "REG1", rotulo: "Sim", padrao: true, pecas3d: ["regua"] },
         { codigo: "REG0", rotulo: "Não", pecas3d: [] },
@@ -357,6 +408,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "DIV",
       rotulo: "Divisórias de gavetas",
+      foco3d: "divisorias",
       opcoes: [
         { codigo: "DIV1", rotulo: "Divisória na primeira gaveta", padrao: true },
         { codigo: "DIV12", rotulo: "Divisória na primeira e segunda gaveta", aviso3d: AVISO_DIVISORIAS },
@@ -366,6 +418,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "DES",
       rotulo: "Suporte para desfibrilador",
+      foco3d: "desfibrilador",
       opcoes: [
         { codigo: "DES1", rotulo: "Sim", padrao: true, pecas3d: ["desfibrilador"] },
         { codigo: "DES0", rotulo: "Não", pecas3d: [] },
@@ -374,6 +427,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
     {
       codigo: "SOR",
       rotulo: "Suporte para soro",
+      foco3d: "soro",
       opcoes: [
         { codigo: "SOR1", rotulo: "Sim", padrao: true, pecas3d: ["soro"] },
         { codigo: "SOR0", rotulo: "Não", pecas3d: [] },

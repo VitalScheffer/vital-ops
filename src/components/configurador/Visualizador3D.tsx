@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Ruler,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -18,7 +19,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
@@ -49,9 +49,13 @@ import { QUALIDADES, type Qualidade } from "@/lib/configurador/qualidade";
 const PREFIXO_PECA = "peca_";
 const MATERIAL_CONFIGURAVEL = "acab_pintado";
 
-// Inox polido. É o único material que o front cria: o resto da aparência vem do
-// CAD, mas este muda com a escolha do vendedor e por isso mora aqui.
-const INOX = { cor: 0xdfe3e8, metalico: 1, rugosidade: 0.24 };
+// Inox escovado. É o único material que o front cria: o resto da aparência vem
+// do CAD, mas este muda com a escolha do vendedor e por isso mora aqui. Metal
+// PARCIAL de propósito (0.5, não 1): metal puro não tem cor própria e fica
+// escuro onde reflete tom fraco; a base difusa clara é o que mantém o prata
+// aparente mesmo nas faces sem brilho direto — assim o inox lê mais claro que
+// o carbono, como aço polido de verdade.
+const INOX = { cor: 0xe6eaee, metalico: 0.5, rugosidade: 0.3 };
 
 // Fundo de estúdio (lightbox): claro no centro, escurecendo nas bordas, para
 // dar volume e destacar o contorno do produto. Fixo nos dois temas de
@@ -178,6 +182,8 @@ interface Cena {
   focar: (chave: string) => void;
   // Espalha as peças a partir do centro: 0 = montado, 1 = todo aberto.
   explodir: (fracao: number) => void;
+  // Liga/desliga a régua de cotas (A×L×P).
+  mostrarCotas: (mostrar: boolean) => void;
   // Liga/desliga o giro automático (turntable).
   girarAuto: (ligar: boolean) => void;
 }
@@ -197,6 +203,12 @@ interface Visualizador3DProps {
   // para gravá-lo no link do cliente.
   qualidade: Qualidade;
   aoMudarQualidade: (nivel: Qualidade) => void;
+  // Pedido externo de focar uma peça (clique num item da especificação). O
+  // `nonce` muda a cada pedido para focar de novo a mesma peça.
+  foco?: { chave: string; nonce: number };
+  // Avisa qual peça acabou de ganhar foco (clique no 3D ou na especificação),
+  // para o pai mostrar o cartão de informação. `null` quando desfoca.
+  aoFocar?: (chave: string | null) => void;
   // Endereço da tela de conferência desta configuração. Vindo preenchido,
   // aparece o botão que copia o link para mandar ao cliente.
   aoCopiarLink?: () => Promise<boolean>;
@@ -212,6 +224,8 @@ export default function Visualizador3D({
   anotarDeInicio,
   qualidade,
   aoMudarQualidade,
+  foco,
+  aoFocar,
   aoCopiarLink,
   onFalha,
 }: Visualizador3DProps) {
@@ -262,6 +276,15 @@ export default function Visualizador3D({
     onFalhaRef.current = onFalha;
   }, [onFalha]);
 
+  // Aviso de foco por referência: o pai troca `aoFocar` a cada render, e ele não
+  // pode virar dependência do efeito de montagem.
+  const aoFocarRef = useRef(aoFocar);
+  useEffect(() => {
+    aoFocarRef.current = aoFocar;
+  }, [aoFocar]);
+
+  const [cotas, setCotas] = useState(false);
+
   // Monta a cena uma vez por arquivo. Tudo que é criado aqui é destruído no
   // retorno: WebGL não tem coletor de lixo, e contexto vazado trava a aba
   // depois de algumas navegações.
@@ -305,11 +328,19 @@ export default function Visualizador3D({
     );
 
     // Sem mapa de ambiente, inox e cromado ficariam pretos: metal só tem cor
-    // quando há o que refletir. A "sala" procedural do three faz esse papel sem
-    // baixar textura nenhuma.
+    // quando há o que refletir. Um estúdio claro (softboxes) dá reflexos de
+    // catálogo, bem melhor que o cinza chapado do RoomEnvironment.
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const ambiente = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const estudio = criarEstudioEnv();
+    const ambiente = pmrem.fromScene(estudio, 0.03).texture;
     cena.environment = ambiente;
+    estudio.traverse((objeto) => {
+      const malha = objeto as THREE.Mesh;
+      if (malha.isMesh) {
+        malha.geometry.dispose();
+        (malha.material as THREE.Material).dispose();
+      }
+    });
     pmrem.dispose();
 
     // Luz de 3 pontos: chave (principal, e a que projeta a sombra), preenchimento
@@ -331,6 +362,10 @@ export default function Visualizador3D({
     let sombraPlano: THREE.Mesh | null = null;
     // Remove os ouvintes de clique (registrados quando o modelo chega).
     let limparClique: (() => void) | undefined;
+    // Régua de cotas (A×L×P): a caixa e os rótulos, e se estão à mostra.
+    let caixaCotas: THREE.Box3Helper | null = null;
+    const rotulosCota: { elemento: HTMLElement; ancora: THREE.Vector3 }[] = [];
+    let cotasVisiveis = false;
 
     // Reconfigura a cena para um nível. Não recria nada (o renderer e o modelo
     // continuam os mesmos): só ajusta intensidades, visibilidade, resolução da
@@ -492,6 +527,20 @@ export default function Visualizador3D({
       }
     }
 
+    // Rótulos das cotas: projeta cada âncora (meio de uma aresta da caixa) na
+    // tela. Sem hastes nem anti-colisão — são só três e ficam longe uns dos
+    // outros.
+    function posicionarCotas() {
+      const largura = renderer.domElement.clientWidth;
+      const altura = renderer.domElement.clientHeight;
+      for (const { elemento, ancora } of rotulosCota) {
+        const ponto = ancora.clone().project(camera);
+        elemento.style.visibility = ponto.z > 1 ? "hidden" : "visible";
+        elemento.style.left = `${(ponto.x * 0.5 + 0.5) * largura}px`;
+        elemento.style.top = `${(-ponto.y * 0.5 + 0.5) * altura}px`;
+      }
+    }
+
     // Voo de câmera: caminha suave da posição/alvo atuais até um destino. É o
     // motor das vistas rápidas, do foco ao clicar numa peça e da abertura
     // cinematográfica. Qualquer arrasto do usuário cancela (o `start` abaixo).
@@ -560,6 +609,7 @@ export default function Visualizador3D({
       if (assentando || precisaDesenhar) {
         renderer.render(cena, camera);
         if (transitorio || fixos.length > 0) posicionarMarcadores();
+        if (cotasVisiveis) posicionarCotas();
         precisaDesenhar = false;
       }
 
@@ -660,6 +710,32 @@ export default function Visualizador3D({
           explodiveis.push({ no, origem: no.position.clone(), direcao });
         }
 
+        // Cotas (A×L×P): a caixa envolvente do modelo montado e três rótulos em
+        // centímetros nos meios das arestas. Nascem escondidos; um botão liga.
+        const caixaModelo = new THREE.Box3().setFromObject(modelo);
+        const min = caixaModelo.min;
+        const max = caixaModelo.max;
+        const tamanho = caixaModelo.getSize(new THREE.Vector3());
+        caixaCotas = new THREE.Box3Helper(caixaModelo, new THREE.Color(0x334155));
+        const linhaCota = caixaCotas.material as THREE.LineBasicMaterial;
+        linhaCota.transparent = true;
+        linhaCota.opacity = 0.55;
+        caixaCotas.visible = false;
+        cena.add(caixaCotas);
+
+        const cm = (metros: number) => Math.round(metros * 100);
+        const criarRotuloCota = (texto: string, ancora: THREE.Vector3) => {
+          const elemento = document.createElement("div");
+          elemento.className =
+            "absolute left-0 top-0 hidden -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-card/95 px-1.5 py-0.5 text-[11px] font-semibold text-card-foreground shadow backdrop-blur";
+          elemento.textContent = texto;
+          camada.appendChild(elemento);
+          rotulosCota.push({ elemento, ancora });
+        };
+        criarRotuloCota(`L ${cm(tamanho.x)} cm`, new THREE.Vector3((min.x + max.x) / 2, min.y, max.z));
+        criarRotuloCota(`P ${cm(tamanho.z)} cm`, new THREE.Vector3(max.x, min.y, (min.z + max.z) / 2));
+        criarRotuloCota(`A ${cm(tamanho.y)} cm`, new THREE.Vector3(max.x, (min.y + max.y) / 2, max.z));
+
         // Borrão (sombra barata do nível Padrão).
         sombraBlob = sombraDeContato(modelo);
         cena.add(sombraBlob);
@@ -746,6 +822,7 @@ export default function Visualizador3D({
             distanciaPara(esfera.radius, FOLGA),
           );
           voar(centro.clone().addScaledVector(direcao, distancia), centro);
+          aoFocarRef.current?.(chave);
         }
 
         // Espalha as peças a partir do centro. `fracao` 0 = montado, 1 = todo
@@ -848,6 +925,15 @@ export default function Visualizador3D({
           },
           focar: focarPeca,
           explodir,
+          mostrarCotas(mostrar) {
+            cotasVisiveis = mostrar;
+            if (caixaCotas) caixaCotas.visible = mostrar;
+            for (const { elemento } of rotulosCota) {
+              elemento.style.display = mostrar ? "block" : "none";
+            }
+            if (mostrar) posicionarCotas();
+            pedirQuadro();
+          },
           girarAuto(ligar) {
             autoGiro = ligar;
             controles.autoRotate = ligar;
@@ -926,6 +1012,7 @@ export default function Visualizador3D({
       materialInox.dispose();
       ambiente.dispose();
       luzChave.shadow.map?.dispose();
+      caixaCotas?.geometry.dispose();
       renderer.domElement.remove();
       renderer.dispose();
       cenaRef.current = null;
@@ -948,6 +1035,17 @@ export default function Visualizador3D({
   useEffect(() => {
     cenaRef.current?.explodir(explosao);
   }, [explosao, carregado]);
+
+  // Liga/desliga a régua de cotas.
+  useEffect(() => {
+    cenaRef.current?.mostrarCotas(cotas);
+  }, [cotas, carregado]);
+
+  // Foco pedido de fora (clique num item da especificação). O `nonce` faz o
+  // efeito rodar de novo mesmo focando a mesma peça duas vezes seguidas.
+  useEffect(() => {
+    if (foco) cenaRef.current?.focar(foco.chave);
+  }, [foco, carregado]);
 
   // Aplica as escolhas e aponta o que mudou. Roda a cada mudança de estado e
   // também logo depois do carregamento — por isso `carregado` é dependência.
@@ -1063,6 +1161,22 @@ export default function Visualizador3D({
             className="h-1 w-16 cursor-pointer accent-[var(--color-primary)] sm:w-24"
           />
         </div>
+        <span className="mx-0.5 h-4 w-px bg-border" />
+        <button
+          type="button"
+          onClick={() => setCotas((valor) => !valor)}
+          title={cotas ? "Esconder medidas" : "Mostrar medidas"}
+          aria-label={cotas ? "Esconder medidas" : "Mostrar medidas"}
+          aria-pressed={cotas}
+          className={`pointer-events-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition-colors ${
+            cotas
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-card-foreground"
+          }`}
+        >
+          <Ruler className="h-3.5 w-3.5" />
+          Medidas
+        </button>
       </div>
 
       {/* Seletor de qualidade: o vendedor escolhe qual nível mandar (vai no
@@ -1167,6 +1281,57 @@ export default function Visualizador3D({
     </div>,
     document.body,
   );
+}
+
+// Ambiente de estúdio para os reflexos do metal. Uma caixa CLARA por inteiro
+// (sem nenhuma parede escura, senão o inox vira preto) com softboxes brilhantes
+// e um degradê teto→chão. Vira mapa de ambiente por PMREM (não baixa nada) e dá
+// ao inox/cromado o reflexo alongado de foto de catálogo.
+function criarEstudioEnv(): THREE.Scene {
+  const cena = new THREE.Scene();
+
+  // Caixa clara em volta (interior à mostra). Base um pouco mais escura que o
+  // teto só para dar direção ao reflexo, mas ainda clara.
+  const caixa = new THREE.Mesh(
+    new THREE.BoxGeometry(30, 30, 30),
+    new THREE.MeshStandardMaterial({ color: 0xe9edf1, side: THREE.BackSide }),
+  );
+  cena.add(caixa);
+  const chao = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 30),
+    new THREE.MeshBasicMaterial({ color: 0xaeb4bb }),
+  );
+  chao.rotation.x = -Math.PI / 2;
+  chao.position.y = -14.9;
+  cena.add(chao);
+  const teto = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 30),
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  );
+  teto.rotation.x = Math.PI / 2;
+  teto.position.y = 14.9;
+  cena.add(teto);
+
+  // Softboxes: painéis que emitem luz, os brilhos de estúdio no metal.
+  const softbox = (
+    l: number,
+    a: number,
+    intensidade: number,
+    posicao: [number, number, number],
+  ) => {
+    const luz = new THREE.Mesh(
+      new THREE.PlaneGeometry(l, a),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffffff).multiplyScalar(intensidade) }),
+    );
+    luz.position.set(...posicao);
+    luz.lookAt(0, 0, 0);
+    cena.add(luz);
+  };
+  softbox(7, 12, 3, [11, 4, 5]);
+  softbox(7, 12, 3, [-11, 4, 3]);
+  softbox(12, 5, 2.4, [0, 11, 4]);
+
+  return cena;
 }
 
 // Sombra de contato: um borrão redondo no chão, do tamanho da base do produto.

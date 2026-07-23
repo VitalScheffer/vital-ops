@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
   // Prisma 7 (driver adapter pg) roda no servidor; não deve
   // ser empacotado pelo bundler das Server Components/Route Handlers.
   serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg"],
+  // O model-viewer (AR) é publicado como ES module moderno com sintaxe que o
+  // Next precisa transpilar para não quebrar em navegadores mais antigos.
+  transpilePackages: ["@google/model-viewer"],
   env: {
     NEXT_PUBLIC_BUILD: BUILD,
   },

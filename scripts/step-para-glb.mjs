@@ -257,17 +257,19 @@ async function principal() {
     }
   }
 
-  await MeshoptEncoder.ready;
-  await doc.transform(
-    dedup(),
-    weld(),
-    prune(),
-    meshopt({ encoder: MeshoptEncoder, level: "high" }),
-  );
+  // O visualizador web usa meshopt (arquivo minúsculo). O model-viewer do AR
+  // NÃO decodifica meshopt, então o GLB de AR sai sem compressão — maior, mas
+  // é baixado só quando o cliente abre o AR. `AR=1` gera essa variante.
+  const paraAr = process.env.AR === "1";
 
-  const io = new NodeIO()
-    .registerExtensions([EXTMeshoptCompression, KHRMeshQuantization])
-    .registerDependencies({ "meshopt.encoder": MeshoptEncoder });
+  await MeshoptEncoder.ready;
+  await doc.transform(dedup(), weld(), prune(), ...(paraAr ? [] : [meshopt({ encoder: MeshoptEncoder, level: "high" })]));
+
+  const io = paraAr
+    ? new NodeIO()
+    : new NodeIO()
+        .registerExtensions([EXTMeshoptCompression, KHRMeshQuantization])
+        .registerDependencies({ "meshopt.encoder": MeshoptEncoder });
 
   fs.mkdirSync(path.dirname(saida), { recursive: true });
   await io.write(saida, doc);
