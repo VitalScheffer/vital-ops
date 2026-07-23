@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ConferenciaCliente } from "@/components/configurador/ConferenciaCliente";
 import { produtoPorSlug } from "@/lib/configurador/catalogo";
 import { decodificarEscolhas } from "@/lib/configurador/compartilhar";
-import { montarCodigo, resolverSelecoes } from "@/lib/configurador/codigo";
+import { resolverSelecoes } from "@/lib/configurador/codigo";
 
 // Tela de conferência do cliente. É a ÚNICA página do sistema aberta sem login
 // (ver `isPublicPath` em `auth.config.ts`), e por isso segue duas regras:
@@ -47,11 +47,6 @@ export default async function ConferenciaPage({ params, searchParams }: Conferen
   }
 
   return (
-    <ConferenciaCliente
-      produto={produto}
-      escolhas={escolhas}
-      selecoes={resolucao.selecoes}
-      codigo={montarCodigo(produto, resolucao.selecoes)}
-    />
+    <ConferenciaCliente produto={produto} escolhas={escolhas} selecoes={resolucao.selecoes} />
   );
 }

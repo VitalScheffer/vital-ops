@@ -41,7 +41,9 @@ const PREFIXO_PECA = "peca_";
 const PREFIXO_ACABAMENTO = "acab_";
 
 const ACABAMENTOS = {
-  pintado: { cor: "#d7dade", metal: 0.1, rugosidade: 0.55, configuravel: true },
+  // Cinza de aço pintado. Era claro demais (#d7dade) e lia como branco; este é
+  // um cinza médio neutro, que parece cinza em fundo claro e escuro.
+  pintado: { cor: "#9aa0a6", metal: 0.2, rugosidade: 0.5, configuravel: true },
   inox: { cor: "#dfe3e8", metal: 1, rugosidade: 0.24 },
   cromado: { cor: "#e8ecf0", metal: 1, rugosidade: 0.12 },
   galvanizado: { cor: "#aeb4bb", metal: 0.85, rugosidade: 0.38 },

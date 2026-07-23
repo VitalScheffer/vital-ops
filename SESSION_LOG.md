@@ -3866,3 +3866,18 @@ na tela do cliente, um olho que oculta/mostra as linhas do que foi mudado.
 - Botao de copiar link so testado por unidade (gera a URL certa) - o clipboard
   em si depende de estar logado no configurador, nao validado na tela.
 - Segue o padrao das gavetas (4 no catalogo x 3+gavetao no CAD) e do MODELO.
+
+### Ajustes na tela do cliente (mesma sessao)
+- **Modelo parecia branco.** Duas causas: a cor "pintado" gerada era clara
+  demais (#d7dade, quase branca) e o card do cliente e escuro, entao o modelo
+  claro contra o preto lia como branco. Corrigido nos dois: cinza medio de aco
+  (#9aa0a6) e fundo de estudio (radial claro fixo nos dois temas) atras do 3D,
+  que da cara de foto de produto. GLB regerado.
+- **Card do 3D grande demais (rolava a pagina no notebook).** Tela do cliente
+  passou a caber na janela no computador (`lg:h-dvh`): o 3D preenche a altura,
+  a lista rola por dentro; no celular segue rolando normal (`min-h-dvh`).
+- **Tirada a linha "Referencia desta configuracao: CARRO-..."** da tela do
+  cliente (era codigo interno; prop `codigo` removida do componente e da rota).
+- Verificado no navegador (1366x768, rota publica): sem rolagem de pagina,
+  modelo cinza em carbono e prateado em inox, fundo de estudio, etiquetas e olho
+  funcionando. 377 testes, build verde.

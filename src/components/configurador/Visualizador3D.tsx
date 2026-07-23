@@ -49,6 +49,11 @@ const MATERIAL_CONFIGURAVEL = "acab_pintado";
 // CAD, mas este muda com a escolha do vendedor e por isso mora aqui.
 const INOX = { cor: 0xdfe3e8, metalico: 1, rugosidade: 0.24 };
 
+// Fundo de estúdio (lightbox): claro no centro, escurecendo nas bordas, para
+// dar volume e destacar o contorno do produto. Fixo nos dois temas de
+// propósito — é o backdrop de uma foto de produto, não parte da interface.
+const FUNDO_ESTUDIO = "radial-gradient(circle at 50% 38%, #f3f5f6 0%, #c8ced3 100%)";
+
 // De onde a câmera olha (à direita, um pouco acima e à frente) e quanta folga
 // sobra em volta do produto.
 const DIRECAO_CAMERA = new THREE.Vector3(0.9, 0.5, 1);
@@ -607,8 +612,11 @@ export default function Visualizador3D({
       }
     >
       {/* A tela do WebGL é filha do `containerRef` e NÃO do React: por isso ela
-          fica num div só dela, sem irmão que o React possa remover embaixo. */}
-      <div className="relative min-h-0 flex-1">
+          fica num div só dela, sem irmão que o React possa remover embaixo.
+          O fundo de estúdio (claro, igual nos dois temas) é o que faz o cinza
+          do produto parecer cinza: sobre o card escuro da tela do cliente, o
+          modelo claro contra o preto lia como branco. */}
+      <div className="relative min-h-0 flex-1" style={{ background: FUNDO_ESTUDIO }}>
         <div ref={containerRef} className="absolute inset-0" />
         {!carregado && (
           <p className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs text-muted-foreground">

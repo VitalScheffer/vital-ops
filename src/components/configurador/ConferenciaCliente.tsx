@@ -30,17 +30,11 @@ interface ConferenciaClienteProps {
   produto: ProdutoCatalogo;
   escolhas: EscolhasBrutas;
   selecoes: readonly SelecaoResolvida[];
-  codigo: string;
 }
 
 // O que o cliente vê quando abre o link: o produto girando em 3D e, do lado, a
 // lista do que foi especificado, com o que foge do modelo de série em destaque.
-export function ConferenciaCliente({
-  produto,
-  escolhas,
-  selecoes,
-  codigo,
-}: ConferenciaClienteProps) {
+export function ConferenciaCliente({ produto, escolhas, selecoes }: ConferenciaClienteProps) {
   const [falhou, setFalhou] = useState(false);
   const modelo = falhou ? undefined : produto.modelo3d;
 
@@ -53,8 +47,11 @@ export function ConferenciaCliente({
   const foraDoPadrao = selecoes.filter((selecao) => !selecao.padrao);
 
   return (
-    <div className="flex min-h-full flex-col bg-background">
-      <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-3 sm:px-6">
+    // No computador a tela inteira cabe na janela (`lg:h-dvh`): o 3D preenche a
+    // altura e a lista rola por dentro, se precisar, sem rolar a página. No
+    // celular vira uma coluna que rola normalmente (`min-h-dvh`).
+    <div className="flex min-h-dvh flex-col bg-background lg:h-dvh">
+      <header className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3 sm:px-6">
         <VitalLogo className="h-7 w-7 shrink-0" />
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold text-card-foreground">{produto.nome}</h1>
@@ -64,12 +61,11 @@ export function ConferenciaCliente({
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-6xl flex-1 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        {/* Coluna do 3D em coluna flex: no computador a caixa acompanha a
-            altura da lista do lado (as duas colunas da grade têm a mesma
-            altura), em vez de sobrar um vazio embaixo do modelo. */}
-        <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
-          <div className="min-h-[46vh] flex-1 lg:min-h-72">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 p-4 sm:p-6 lg:min-h-0 lg:flex-row">
+        {/* Coluna do 3D: preenche a largura que sobra e a altura toda da tela
+            no computador; no celular tem uma altura fixa e o resto rola. */}
+        <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card lg:min-h-0 lg:flex-1">
+          <div className="h-[46vh] min-h-0 lg:h-auto lg:flex-1">
             {modelo ? (
               <Visualizador3D
                 arquivo={modelo.arquivo}
@@ -96,7 +92,9 @@ export function ConferenciaCliente({
           </p>
         </div>
 
-        <aside className="flex flex-col gap-4">
+        {/* A lista rola por dentro no computador (a tela não rola); largura
+            fixa para o 3D ficar com o resto. */}
+        <aside className="flex flex-col gap-4 lg:w-[340px] lg:shrink-0 lg:overflow-y-auto lg:pr-1">
           <section className="rounded-xl border border-border bg-card p-4">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-card-foreground">
               {foraDoPadrao.length === 0 ? (
@@ -157,10 +155,6 @@ export function ConferenciaCliente({
               </ul>
             </section>
           )}
-
-          <p className="px-1 text-[11px] text-muted-foreground">
-            Referência desta configuração: <span className="font-mono">{codigo}</span>
-          </p>
         </aside>
       </main>
     </div>
