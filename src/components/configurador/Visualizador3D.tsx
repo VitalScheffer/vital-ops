@@ -1,6 +1,16 @@
 "use client";
 
-import { Loader2, Maximize2, RotateCcw, X } from "lucide-react";
+import {
+  Check,
+  Eye,
+  EyeOff,
+  Link2,
+  Loader2,
+  Maximize2,
+  RotateCcw,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
@@ -46,6 +56,15 @@ const FOLGA = 1.12;
 
 // Quanto tempo o marcador do "mudou aqui" fica na tela.
 const DESTAQUE_MS = 3800;
+// Quanto tempo o botão de copiar fica dizendo que copiou.
+const AVISO_COPIA_MS = 2200;
+
+// Medidas da etiqueta, para desviar uma da outra na tela. Aproximadas de
+// propósito: medir cada pílula no DOM a cada quadro custaria recálculo de
+// layout, e o que importa aqui é não empilhar texto em cima de texto.
+const ALTURA_PILULA = 26;
+const LARGURA_PILULA = 150;
+const HASTE_MINIMA = 16;
 // Só gira sozinho se a peça estiver mais de ~50° fora da frente da câmera. Peça
 // que já está à vista não justifica mexer no ângulo que a pessoa escolheu.
 const GIRO_MINIMO = 0.9;
@@ -84,6 +103,13 @@ interface Visualizador3DProps {
   // O que esta configuração tem de diferente do padrão. Vira uma etiqueta presa
   // em cada peça quando a prévia é ampliada.
   anotacoes: readonly Destaque[];
+  // Começa com as etiquetas ligadas. É o caso da tela do cliente: ele abre o
+  // link justamente para ver o que foi pedido de diferente. No configurador
+  // elas ficam desligadas até ampliar, para não tampar o produto no painel.
+  anotarDeInicio?: boolean;
+  // Endereço da tela de conferência desta configuração. Vindo preenchido,
+  // aparece o botão que copia o link para mandar ao cliente.
+  aoCopiarLink?: () => Promise<boolean>;
   // Avisa o formulário quando o 3D não abre (sem WebGL, arquivo fora do ar),
   // para a tela voltar a mostrar a foto em vez de um retângulo vazio.
   onFalha?: () => void;
@@ -93,6 +119,8 @@ export default function Visualizador3D({
   arquivo,
   estado,
   anotacoes,
+  anotarDeInicio,
+  aoCopiarLink,
   onFalha,
 }: Visualizador3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -100,6 +128,21 @@ export default function Visualizador3D({
   const [carregado, setCarregado] = useState(false);
   const [progresso, setProgresso] = useState(0);
   const [ampliado, setAmpliado] = useState(false);
+  const [anotando, setAnotando] = useState(Boolean(anotarDeInicio));
+  const [linkCopiado, setLinkCopiado] = useState<boolean | null>(null);
+
+  function alternarAmpliado() {
+    // Ampliar liga as etiquetas: é para isso que se amplia. Desligar de novo é
+    // um clique no olho, e a escolha vale até fechar.
+    if (!ampliado) setAnotando(true);
+    setAmpliado((valor) => !valor);
+  }
+
+  async function copiarLink() {
+    const copiou = (await aoCopiarLink?.()) ?? false;
+    setLinkCopiado(copiou);
+    setTimeout(() => setLinkCopiado(null), AVISO_COPIA_MS);
+  }
 
   // Guardado por referência, e não usado como dependência: um `onFalha` recriado
   // no render do pai remontaria a cena WebGL inteira a cada tecla digitada.
@@ -118,13 +161,23 @@ export default function Visualizador3D({
     let vivo = true;
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer = new THREE.WebGLRenderer({
+        // Serrilhado por multiamostragem custa banda de memória em tela grande.
+        // Numa tela densa (retina, celular) o próprio pixel já resolve, e aí ele
+        // sai; na tela comum ele fica, que é onde faz falta.
+        antialias: window.devicePixelRatio < 1.5,
+        alpha: true,
+        powerPreference: "high-performance",
+      });
     } catch {
       onFalhaRef.current?.();
       return;
     }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Teto de resolução: em tela densa, desenhar 2x em cada eixo é 4x de
+    // trabalho por quadro para uma diferença que quase não se vê num painel
+    // deste tamanho. É a mudança que mais tira travada em vídeo integrado.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(container.clientWidth, container.clientHeight || 1);
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.domElement.className = "h-full w-full";
@@ -180,6 +233,8 @@ export default function Visualizador3D({
 
     interface Marcador {
       elemento: HTMLElement;
+      // A haste cresce quando duas etiquetas vizinhas na tela se cobrem.
+      haste: HTMLElement;
       ancora: THREE.Vector3;
     }
     // Um transitório (o que o vendedor acabou de mexer) e os fixos (o que difere
@@ -189,39 +244,88 @@ export default function Visualizador3D({
     let fixos: Marcador[] = [];
     let sumico: ReturnType<typeof setTimeout> | undefined;
 
-    // `alturaHaste` escalona a pílula: com várias etiquetas na mesma vista, o
-    // comprimento diferente da haste evita que uma cubra a outra.
-    function criarMarcador(destaque: Destaque, alturaHaste: number): Marcador {
+    function criarMarcador(destaque: Destaque): Marcador {
       const elemento = document.createElement("div");
       elemento.className =
         "absolute left-0 top-0 flex -translate-x-1/2 -translate-y-full flex-col items-center transition-opacity duration-200";
+      // A pílula fica numa camada acima das hastes e dos pontos (z-20 contra
+      // z-10): assim o ponto de UMA etiqueta nunca cai em cima do texto da
+      // outra, independente da ordem em que foram criadas.
       elemento.innerHTML =
-        '<span class="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2 py-1 text-[11px] font-medium text-card-foreground shadow-lg backdrop-blur">' +
+        '<span class="relative z-20 flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2 py-1 text-[11px] font-medium text-card-foreground shadow-lg backdrop-blur">' +
         '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-primary"></svg>' +
         "<span></span></span>" +
-        '<span class="w-px bg-primary"></span>' +
-        '<span class="h-2 w-2 rounded-full bg-primary ring-2 ring-card"></span>';
+        '<span class="relative z-10 w-px bg-primary"></span>' +
+        '<span class="relative z-10 h-2 w-2 rounded-full bg-primary ring-2 ring-card"></span>';
       elemento.querySelector("svg")!.innerHTML = DESENHO_ICONE[destaque.tipo];
       elemento.querySelector("span > span")!.textContent = destaque.texto;
-      (elemento.children[1] as HTMLElement).style.height = `${alturaHaste}px`;
 
       const peca = destaque.peca ? pecasCarregadas.get(destaque.peca) : undefined;
       const ancora = (peca?.centro ?? centroDoModelo).clone();
       camada.appendChild(elemento);
-      return { elemento, ancora };
+      return { elemento, haste: elemento.children[1] as HTMLElement, ancora };
     }
 
+    // Projeta cada âncora na tela e desvia as etiquetas que se cobrem: quem
+    // chega depois num lugar já ocupado ganha haste mais comprida e sobe. É por
+    // quadro de propósito — quem decide se duas etiquetas se cobrem é o ângulo
+    // da câmera, que muda o tempo todo.
     function posicionarMarcadores() {
       const largura = renderer.domElement.clientWidth;
       const altura = renderer.domElement.clientHeight;
-      for (const marcador of [transitorio, ...fixos]) {
+
+      // Primeiro onde cada peça caiu na tela; depois onde cabe cada pílula.
+      // Em duas passadas porque a pílula precisa desviar TAMBÉM do ponto das
+      // outras (cada etiqueta é uma camada só dela, então um ponto desenhado
+      // depois passaria por cima de um texto desenhado antes).
+      const pontos: { marcador: Marcador; x: number; y: number }[] = [];
+
+      // O transitório entra por último: ele é o "acabei de mexer aqui" e fica
+      // no lugar mais perto da peça.
+      for (const marcador of [...fixos, transitorio]) {
         if (!marcador) continue;
         const ponto = marcador.ancora.clone().project(camera);
         // z > 1 = atrás da câmera; sem isto a etiqueta reaparece espelhada do
         // outro lado da tela.
-        marcador.elemento.style.visibility = ponto.z > 1 ? "hidden" : "visible";
-        marcador.elemento.style.left = `${(ponto.x * 0.5 + 0.5) * largura}px`;
-        marcador.elemento.style.top = `${(-ponto.y * 0.5 + 0.5) * altura}px`;
+        if (ponto.z > 1) {
+          marcador.elemento.style.visibility = "hidden";
+          continue;
+        }
+        marcador.elemento.style.visibility = "visible";
+        pontos.push({
+          marcador,
+          x: (ponto.x * 0.5 + 0.5) * largura,
+          y: (-ponto.y * 0.5 + 0.5) * altura,
+        });
+      }
+
+      const ocupados: { x: number; topo: number }[] = [];
+      for (const { marcador, x, y } of pontos) {
+        const atrapalha = (topo: number) =>
+          ocupados.some(
+            (outro) =>
+              Math.abs(outro.x - x) < LARGURA_PILULA && Math.abs(outro.topo - topo) < ALTURA_PILULA,
+          ) ||
+          pontos.some(
+            (outro) =>
+              outro.marcador !== marcador &&
+              Math.abs(outro.x - x) < LARGURA_PILULA / 2 &&
+              outro.y > topo &&
+              outro.y < topo + ALTURA_PILULA,
+          );
+
+        let haste = HASTE_MINIMA;
+        let topo = y - haste - ALTURA_PILULA;
+        let tentativas = 0;
+        while (tentativas++ < 6 && topo > ALTURA_PILULA && atrapalha(topo)) {
+          haste += ALTURA_PILULA + 4;
+          topo = y - haste - ALTURA_PILULA;
+        }
+
+        ocupados.push({ x, topo });
+        marcador.haste.style.height = `${haste}px`;
+        marcador.elemento.style.left = `${x}px`;
+        marcador.elemento.style.top = `${y}px`;
       }
     }
 
@@ -232,10 +336,14 @@ export default function Visualizador3D({
       giro = null;
     });
 
-    let precisaDesenhar = true;
-    let animacao = requestAnimationFrame(function laco(agora) {
-      animacao = requestAnimationFrame(laco);
+    // Desenho SOB DEMANDA. Antes o laço rodava a 60 quadros por segundo para
+    // sempre, mesmo com o produto parado, e disputava a linha principal com a
+    // rolagem da página: era daí que vinha a travada. Agora cada mexida pede um
+    // quadro, e o laço se desliga sozinho quando a cena assenta.
+    let animacao = 0;
+    let precisaDesenhar = false;
 
+    function laco(agora: number) {
       if (giro) {
         const parte = Math.min((agora - giro.inicio) / GIRO_MS, 1);
         // easeInOutCubic: sai e chega devagar, sem tranco.
@@ -247,12 +355,26 @@ export default function Visualizador3D({
         precisaDesenhar = true;
       }
 
-      if (controles.update() || precisaDesenhar) {
+      // `update()` devolve true enquanto a inércia do arrasto ainda está
+      // acabando; é o que mantém o laço vivo até o produto parar de verdade.
+      const assentando = controles.update();
+      if (assentando || precisaDesenhar) {
         renderer.render(cena, camera);
         if (transitorio || fixos.length > 0) posicionarMarcadores();
         precisaDesenhar = false;
       }
-    });
+
+      animacao = assentando || giro ? requestAnimationFrame(laco) : 0;
+    }
+
+    function pedirQuadro() {
+      precisaDesenhar = true;
+      if (animacao === 0) animacao = requestAnimationFrame(laco);
+    }
+
+    // Enquanto o dedo/mouse está no produto, o laço fica ligado: o `update()`
+    // só passa a valer depois que o controle processa o movimento.
+    controles.addEventListener("change", pedirQuadro);
 
     function ajustarAo(alvo: HTMLElement) {
       const largura = alvo.clientWidth;
@@ -261,7 +383,7 @@ export default function Visualizador3D({
       renderer.setSize(largura, altura);
       camera.aspect = largura / altura;
       camera.updateProjectionMatrix();
-      precisaDesenhar = true;
+      pedirQuadro();
     }
 
     // Observa o container ATUAL (ele muda quando a prévia é ampliada), por isso
@@ -326,7 +448,7 @@ export default function Visualizador3D({
           controles.minDistance = esfera.radius * 0.45;
           controles.maxDistance = distancia * 2;
           controles.update();
-          precisaDesenhar = true;
+          pedirQuadro();
         }
         enquadrar();
 
@@ -355,6 +477,7 @@ export default function Visualizador3D({
             raio: atual.radius,
             inicio: performance.now(),
           };
+          pedirQuadro();
         }
 
         cenaRef.current = {
@@ -368,7 +491,7 @@ export default function Visualizador3D({
           },
           destacar(destaque) {
             transitorio?.elemento.remove();
-            transitorio = criarMarcador(destaque, 16);
+            transitorio = criarMarcador(destaque);
             posicionarMarcadores();
             clearTimeout(sumico);
             sumico = setTimeout(() => {
@@ -376,18 +499,13 @@ export default function Visualizador3D({
               transitorio = null;
             }, DESTAQUE_MS);
             girarAte(transitorio.ancora);
-            precisaDesenhar = true;
+            pedirQuadro();
           },
           anotar(destaques) {
             for (const marcador of fixos) marcador.elemento.remove();
-            // Hastes de comprimentos diferentes: com duas peças vizinhas na
-            // mesma vista, as pílulas param em alturas diferentes em vez de uma
-            // cobrir a outra.
-            fixos = destaques.map((destaque, posicao) =>
-              criarMarcador(destaque, 16 + (posicao % 3) * 22),
-            );
+            fixos = destaques.map(criarMarcador);
             posicionarMarcadores();
-            precisaDesenhar = true;
+            pedirQuadro();
           },
           modoAmpliado(ampliado) {
             renderer.domElement.style.touchAction = ampliado ? "none" : "pan-y";
@@ -402,7 +520,7 @@ export default function Visualizador3D({
                   : (malha.userData.materialCad as THREE.Material);
               }
             }
-            precisaDesenhar = true;
+            pedirQuadro();
           },
         };
         setCarregado(true);
@@ -419,7 +537,8 @@ export default function Visualizador3D({
 
     return () => {
       vivo = false;
-      cancelAnimationFrame(animacao);
+      if (animacao !== 0) cancelAnimationFrame(animacao);
+      controles.removeEventListener("change", pedirQuadro);
       clearTimeout(sumico);
       observador.disconnect();
       controles.dispose();
@@ -457,12 +576,10 @@ export default function Visualizador3D({
     if (destaque) cenaRef.current.destacar(destaque);
   }, [estado, carregado]);
 
-  // Na tela ampliada não dá para marcar opção, então ela mostra de uma vez
-  // tudo que esta configuração tem de diferente do padrão, cada coisa apontando
-  // a peça. Fechando, some.
+  // Etiquetas de tudo que difere do padrão, cada uma apontando a sua peça.
   useEffect(() => {
-    cenaRef.current?.anotar(ampliado ? anotacoes : []);
-  }, [ampliado, anotacoes, carregado]);
+    cenaRef.current?.anotar(anotando ? anotacoes : []);
+  }, [anotando, anotacoes, carregado]);
 
   // Ampliar não recarrega a cena: a mesma tela do WebGL é levada para o
   // container do portal.
@@ -505,7 +622,9 @@ export default function Visualizador3D({
         <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card/90 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
           {anotacoes.length === 0
             ? "Tudo no padrão: nada para apontar no modelo."
-            : `Apontando ${anotacoes.length} ${anotacoes.length === 1 ? "mudança" : "mudanças"} em relação ao padrão.`}
+            : anotando
+              ? `Apontando ${anotacoes.length} ${anotacoes.length === 1 ? "mudança" : "mudanças"} em relação ao padrão.`
+              : "Etiquetas escondidas."}
         </p>
       )}
 
@@ -520,9 +639,45 @@ export default function Visualizador3D({
           <RotateCcw className="h-3.5 w-3.5" />
           {ampliado && "Reenquadrar"}
         </button>
+        {anotacoes.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setAnotando((valor) => !valor)}
+            title={anotando ? "Esconder o que mudou" : "Mostrar o que mudou"}
+            aria-label={anotando ? "Esconder o que mudou" : "Mostrar o que mudou"}
+            aria-pressed={anotando}
+            className={botao}
+          >
+            {anotando ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            {ampliado && (anotando ? "Esconder mudanças" : "Mostrar mudanças")}
+          </button>
+        )}
+        {aoCopiarLink && (
+          <button
+            type="button"
+            onClick={copiarLink}
+            title="Copiar link para o cliente ver este modelo"
+            aria-label="Copiar link para o cliente ver este modelo"
+            className={botao}
+          >
+            {linkCopiado === null ? (
+              <Link2 className="h-3.5 w-3.5" />
+            ) : linkCopiado ? (
+              <Check className="h-3.5 w-3.5 text-success" />
+            ) : (
+              <TriangleAlert className="h-3.5 w-3.5 text-warning" />
+            )}
+            {(ampliado || linkCopiado !== null) &&
+              (linkCopiado === null
+                ? "Link do cliente"
+                : linkCopiado
+                  ? "Link copiado"
+                  : "Não consegui copiar")}
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => setAmpliado((valor) => !valor)}
+          onClick={alternarAmpliado}
           title={ampliado ? "Fechar" : "Ampliar"}
           aria-label={ampliado ? "Fechar" : "Ampliar"}
           className={botao}

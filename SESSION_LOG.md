@@ -3804,3 +3804,65 @@ modelados) leva `aviso3d` na opcao e aparece como aviso ao lado da previa.
 - **Previa nao encolhe mais** (`shrink-0`) e gruda no alto do painel quando ele
   passa a rolar por dentro: a lista de "fora do padrao" estava espremendo o 3D.
 - 365 testes.
+
+## 2026-07-23 - Configurador 3D: link publico, otimizacao e etiquetas
+
+### Resumo
+Continuacao da mesma tarefa, tres pedidos: (1) o 3D estava travando; (2) um
+botao ao lado do reenquadrar que gera e copia uma URL da vitalops SEM login,
+abrindo uma tela para o cliente ver o modelo com o que ele pediu do lado; (3)
+na tela do cliente, um olho que oculta/mostra as linhas do que foi mudado.
+
+### Arquivos criados/alterados
+- `src/lib/configurador/compartilhar.ts` (novo, puro) - codifica/decodifica a
+  configuracao na URL (`GRUPO.OPCAO`, so o que foge do padrao) e monta o link
+  `/ver/<slug>?c=...`. Tolerante a link velho e URL adulterada.
+- `src/lib/configurador/compartilhar.test.ts` (novo) - 11 testes (ida-e-volta
+  pelo codigo de identidade, texto livre, URL estragada).
+- `src/lib/configurador/modelo3d.ts` - `mudancas()` devolve a lista inteira do
+  que difere; `mudanca()` virou o primeiro item dela. `estado3d` agora tambem
+  devolve `rotulos`/`rotuloAcabamento` (texto das etiquetas).
+- `src/app/ver/[slug]/page.tsx` (novo) - tela publica, sem banco, `robots`
+  noindex.
+- `src/components/configurador/ConferenciaCliente.tsx` (novo, client) - o que o
+  cliente ve: 3D + o que tem de especial + especificacao + o que o 3D nao
+  mostra. Sem preco/vendedor/observacao interna.
+- `src/components/configurador/Visualizador3D.tsx` - desenho sob demanda, teto
+  de resolucao 1.5x, antialias so em tela nao-densa, min/maxDistance mais
+  folgados; camada de varias etiquetas com anti-colisao na tela; botao de olho
+  (`anotando`) e botao de copiar link (`aoCopiarLink`).
+- `src/components/configurador/PreviewProduto.tsx` e `ConfiguradorForm.tsx` -
+  passam `anotacoes` e `copiarLinkDoCliente` (clipboard, com fallback de abrir
+  a aba se a area de transferencia estiver bloqueada).
+- `src/lib/auth.config.ts` - `/ver/...` entra em `isPublicPath`.
+
+### Decisoes importantes
+- **A configuracao viaja na URL, nao no banco.** A tela publica nao le banco:
+  o link nao e chave para nada guardado, trocar o `?c=` so monta outro carro e
+  nunca revela pedido de outro cliente, e nao sobra link "vivo" para expirar.
+- **`/ver/` e a unica rota sem login.** So mostra produto, opcoes e 3D - nada
+  interno. `robots` noindex: link de cliente nao e pagina de Google.
+- **Travada = laco a 60fps eterno competindo com a rolagem.** Virou desenho sob
+  demanda: cada mexida pede um quadro (`pedirQuadro`), o laco se desliga quando
+  `controles.update()` para de pedir. Teto de resolucao 1.5x (era 2x) e sem
+  MSAA em tela densa - juntos, o que mais tira travada em video integrado.
+- **Etiquetas com anti-colisao em duas passadas.** Antes tinham comprimento de
+  haste fixo por posicao; com a camera girando, duas peças caiam no mesmo
+  lugar. Agora projeta todas, depois desvia cada pilula do que ja esta ocupado
+  (haste cresce). Duas passadas porque a pilula tambem desvia do PONTO das
+  outras (cada etiqueta e uma camada z propria).
+- **Olho: `anotando`.** No configurador comeca desligado (so liga ao ampliar,
+  pra nao tampar o produto no painel); na tela do cliente comeca ligado, que e
+  o motivo de ele abrir o link.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint src`, `npx vitest run` (31 arquivos, 376
+  testes), `npm run build` -> tudo verde
+- Verificado no navegador (Chrome DevTools MCP, rota publica sem login): 3D
+  renderiza a config da URL, 3 etiquetas separadas apontando a peca certa, olho
+  escondendo/mostrando, ampliar. `/configurador` e `/produtos` -> 307 /login.
+
+### Pendencias / proximos passos
+- Botao de copiar link so testado por unidade (gera a URL certa) - o clipboard
+  em si depende de estar logado no configurador, nao validado na tela.
+- Segue o padrao das gavetas (4 no catalogo x 3+gavetao no CAD) e do MODELO.

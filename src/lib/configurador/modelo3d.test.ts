@@ -166,6 +166,13 @@ describe("catálogo x modelo 3D", () => {
     }
   });
 
+  it("todo grupo tem rótulo em `estado3d` para as etiquetas do 3D", () => {
+    const estado = estado3d(carro, escolhasPadrao(carro));
+    for (const peca of Object.values(estado.rotulos)) {
+      expect(peca).toMatch(/: /);
+    }
+  });
+
   it("marca como 3D só os grupos que mudam o modelo", () => {
     const mexem = carro.grupos.filter(grupoMexeNo3d).map((grupo) => grupo.codigo);
     expect(mexem).toEqual(["MAT", "TAM", "TAB", "OXI", "REG", "DES", "SOR"]);

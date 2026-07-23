@@ -26,6 +26,7 @@ import {
   type EscolhaBruta,
 } from "@/lib/configurador/codigo";
 import type { RespostaConhecida } from "@/lib/configurador/fila";
+import { linkDeConferencia } from "@/lib/configurador/compartilhar";
 import type { ItemHistorico } from "@/lib/configurador/historico";
 import { estado3d, grupoMexeNo3d, mudancas } from "@/lib/configurador/modelo3d";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
@@ -140,12 +141,29 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
     return () => consulta.removeEventListener("change", aplicar);
   }, []);
 
+  // Link da tela de conferência do cliente. Montado na hora do clique, e não a
+  // cada render, porque depende de `window` (o endereço do próprio site) e
+  // porque só interessa quando alguém pede.
+  async function copiarLinkDoCliente() {
+    const link = linkDeConferencia(window.location.origin, produto, escolhas);
+    try {
+      await navigator.clipboard.writeText(link);
+      return true;
+    } catch {
+      // Área de transferência bloqueada (permissão negada, página sem HTTPS).
+      // Melhor abrir a tela do que deixar o vendedor sem o link.
+      window.open(link, "_blank", "noopener");
+      return false;
+    }
+  }
+
   const preview = (
     <PreviewProduto
       produto={produto}
       imagem={imagem}
       estado={modelo}
       anotacoes={anotacoes}
+      aoCopiarLink={produto.modelo3d ? copiarLinkDoCliente : undefined}
       compacto={ehDesktop === false}
     />
   );

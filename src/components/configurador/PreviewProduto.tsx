@@ -30,6 +30,9 @@ interface PreviewProdutoProps {
   estado: Estado3d;
   // O que difere do padrão, para a tela ampliada apontar peça por peça.
   anotacoes: readonly Destaque[];
+  // Copia o link da tela de conferência do cliente. Só o configurador passa
+  // isto; a própria tela do cliente não mostra o botão.
+  aoCopiarLink?: () => Promise<boolean>;
   // No celular a prévia fica grudada no alto da tela e precisa ser baixa para
   // não engolir as opções.
   compacto?: boolean;
@@ -40,6 +43,7 @@ export function PreviewProduto({
   imagem,
   estado,
   anotacoes,
+  aoCopiarLink,
   compacto,
 }: PreviewProdutoProps) {
   const [falhou, setFalhou] = useState(false);
@@ -57,6 +61,7 @@ export function PreviewProduto({
             arquivo={modelo.arquivo}
             estado={estado}
             anotacoes={anotacoes}
+            aoCopiarLink={aoCopiarLink}
             onFalha={aoFalhar}
           />
         ) : (

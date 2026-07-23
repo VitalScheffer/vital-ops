@@ -11,8 +11,14 @@ export function isCompanyEmail(email?: string | null): boolean {
   return typeof email === "string" && email.toLowerCase().endsWith(`@${COMPANY_DOMAIN}`);
 }
 
+// `/ver/...` é a tela de conferência que o vendedor manda para o cliente: ela
+// existe justamente para ser aberta por quem não tem login. Não consulta banco
+// nenhum — a configuração inteira vem na URL (ver `compartilhar.ts`) —, então
+// abrir essa rota não expõe nada além do que o vendedor decidiu enviar.
 function isPublicPath(pathname: string): boolean {
-  return pathname === "/login" || pathname.startsWith("/api/auth");
+  return (
+    pathname === "/login" || pathname.startsWith("/api/auth") || pathname.startsWith("/ver/")
+  );
 }
 
 export const authConfig = {
