@@ -3754,3 +3754,33 @@ modelados) leva `aviso3d` na opcao e aparece como aviso ao lado da previa.
 - Segue em aberto o padrao do grupo MODELO (hoje SLIM).
 - CAD do modelo Grande e das demais variantes: quando chegar, rodar o conversor
   e trocar o `aviso3d` da opcao por um segundo `modelo3d`.
+
+### Ajustes depois do primeiro teste na tela (mesma sessao)
+- **Foto de referencia de volta ao topo da coluna.** O 3D e o CAD do slim; o
+  modelo Grande so existe na foto, entao a foto continua sendo a referencia do
+  produto inteiro e o 3D e a previa da configuracao.
+- **Giro livre.** Tinha limite de angulo vertical (parava no horizonte e antes
+  do topo) e parecia travado. Agora gira 360 nos dois eixos, como em CAD.
+- **Ampliar virou portal para o `<body>`, com fundo escuro, botao "Fechar"
+  escrito, clique fora e Esc.** Antes o `fixed` ficava preso a algum ancestral
+  e o unico jeito de voltar era o icone pequeno no canto.
+- **Lista de "Fora do padrao" com rolagem propria (max-h-40) e contador**, para
+  configuracao muito fora do padrao nao empurrar o 3D para fora da tela.
+- **Botao "Voltar ao padrao" no painel**, ao lado dos desvios (antes so aparecia
+  quando o formulario vinha do historico).
+- **Marcador do "mudou aqui".** Trocar uma opcao que mexe no modelo mostra uma
+  pilula com icone presa na peca (ponto + haste), com o rotulo do grupo e da
+  opcao, por 3,8 s. Se a peca estiver a mais de ~50 graus do angulo atual, a
+  camera gira sozinha ate ela em 650 ms (easeInOutCubic); arrastar cancela o
+  giro. Peca central (tampo, estrutura) nao gira nada.
+  - `mudanca(antes, depois)` em `modelo3d.ts` (pura, 6 testes): devolve UMA
+    mudanca, priorizando peca que acendeu/apagou sobre troca de acabamento.
+  - O marcador e DOM cru irmao da tela do WebGL: a posicao dele muda a cada
+    quadro (projecao do ponto 3D), e isso por estado do React seria um render
+    por quadro.
+
+### Comandos relevantes (2a rodada)
+- `npx tsc --noEmit`, `npx eslint src scripts`, `npx vitest run` (30 arquivos,
+  362 testes), `npm run build` -> tudo verde
+- Verificado por HTTP: `/configurador/...png` e `/configurador/3d/*.glb` -> 200;
+  `/configurador` e `/produtos` -> 307 /login

@@ -330,7 +330,10 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
           </p>
         </div>
 
-        {ehDesktop === true && preview}
+        {/* Gruda no alto do painel: quando a lista de desvios cresce e o painel
+            passa a rolar por dentro, o 3D continua à vista em vez de subir
+            junto com o resumo. */}
+        {ehDesktop === true && <div className="sticky top-0 z-10 bg-card">{preview}</div>}
 
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-card-foreground">

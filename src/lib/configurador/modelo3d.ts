@@ -22,6 +22,22 @@ export interface Estado3d {
   acabamentoPorPeca: Readonly<Record<string, Acabamento3d>>;
   // O que a combinação escolhida tem e o 3D não mostra.
   avisos: readonly AvisoModelo[];
+  // Quem manda em cada peça, escrito como aparece na tela ("Suporte para soro:
+  // Não"). É o texto que o visualizador mostra ao apontar o que mudou. Em ordem
+  // dos grupos do catálogo; peça sem dono não entra.
+  rotulos: Readonly<Record<string, string>>;
+  // Idem para o acabamento do modelo inteiro ("Material: Inox").
+  rotuloAcabamento: string | null;
+}
+
+export type TipoDestaque = "acendeu" | "apagou" | "acabamento";
+
+// O que mudou de uma escolha para a outra, para o visualizador apontar.
+export interface Destaque {
+  // Peça que mudou; `null` quando a mudança vale para o modelo inteiro.
+  peca: string | null;
+  texto: string;
+  tipo: TipoDestaque;
 }
 
 export interface AvisoModelo {
@@ -46,10 +62,13 @@ export function estado3d(produto: ProdutoCatalogo, escolhas: EscolhasBrutas): Es
   const ocultas = new Set<string>();
   const acabamentoPorPeca: Record<string, Acabamento3d> = {};
   const avisos: AvisoModelo[] = [];
+  const rotulos: Record<string, string> = {};
   let acabamentoGeral: Acabamento3d = "pintado";
+  let rotuloAcabamento: string | null = null;
 
   for (const grupo of produto.grupos) {
     const marcada = opcaoMarcada(grupo, escolhas);
+    const rotulo = marcada ? `${grupo.rotulo}: ${marcada.rotulo}` : grupo.rotulo;
 
     // Peças que o GRUPO controla: a união do que suas opções acendem. Fora
     // dessa união ninguém mexe — peça sem dono fica sempre visível.
@@ -59,14 +78,19 @@ export function estado3d(produto: ProdutoCatalogo, escolhas: EscolhasBrutas): Es
     }
     for (const peca of controladas) {
       if (!marcada?.pecas3d?.includes(peca)) ocultas.add(peca);
+      rotulos[peca] = rotulo;
     }
 
     if (marcada?.acabamento3d) {
       const { acabamento, pecas } = marcada.acabamento3d;
       if (pecas) {
-        for (const peca of pecas) acabamentoPorPeca[peca] = acabamento;
+        for (const peca of pecas) {
+          acabamentoPorPeca[peca] = acabamento;
+          rotulos[peca] = rotulo;
+        }
       } else {
         acabamentoGeral = acabamento;
+        rotuloAcabamento = rotulo;
       }
     }
 
@@ -79,7 +103,45 @@ export function estado3d(produto: ProdutoCatalogo, escolhas: EscolhasBrutas): Es
     }
   }
 
-  return { ocultas, acabamentoGeral, acabamentoPorPeca, avisos };
+  return {
+    ocultas,
+    acabamentoGeral,
+    acabamentoPorPeca,
+    avisos,
+    rotulos,
+    rotuloAcabamento,
+  };
+}
+
+// A mudança de uma escolha para a outra, na ordem em que interessa a quem olha:
+// peça que acendeu ou apagou primeiro (é o que salta aos olhos), depois troca de
+// acabamento. Devolve UMA só: a ideia é apontar para um lugar, não pintar a tela
+// de setas. `null` quando nada visível mudou (marcar "Peso: 200 kg" não mexe no
+// modelo).
+export function mudanca(antes: Estado3d, depois: Estado3d): Destaque | null {
+  for (const peca of Object.keys(depois.rotulos)) {
+    const estavaOculta = antes.ocultas.has(peca);
+    const estaOculta = depois.ocultas.has(peca);
+    if (estavaOculta !== estaOculta) {
+      return {
+        peca,
+        texto: depois.rotulos[peca],
+        tipo: estaOculta ? "apagou" : "acendeu",
+      };
+    }
+  }
+
+  for (const peca of Object.keys(depois.acabamentoPorPeca)) {
+    if (acabamentoDaPeca(antes, peca) !== acabamentoDaPeca(depois, peca)) {
+      return { peca, texto: depois.rotulos[peca] ?? peca, tipo: "acabamento" };
+    }
+  }
+
+  if (antes.acabamentoGeral !== depois.acabamentoGeral) {
+    return { peca: null, texto: depois.rotuloAcabamento ?? "Material", tipo: "acabamento" };
+  }
+
+  return null;
 }
 
 // Acabamento de uma peça: a exceção dela, se houver, senão o geral. O

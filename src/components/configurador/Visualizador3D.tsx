@@ -9,7 +9,13 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-import { acabamentoDaPeca, type Estado3d } from "@/lib/configurador/modelo3d";
+import {
+  acabamentoDaPeca,
+  mudanca,
+  type Destaque,
+  type Estado3d,
+  type TipoDestaque,
+} from "@/lib/configurador/modelo3d";
 
 // Visualizador do modelo 3D do produto. Carrega UM arquivo com todas as peças e
 // obedece ao `Estado3d`: apaga a peça que a escolha não pede e troca o material
@@ -38,10 +44,28 @@ const INOX = { cor: 0xdfe3e8, metalico: 1, rugosidade: 0.24 };
 const DIRECAO_CAMERA = new THREE.Vector3(0.9, 0.5, 1);
 const FOLGA = 1.12;
 
+// Quanto tempo o marcador do "mudou aqui" fica na tela.
+const DESTAQUE_MS = 3800;
+// Só gira sozinho se a peça estiver mais de ~50° fora da frente da câmera. Peça
+// que já está à vista não justifica mexer no ângulo que a pessoa escolheu.
+const GIRO_MINIMO = 0.9;
+const GIRO_MS = 650;
+
+// Ícones (SVG, traço, 24x24 do lucide) do marcador, por tipo de mudança.
+const DESENHO_ICONE: Record<TipoDestaque, string> = {
+  acendeu: '<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/>',
+  apagou: '<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/>',
+  acabamento:
+    '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C10 11.1 9 13 9 15a7 7 0 0 0 7 7z"/>',
+};
+
 interface Cena {
   aplicar: (estado: Estado3d) => void;
   enquadrar: () => void;
   permitirZoom: (permitido: boolean) => void;
+  // Aponta o que acabou de mudar: rótulo preso na peça e, se ela estiver do
+  // outro lado, um giro suave até ela.
+  destacar: (destaque: Destaque) => void;
   // Move a tela do WebGL para outro container. É o que permite a mesma cena
   // (mesmo contexto, mesmo modelo carregado) aparecer no painel e, ao ampliar,
   // dentro do portal — sem recarregar nada.
@@ -94,7 +118,6 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
     // arrasto vertical ao navegador para a página continuar rolando no celular
     // (arrastar de lado gira o produto, arrastar para baixo rola a página).
     renderer.domElement.style.touchAction = "pan-y";
-    container.appendChild(renderer.domElement);
 
     const cena = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
@@ -126,11 +149,62 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
     // Giro livre nos dois eixos, como em qualquer visualizador de CAD: dá para
     // olhar o carro por baixo (rodízios, base) e por cima (tampo).
 
+    // Marcador do "mudou aqui": pílula com ícone, hastezinha e ponto na peça.
+    // É DOM cru, irmão da tela do WebGL, porque a posição dele muda a cada
+    // quadro — passar isso por estado do React seria um render por quadro.
+    const marcador = document.createElement("div");
+    marcador.className =
+      "pointer-events-none absolute left-0 top-0 z-10 flex -translate-x-1/2 -translate-y-full flex-col items-center opacity-0 transition-opacity duration-200";
+    marcador.innerHTML =
+      '<span class="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2 py-1 text-[11px] font-medium text-card-foreground shadow-lg backdrop-blur">' +
+      '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-primary"></svg>' +
+      "<span></span></span>" +
+      '<span class="h-4 w-px bg-primary"></span>' +
+      '<span class="h-2 w-2 rounded-full bg-primary ring-2 ring-card"></span>';
+    const icone = marcador.querySelector("svg")!;
+    const legenda = marcador.querySelector("span > span")!;
+
+    container.append(renderer.domElement, marcador);
+
+    const ancora = new THREE.Vector3();
+    let mostrandoMarcador = false;
+    let sumico: ReturnType<typeof setTimeout> | undefined;
+
+    function posicionarMarcador() {
+      const largura = renderer.domElement.clientWidth;
+      const altura = renderer.domElement.clientHeight;
+      const ponto = ancora.clone().project(camera);
+      // z > 1 = atrás da câmera; sem isto o marcador reaparece espelhado.
+      marcador.style.visibility = ponto.z > 1 ? "hidden" : "visible";
+      marcador.style.left = `${(ponto.x * 0.5 + 0.5) * largura}px`;
+      marcador.style.top = `${(-ponto.y * 0.5 + 0.5) * altura}px`;
+    }
+
+    // Giro automático: guarda o ângulo de partida e o de chegada e caminha
+    // entre os dois. Qualquer arrasto do usuário cancela (o `start` abaixo).
+    let giro: { de: number; para: number; phi: number; raio: number; inicio: number } | null = null;
+    controles.addEventListener("start", () => {
+      giro = null;
+    });
+
     let precisaDesenhar = true;
-    let animacao = requestAnimationFrame(function laco() {
+    let animacao = requestAnimationFrame(function laco(agora) {
       animacao = requestAnimationFrame(laco);
+
+      if (giro) {
+        const parte = Math.min((agora - giro.inicio) / GIRO_MS, 1);
+        // easeInOutCubic: sai e chega devagar, sem tranco.
+        const suave = parte < 0.5 ? 4 * parte ** 3 : 1 - (-2 * parte + 2) ** 3 / 2;
+        const theta = giro.de + (giro.para - giro.de) * suave;
+        camera.position.setFromSphericalCoords(giro.raio, giro.phi, theta).add(controles.target);
+        camera.lookAt(controles.target);
+        if (parte === 1) giro = null;
+        precisaDesenhar = true;
+      }
+
       if (controles.update() || precisaDesenhar) {
         renderer.render(cena, camera);
+        if (mostrandoMarcador) posicionarMarcador();
         precisaDesenhar = false;
       }
     });
@@ -166,9 +240,13 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
         if (!vivo) return;
         const modelo = glb.scene;
 
-        // Índice das peças: o nó que se acende e apaga e, dentro dele, as
-        // malhas que trocam de acabamento.
-        const pecas = new Map<string, { no: THREE.Object3D; pintaveis: THREE.Mesh[] }>();
+        // Índice das peças: o nó que se acende e apaga, as malhas que trocam de
+        // acabamento e o centro (medido AGORA, com tudo visível, para o
+        // marcador saber apontar até peça que foi apagada depois).
+        const pecas = new Map<
+          string,
+          { no: THREE.Object3D; pintaveis: THREE.Mesh[]; centro: THREE.Vector3 }
+        >();
         for (const no of modelo.children) {
           if (!no.name.startsWith(PREFIXO_PECA)) continue;
           const pintaveis: THREE.Mesh[] = [];
@@ -179,7 +257,8 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
               pintaveis.push(malha);
             }
           });
-          pecas.set(no.name.slice(PREFIXO_PECA.length), { no, pintaveis });
+          const centro = new THREE.Box3().setFromObject(no).getCenter(new THREE.Vector3());
+          pecas.set(no.name.slice(PREFIXO_PECA.length), { no, pintaveis, centro });
         }
 
         cena.add(modelo);
@@ -212,9 +291,53 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
           anexar(alvo) {
             if (!alvo || renderer.domElement.parentElement === alvo) return;
             observador.disconnect();
-            alvo.appendChild(renderer.domElement);
+            alvo.append(renderer.domElement, marcador);
             observador.observe(alvo);
             ajustarAo(alvo);
+          },
+          destacar(destaque) {
+            const peca = destaque.peca ? pecas.get(destaque.peca) : undefined;
+            ancora.copy(peca?.centro ?? esfera.center);
+
+            icone.innerHTML = DESENHO_ICONE[destaque.tipo];
+            legenda.textContent = destaque.texto;
+            mostrandoMarcador = true;
+            posicionarMarcador();
+            marcador.style.opacity = "1";
+            clearTimeout(sumico);
+            sumico = setTimeout(() => {
+              marcador.style.opacity = "0";
+              mostrandoMarcador = false;
+            }, DESTAQUE_MS);
+
+            // Gira até a peça só se ela estiver escondida atrás do produto. O
+            // deslocamento dela em relação ao centro é o que diz para que lado
+            // ela olha; peça central (tampo, estrutura) não pede giro nenhum.
+            const lado = new THREE.Vector3(
+              ancora.x - esfera.center.x,
+              0,
+              ancora.z - esfera.center.z,
+            );
+            if (lado.length() < esfera.radius * 0.12) return;
+
+            const atual = new THREE.Spherical().setFromVector3(
+              camera.position.clone().sub(controles.target),
+            );
+            const desejado = Math.atan2(lado.x, lado.z);
+            // Diferença pelo caminho mais curto: sem isto o giro pode dar a
+            // volta pelo lado longo quando os ângulos cruzam o -180°.
+            const diferenca = Math.atan2(
+              Math.sin(desejado - atual.theta),
+              Math.cos(desejado - atual.theta),
+            );
+            if (Math.abs(diferenca) < GIRO_MINIMO) return;
+            giro = {
+              de: atual.theta,
+              para: atual.theta + diferenca,
+              phi: atual.phi,
+              raio: atual.radius,
+              inicio: performance.now(),
+            };
           },
           permitirZoom(permitido) {
             controles.enableZoom = permitido;
@@ -248,8 +371,10 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
     return () => {
       vivo = false;
       cancelAnimationFrame(animacao);
+      clearTimeout(sumico);
       observador.disconnect();
       controles.dispose();
+      marcador.remove();
       cena.traverse((objeto) => {
         const malha = objeto as THREE.Mesh;
         if (!malha.isMesh) return;
@@ -270,10 +395,17 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
     };
   }, [arquivo]);
 
-  // Aplica as escolhas. Roda a cada mudança de estado e também logo depois do
-  // carregamento — por isso `carregado` é dependência.
+  // Aplica as escolhas e aponta o que mudou. Roda a cada mudança de estado e
+  // também logo depois do carregamento — por isso `carregado` é dependência.
+  const anterior = useRef<Estado3d | null>(null);
   useEffect(() => {
     cenaRef.current?.aplicar(estado);
+    const antes = anterior.current;
+    anterior.current = estado;
+    // No primeiro estado não há "mudou": é assim que o produto começa.
+    if (!antes || !cenaRef.current) return;
+    const destaque = mudanca(antes, estado);
+    if (destaque) cenaRef.current.destacar(destaque);
   }, [estado, carregado]);
 
   // Ampliar não recarrega a cena: a mesma tela do WebGL é levada para o

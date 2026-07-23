@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { produtoPorSlug } from "@/lib/configurador/catalogo";
 import { escolhasPadrao, type EscolhasBrutas } from "@/lib/configurador/codigo";
-import { acabamentoDaPeca, estado3d, grupoMexeNo3d } from "@/lib/configurador/modelo3d";
+import { acabamentoDaPeca, estado3d, grupoMexeNo3d, mudanca } from "@/lib/configurador/modelo3d";
 
 const carro = produtoPorSlug("carro-emergencia")!;
 const maca = produtoPorSlug("maca-padiola")!;
@@ -72,6 +72,54 @@ describe("estado3d", () => {
     // Sem nada marcado, todo grupo controlado apaga suas peças.
     expect(vazio.ocultas.has("soro")).toBe(true);
     expect(vazio.acabamentoGeral).toBe("pintado");
+  });
+});
+
+describe("mudanca", () => {
+  const padrao = estado3d(carro, escolhasPadrao(carro));
+
+  it("aponta a peça que apagou, com o rótulo do grupo e da opção", () => {
+    const destaque = mudanca(padrao, estado3d(carro, com({ REG: "REG0" })));
+    expect(destaque).toEqual({
+      peca: "regua",
+      texto: "Régua para tomadas: Não",
+      tipo: "apagou",
+    });
+  });
+
+  it("aponta a peça que acendeu", () => {
+    const semSoro = estado3d(carro, com({ SOR: "SOR0" }));
+    expect(mudanca(semSoro, padrao)).toEqual({
+      peca: "soro",
+      texto: "Suporte para soro: Sim",
+      tipo: "acendeu",
+    });
+  });
+
+  it("aponta o modelo inteiro quando o material geral muda", () => {
+    expect(mudanca(padrao, estado3d(carro, com({ MAT: "INOX" })))).toEqual({
+      peca: null,
+      texto: "Material: Inox",
+      tipo: "acabamento",
+    });
+  });
+
+  it("aponta só o tampo quando é ele que troca de acabamento", () => {
+    expect(mudanca(padrao, estado3d(carro, com({ TAM: "TINOX" })))).toEqual({
+      peca: "tampo",
+      texto: "Tampo superior: Inox",
+      tipo: "acabamento",
+    });
+  });
+
+  it("não aponta nada quando a escolha não mexe no modelo", () => {
+    expect(mudanca(padrao, estado3d(carro, com({ LIX: "LIX1" })))).toBeNull();
+    expect(mudanca(padrao, padrao)).toBeNull();
+  });
+
+  it("prefere a peça que sumiu à troca de acabamento, quando as duas mudam", () => {
+    const destaque = mudanca(padrao, estado3d(carro, com({ MAT: "INOX", TAB: "TAB0" })));
+    expect(destaque?.peca).toBe("tabua");
   });
 });
 

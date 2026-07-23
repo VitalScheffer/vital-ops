@@ -39,7 +39,10 @@ export function PreviewProduto({ produto, imagem, estado, compacto }: PreviewPro
   const modelo = falhou ? undefined : produto.modelo3d;
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
+    // `shrink-0`: dentro do painel do Resumo (uma coluna flex que rola por
+    // dentro), sem isto a prévia é o item que cede espaço e o 3D vai
+    // encolhendo conforme a lista de "fora do padrão" cresce.
+    <section className="shrink-0 overflow-hidden rounded-xl border border-border bg-card">
       <div className={`${compacto ? "h-44" : "h-64"} bg-muted/40`}>
         {modelo ? (
           <Visualizador3D arquivo={modelo.arquivo} estado={estado} onFalha={aoFalhar} />
