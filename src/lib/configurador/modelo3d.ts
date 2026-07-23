@@ -113,35 +113,44 @@ export function estado3d(produto: ProdutoCatalogo, escolhas: EscolhasBrutas): Es
   };
 }
 
-// A mudança de uma escolha para a outra, na ordem em que interessa a quem olha:
+// Tudo que difere entre dois estados, na ordem em que interessa a quem olha:
 // peça que acendeu ou apagou primeiro (é o que salta aos olhos), depois troca de
-// acabamento. Devolve UMA só: a ideia é apontar para um lugar, não pintar a tela
-// de setas. `null` quando nada visível mudou (marcar "Peso: 200 kg" não mexe no
-// modelo).
-export function mudanca(antes: Estado3d, depois: Estado3d): Destaque | null {
+// acabamento. Serve para dois usos: comparar com o estado ANTERIOR (o que acabei
+// de mexer) e comparar com o PADRÃO (tudo que esta configuração tem de
+// diferente), que é o que a tela ampliada aponta de uma vez.
+export function mudancas(antes: Estado3d, depois: Estado3d): Destaque[] {
+  const lista: Destaque[] = [];
+
   for (const peca of Object.keys(depois.rotulos)) {
     const estavaOculta = antes.ocultas.has(peca);
     const estaOculta = depois.ocultas.has(peca);
     if (estavaOculta !== estaOculta) {
-      return {
+      lista.push({
         peca,
         texto: depois.rotulos[peca],
         tipo: estaOculta ? "apagou" : "acendeu",
-      };
+      });
     }
   }
 
   for (const peca of Object.keys(depois.acabamentoPorPeca)) {
     if (acabamentoDaPeca(antes, peca) !== acabamentoDaPeca(depois, peca)) {
-      return { peca, texto: depois.rotulos[peca] ?? peca, tipo: "acabamento" };
+      lista.push({ peca, texto: depois.rotulos[peca] ?? peca, tipo: "acabamento" });
     }
   }
 
   if (antes.acabamentoGeral !== depois.acabamentoGeral) {
-    return { peca: null, texto: depois.rotuloAcabamento ?? "Material", tipo: "acabamento" };
+    lista.push({ peca: null, texto: depois.rotuloAcabamento ?? "Material", tipo: "acabamento" });
   }
 
-  return null;
+  return lista;
+}
+
+// A mudança que vale apontar quando o vendedor acabou de marcar uma opção: uma
+// só, senão a tela vira um monte de setas a cada clique. `null` quando nada
+// visível mudou (marcar "Peso: 200 kg" não mexe no modelo).
+export function mudanca(antes: Estado3d, depois: Estado3d): Destaque | null {
+  return mudancas(antes, depois)[0] ?? null;
 }
 
 // Acabamento de uma peça: a exceção dela, se houver, senão o geral. O

@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { produtoPorSlug } from "@/lib/configurador/catalogo";
 import { escolhasPadrao, type EscolhasBrutas } from "@/lib/configurador/codigo";
-import { acabamentoDaPeca, estado3d, grupoMexeNo3d, mudanca } from "@/lib/configurador/modelo3d";
+import {
+  acabamentoDaPeca,
+  estado3d,
+  grupoMexeNo3d,
+  mudanca,
+  mudancas,
+} from "@/lib/configurador/modelo3d";
 
 const carro = produtoPorSlug("carro-emergencia")!;
 const maca = produtoPorSlug("maca-padiola")!;
@@ -120,6 +126,28 @@ describe("mudanca", () => {
   it("prefere a peça que sumiu à troca de acabamento, quando as duas mudam", () => {
     const destaque = mudanca(padrao, estado3d(carro, com({ MAT: "INOX", TAB: "TAB0" })));
     expect(destaque?.peca).toBe("tabua");
+  });
+});
+
+describe("mudancas", () => {
+  const padrao = estado3d(carro, escolhasPadrao(carro));
+
+  it("junta tudo que difere do padrão, peça apagada antes de acabamento", () => {
+    const atual = estado3d(carro, com({ MAT: "INOX", SOR: "SOR0", REG: "REG0" }));
+    expect(mudancas(padrao, atual)).toEqual([
+      { peca: "regua", texto: "Régua para tomadas: Não", tipo: "apagou" },
+      { peca: "soro", texto: "Suporte para soro: Não", tipo: "apagou" },
+      { peca: null, texto: "Material: Inox", tipo: "acabamento" },
+    ]);
+  });
+
+  it("não aponta nada quando a configuração é a de série", () => {
+    expect(mudancas(padrao, padrao)).toEqual([]);
+  });
+
+  it("é a mesma lista que `mudanca` usa para escolher a primeira", () => {
+    const atual = estado3d(carro, com({ MAT: "INOX", TAB: "TAB0" }));
+    expect(mudanca(padrao, atual)).toEqual(mudancas(padrao, atual)[0]);
   });
 });
 

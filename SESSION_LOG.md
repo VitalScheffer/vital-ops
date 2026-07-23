@@ -3784,3 +3784,23 @@ modelados) leva `aviso3d` na opcao e aparece como aviso ao lado da previa.
   362 testes), `npm run build` -> tudo verde
 - Verificado por HTTP: `/configurador/...png` e `/configurador/3d/*.glb` -> 200;
   `/configurador` e `/produtos` -> 307 /login
+
+### Segunda rodada de ajustes (mesma sessao)
+- **Tela ampliada aponta TUDO que foge do padrao.** Antes o marcador so aparecia
+  na mudanca recente, e ampliado nao da para marcar opcao: nunca havia o que
+  apontar. Agora ampliar mostra uma etiqueta por peca diferente do modelo de
+  serie, com rodape contando quantas sao (ou avisando que esta tudo no padrao).
+  Hastes de comprimento alternado (16, 38, 60 px) para uma nao cobrir a outra.
+- `mudancas(antes, depois)` devolve a lista inteira; `mudanca()` virou a
+  primeira dela. Mesma funcao serve para "o que acabei de mexer" (comparando
+  com o estado anterior) e para "o que esta fora do padrao" (comparando com
+  `escolhasPadrao`).
+- **Marcador unico virou camada com varios** (`camada` absolute inset-0), que e
+  o que se move junto com a tela do WebGL ao ampliar.
+- **Roda do mouse amplia tambem no painel pequeno** (era so no ampliado, para
+  nao prender a rolagem da pagina; o usuario preferiu o zoom).
+- **Limite de aproximacao mais perto**: `minDistance` de 1,05 para 0,45 do raio,
+  `maxDistance` de 1,6 para 2 vezes a distancia de enquadramento.
+- **Previa nao encolhe mais** (`shrink-0`) e gruda no alto do painel quando ele
+  passa a rolar por dentro: a lista de "fora do padrao" estava espremendo o 3D.
+- 365 testes.

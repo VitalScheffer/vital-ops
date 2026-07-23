@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
-import type { Estado3d } from "@/lib/configurador/modelo3d";
+import type { Destaque, Estado3d } from "@/lib/configurador/modelo3d";
 
 // O three.js só é baixado por quem abre um produto que tem modelo, e só no
 // navegador (`ssr: false`): WebGL não existe no servidor.
@@ -28,12 +28,20 @@ interface PreviewProdutoProps {
   // não tem modelo 3D (ou quando o 3D não abre no aparelho).
   imagem: string;
   estado: Estado3d;
+  // O que difere do padrão, para a tela ampliada apontar peça por peça.
+  anotacoes: readonly Destaque[];
   // No celular a prévia fica grudada no alto da tela e precisa ser baixa para
   // não engolir as opções.
   compacto?: boolean;
 }
 
-export function PreviewProduto({ produto, imagem, estado, compacto }: PreviewProdutoProps) {
+export function PreviewProduto({
+  produto,
+  imagem,
+  estado,
+  anotacoes,
+  compacto,
+}: PreviewProdutoProps) {
   const [falhou, setFalhou] = useState(false);
   const aoFalhar = useCallback(() => setFalhou(true), []);
   const modelo = falhou ? undefined : produto.modelo3d;
@@ -45,7 +53,12 @@ export function PreviewProduto({ produto, imagem, estado, compacto }: PreviewPro
     <section className="shrink-0 overflow-hidden rounded-xl border border-border bg-card">
       <div className={`${compacto ? "h-44" : "h-64"} bg-muted/40`}>
         {modelo ? (
-          <Visualizador3D arquivo={modelo.arquivo} estado={estado} onFalha={aoFalhar} />
+          <Visualizador3D
+            arquivo={modelo.arquivo}
+            estado={estado}
+            anotacoes={anotacoes}
+            onFalha={aoFalhar}
+          />
         ) : (
           <Image
             key={imagem}

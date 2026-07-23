@@ -62,10 +62,16 @@ const DESENHO_ICONE: Record<TipoDestaque, string> = {
 interface Cena {
   aplicar: (estado: Estado3d) => void;
   enquadrar: () => void;
-  permitirZoom: (permitido: boolean) => void;
   // Aponta o que acabou de mudar: rótulo preso na peça e, se ela estiver do
-  // outro lado, um giro suave até ela.
+  // outro lado, um giro suave até ela. Some sozinho depois de alguns segundos.
   destacar: (destaque: Destaque) => void;
+  // Marca TUDO que difere do padrão, de uma vez e sem sumir. É o que a tela
+  // ampliada mostra: lá não dá para marcar opção, então o que interessa é ver
+  // onde esta configuração foge do modelo de série.
+  anotar: (destaques: readonly Destaque[]) => void;
+  // Toque: dentro da tela ampliada o dedo gira o produto; no painel ele precisa
+  // continuar rolando a página.
+  modoAmpliado: (ampliado: boolean) => void;
   // Move a tela do WebGL para outro container. É o que permite a mesma cena
   // (mesmo contexto, mesmo modelo carregado) aparecer no painel e, ao ampliar,
   // dentro do portal — sem recarregar nada.
@@ -75,12 +81,20 @@ interface Cena {
 interface Visualizador3DProps {
   arquivo: string;
   estado: Estado3d;
+  // O que esta configuração tem de diferente do padrão. Vira uma etiqueta presa
+  // em cada peça quando a prévia é ampliada.
+  anotacoes: readonly Destaque[];
   // Avisa o formulário quando o 3D não abre (sem WebGL, arquivo fora do ar),
   // para a tela voltar a mostrar a foto em vez de um retângulo vazio.
   onFalha?: () => void;
 }
 
-export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizador3DProps) {
+export default function Visualizador3D({
+  arquivo,
+  estado,
+  anotacoes,
+  onFalha,
+}: Visualizador3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cenaRef = useRef<Cena | null>(null);
   const [carregado, setCarregado] = useState(false);
@@ -143,41 +157,72 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
     const controles = new OrbitControls(camera, renderer.domElement);
     controles.enableDamping = true;
     controles.enablePan = false;
-    // A roda do mouse só amplia no modo ampliado: no painel lateral ela precisa
-    // continuar rolando a página, senão o vendedor "prende" o scroll no 3D.
-    controles.enableZoom = false;
+    controles.zoomSpeed = 0.8;
     // Giro livre nos dois eixos, como em qualquer visualizador de CAD: dá para
     // olhar o carro por baixo (rodízios, base) e por cima (tampo).
 
-    // Marcador do "mudou aqui": pílula com ícone, hastezinha e ponto na peça.
-    // É DOM cru, irmão da tela do WebGL, porque a posição dele muda a cada
-    // quadro — passar isso por estado do React seria um render por quadro.
-    const marcador = document.createElement("div");
-    marcador.className =
-      "pointer-events-none absolute left-0 top-0 z-10 flex -translate-x-1/2 -translate-y-full flex-col items-center opacity-0 transition-opacity duration-200";
-    marcador.innerHTML =
-      '<span class="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2 py-1 text-[11px] font-medium text-card-foreground shadow-lg backdrop-blur">' +
-      '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-primary"></svg>' +
-      "<span></span></span>" +
-      '<span class="h-4 w-px bg-primary"></span>' +
-      '<span class="h-2 w-2 rounded-full bg-primary ring-2 ring-card"></span>';
-    const icone = marcador.querySelector("svg")!;
-    const legenda = marcador.querySelector("span > span")!;
+    // Peças e centro do modelo: preenchidos quando o arquivo chega, mas
+    // declarados aqui porque os marcadores precisam deles para achar a peça.
+    interface PecaCarregada {
+      no: THREE.Object3D;
+      pintaveis: THREE.Mesh[];
+      centro: THREE.Vector3;
+    }
+    const pecasCarregadas = new Map<string, PecaCarregada>();
+    const centroDoModelo = new THREE.Vector3();
 
-    container.append(renderer.domElement, marcador);
+    // Camada dos marcadores ("mudou aqui"): pílula com ícone, haste e ponto na
+    // peça. É DOM cru, irmão da tela do WebGL, porque a posição deles muda a
+    // cada quadro — passar isso por estado do React seria um render por quadro.
+    const camada = document.createElement("div");
+    camada.className = "pointer-events-none absolute inset-0 z-10 overflow-hidden";
+    container.append(renderer.domElement, camada);
 
-    const ancora = new THREE.Vector3();
-    let mostrandoMarcador = false;
+    interface Marcador {
+      elemento: HTMLElement;
+      ancora: THREE.Vector3;
+    }
+    // Um transitório (o que o vendedor acabou de mexer) e os fixos (o que difere
+    // do padrão, na tela ampliada). Listas separadas porque a vida deles é
+    // diferente: um some sozinho, os outros ficam.
+    let transitorio: Marcador | null = null;
+    let fixos: Marcador[] = [];
     let sumico: ReturnType<typeof setTimeout> | undefined;
 
-    function posicionarMarcador() {
+    // `alturaHaste` escalona a pílula: com várias etiquetas na mesma vista, o
+    // comprimento diferente da haste evita que uma cubra a outra.
+    function criarMarcador(destaque: Destaque, alturaHaste: number): Marcador {
+      const elemento = document.createElement("div");
+      elemento.className =
+        "absolute left-0 top-0 flex -translate-x-1/2 -translate-y-full flex-col items-center transition-opacity duration-200";
+      elemento.innerHTML =
+        '<span class="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2 py-1 text-[11px] font-medium text-card-foreground shadow-lg backdrop-blur">' +
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-primary"></svg>' +
+        "<span></span></span>" +
+        '<span class="w-px bg-primary"></span>' +
+        '<span class="h-2 w-2 rounded-full bg-primary ring-2 ring-card"></span>';
+      elemento.querySelector("svg")!.innerHTML = DESENHO_ICONE[destaque.tipo];
+      elemento.querySelector("span > span")!.textContent = destaque.texto;
+      (elemento.children[1] as HTMLElement).style.height = `${alturaHaste}px`;
+
+      const peca = destaque.peca ? pecasCarregadas.get(destaque.peca) : undefined;
+      const ancora = (peca?.centro ?? centroDoModelo).clone();
+      camada.appendChild(elemento);
+      return { elemento, ancora };
+    }
+
+    function posicionarMarcadores() {
       const largura = renderer.domElement.clientWidth;
       const altura = renderer.domElement.clientHeight;
-      const ponto = ancora.clone().project(camera);
-      // z > 1 = atrás da câmera; sem isto o marcador reaparece espelhado.
-      marcador.style.visibility = ponto.z > 1 ? "hidden" : "visible";
-      marcador.style.left = `${(ponto.x * 0.5 + 0.5) * largura}px`;
-      marcador.style.top = `${(-ponto.y * 0.5 + 0.5) * altura}px`;
+      for (const marcador of [transitorio, ...fixos]) {
+        if (!marcador) continue;
+        const ponto = marcador.ancora.clone().project(camera);
+        // z > 1 = atrás da câmera; sem isto a etiqueta reaparece espelhada do
+        // outro lado da tela.
+        marcador.elemento.style.visibility = ponto.z > 1 ? "hidden" : "visible";
+        marcador.elemento.style.left = `${(ponto.x * 0.5 + 0.5) * largura}px`;
+        marcador.elemento.style.top = `${(-ponto.y * 0.5 + 0.5) * altura}px`;
+      }
     }
 
     // Giro automático: guarda o ângulo de partida e o de chegada e caminha
@@ -204,7 +249,7 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
 
       if (controles.update() || precisaDesenhar) {
         renderer.render(cena, camera);
-        if (mostrandoMarcador) posicionarMarcador();
+        if (transitorio || fixos.length > 0) posicionarMarcadores();
         precisaDesenhar = false;
       }
     });
@@ -243,10 +288,6 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
         // Índice das peças: o nó que se acende e apaga, as malhas que trocam de
         // acabamento e o centro (medido AGORA, com tudo visível, para o
         // marcador saber apontar até peça que foi apagada depois).
-        const pecas = new Map<
-          string,
-          { no: THREE.Object3D; pintaveis: THREE.Mesh[]; centro: THREE.Vector3 }
-        >();
         for (const no of modelo.children) {
           if (!no.name.startsWith(PREFIXO_PECA)) continue;
           const pintaveis: THREE.Mesh[] = [];
@@ -258,7 +299,7 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
             }
           });
           const centro = new THREE.Box3().setFromObject(no).getCenter(new THREE.Vector3());
-          pecas.set(no.name.slice(PREFIXO_PECA.length), { no, pintaveis, centro });
+          pecasCarregadas.set(no.name.slice(PREFIXO_PECA.length), { no, pintaveis, centro });
         }
 
         cena.add(modelo);
@@ -267,6 +308,7 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
         const esfera = new THREE.Box3()
           .setFromObject(modelo)
           .getBoundingSphere(new THREE.Sphere());
+        centroDoModelo.copy(esfera.center);
 
         function enquadrar() {
           // Distância em que o produto inteiro cabe na MENOR abertura da tela (a
@@ -279,72 +321,79 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
             .copy(esfera.center)
             .addScaledVector(DIRECAO_CAMERA.clone().normalize(), distancia);
           controles.target.copy(esfera.center);
-          controles.minDistance = esfera.radius * 1.05;
-          controles.maxDistance = distancia * 1.6;
+          // Dá para chegar perto de um detalhe (a trava, o suporte de soro) sem
+          // atravessar o produto, e afastar até enxergar o carro inteiro.
+          controles.minDistance = esfera.radius * 0.45;
+          controles.maxDistance = distancia * 2;
           controles.update();
           precisaDesenhar = true;
         }
         enquadrar();
+
+        // Gira até a peça só quando ela está escondida atrás do produto. O
+        // deslocamento dela em relação ao centro é o que diz para que lado ela
+        // olha; peça central (tampo, estrutura) não pede giro nenhum.
+        function girarAte(ancora: THREE.Vector3) {
+          const lado = new THREE.Vector3(ancora.x - esfera.center.x, 0, ancora.z - esfera.center.z);
+          if (lado.length() < esfera.radius * 0.12) return;
+
+          const atual = new THREE.Spherical().setFromVector3(
+            camera.position.clone().sub(controles.target),
+          );
+          const desejado = Math.atan2(lado.x, lado.z);
+          // Diferença pelo caminho mais curto: sem isto o giro pode dar a volta
+          // pelo lado longo quando os ângulos cruzam o -180°.
+          const diferenca = Math.atan2(
+            Math.sin(desejado - atual.theta),
+            Math.cos(desejado - atual.theta),
+          );
+          if (Math.abs(diferenca) < GIRO_MINIMO) return;
+          giro = {
+            de: atual.theta,
+            para: atual.theta + diferenca,
+            phi: atual.phi,
+            raio: atual.radius,
+            inicio: performance.now(),
+          };
+        }
 
         cenaRef.current = {
           enquadrar,
           anexar(alvo) {
             if (!alvo || renderer.domElement.parentElement === alvo) return;
             observador.disconnect();
-            alvo.append(renderer.domElement, marcador);
+            alvo.append(renderer.domElement, camada);
             observador.observe(alvo);
             ajustarAo(alvo);
           },
           destacar(destaque) {
-            const peca = destaque.peca ? pecas.get(destaque.peca) : undefined;
-            ancora.copy(peca?.centro ?? esfera.center);
-
-            icone.innerHTML = DESENHO_ICONE[destaque.tipo];
-            legenda.textContent = destaque.texto;
-            mostrandoMarcador = true;
-            posicionarMarcador();
-            marcador.style.opacity = "1";
+            transitorio?.elemento.remove();
+            transitorio = criarMarcador(destaque, 16);
+            posicionarMarcadores();
             clearTimeout(sumico);
             sumico = setTimeout(() => {
-              marcador.style.opacity = "0";
-              mostrandoMarcador = false;
+              transitorio?.elemento.remove();
+              transitorio = null;
             }, DESTAQUE_MS);
-
-            // Gira até a peça só se ela estiver escondida atrás do produto. O
-            // deslocamento dela em relação ao centro é o que diz para que lado
-            // ela olha; peça central (tampo, estrutura) não pede giro nenhum.
-            const lado = new THREE.Vector3(
-              ancora.x - esfera.center.x,
-              0,
-              ancora.z - esfera.center.z,
-            );
-            if (lado.length() < esfera.radius * 0.12) return;
-
-            const atual = new THREE.Spherical().setFromVector3(
-              camera.position.clone().sub(controles.target),
-            );
-            const desejado = Math.atan2(lado.x, lado.z);
-            // Diferença pelo caminho mais curto: sem isto o giro pode dar a
-            // volta pelo lado longo quando os ângulos cruzam o -180°.
-            const diferenca = Math.atan2(
-              Math.sin(desejado - atual.theta),
-              Math.cos(desejado - atual.theta),
-            );
-            if (Math.abs(diferenca) < GIRO_MINIMO) return;
-            giro = {
-              de: atual.theta,
-              para: atual.theta + diferenca,
-              phi: atual.phi,
-              raio: atual.radius,
-              inicio: performance.now(),
-            };
+            girarAte(transitorio.ancora);
+            precisaDesenhar = true;
           },
-          permitirZoom(permitido) {
-            controles.enableZoom = permitido;
-            renderer.domElement.style.touchAction = permitido ? "none" : "pan-y";
+          anotar(destaques) {
+            for (const marcador of fixos) marcador.elemento.remove();
+            // Hastes de comprimentos diferentes: com duas peças vizinhas na
+            // mesma vista, as pílulas param em alturas diferentes em vez de uma
+            // cobrir a outra.
+            fixos = destaques.map((destaque, posicao) =>
+              criarMarcador(destaque, 16 + (posicao % 3) * 22),
+            );
+            posicionarMarcadores();
+            precisaDesenhar = true;
+          },
+          modoAmpliado(ampliado) {
+            renderer.domElement.style.touchAction = ampliado ? "none" : "pan-y";
           },
           aplicar(atual) {
-            for (const [chave, { no, pintaveis }] of pecas) {
+            for (const [chave, { no, pintaveis }] of pecasCarregadas) {
               no.visible = !atual.ocultas.has(chave);
               const inox = acabamentoDaPeca(atual, chave) === "inox";
               for (const malha of pintaveis) {
@@ -374,7 +423,7 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
       clearTimeout(sumico);
       observador.disconnect();
       controles.dispose();
-      marcador.remove();
+      camada.remove();
       cena.traverse((objeto) => {
         const malha = objeto as THREE.Mesh;
         if (!malha.isMesh) return;
@@ -408,11 +457,18 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
     if (destaque) cenaRef.current.destacar(destaque);
   }, [estado, carregado]);
 
+  // Na tela ampliada não dá para marcar opção, então ela mostra de uma vez
+  // tudo que esta configuração tem de diferente do padrão, cada coisa apontando
+  // a peça. Fechando, some.
+  useEffect(() => {
+    cenaRef.current?.anotar(ampliado ? anotacoes : []);
+  }, [ampliado, anotacoes, carregado]);
+
   // Ampliar não recarrega a cena: a mesma tela do WebGL é levada para o
-  // container do portal. A roda do mouse só amplia aqui dentro.
+  // container do portal.
   useEffect(() => {
     cenaRef.current?.anexar(containerRef.current);
-    cenaRef.current?.permitirZoom(ampliado);
+    cenaRef.current?.modoAmpliado(ampliado);
     if (!ampliado) return;
 
     const aoTeclar = (evento: KeyboardEvent) => {
@@ -444,6 +500,14 @@ export default function Visualizador3D({ arquivo, estado, onFalha }: Visualizado
           </p>
         )}
       </div>
+
+      {ampliado && (
+        <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card/90 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
+          {anotacoes.length === 0
+            ? "Tudo no padrão: nada para apontar no modelo."
+            : `Apontando ${anotacoes.length} ${anotacoes.length === 1 ? "mudança" : "mudanças"} em relação ao padrão.`}
+        </p>
+      )}
 
       <div className="pointer-events-none absolute right-2 top-2 flex gap-1">
         <button

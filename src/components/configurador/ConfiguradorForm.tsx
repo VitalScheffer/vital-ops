@@ -27,7 +27,7 @@ import {
 } from "@/lib/configurador/codigo";
 import type { RespostaConhecida } from "@/lib/configurador/fila";
 import type { ItemHistorico } from "@/lib/configurador/historico";
-import { estado3d, grupoMexeNo3d } from "@/lib/configurador/modelo3d";
+import { estado3d, grupoMexeNo3d, mudancas } from "@/lib/configurador/modelo3d";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
 
@@ -106,6 +106,10 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
   // dependência do efeito que mexe na cena: recalcular a cada tecla digitada em
   // "observações" mandaria o visualizador redesenhar à toa.
   const modelo = useMemo(() => estado3d(produto, escolhas), [produto, escolhas]);
+  // O modelo de série, e o que esta configuração tem de diferente dele. É o que
+  // a prévia ampliada aponta, peça por peça.
+  const modeloPadrao = useMemo(() => estado3d(produto, escolhasPadrao(produto)), [produto]);
+  const anotacoes = useMemo(() => mudancas(modeloPadrao, modelo), [modeloPadrao, modelo]);
   const resolucao = resolverSelecoes(produto, escolhas);
   const selecoes = resolucao.ok ? resolucao.selecoes : [];
   const desvios = foraDoPadrao(selecoes);
@@ -141,6 +145,7 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
       produto={produto}
       imagem={imagem}
       estado={modelo}
+      anotacoes={anotacoes}
       compacto={ehDesktop === false}
     />
   );
