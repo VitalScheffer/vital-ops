@@ -4,6 +4,7 @@ import {
   Check,
   Eye,
   EyeOff,
+  Layers,
   Link2,
   Loader2,
   Maximize2,
@@ -173,6 +174,10 @@ interface Cena {
   qualidade: (nivel: Qualidade) => void;
   // Voa suave até uma das vistas rápidas (frente, lado, cima, 3/4).
   vista: (chave: ChaveVista) => void;
+  // Voa até uma peça e a enquadra de perto (clique no 3D ou na especificação).
+  focar: (chave: string) => void;
+  // Espalha as peças a partir do centro: 0 = montado, 1 = todo aberto.
+  explodir: (fracao: number) => void;
   // Liga/desliga o giro automático (turntable).
   girarAuto: (ligar: boolean) => void;
 }
@@ -234,6 +239,8 @@ export default function Visualizador3D({
   }, [anotarDeInicio]);
 
   const [autoGiro, setAutoGiro] = useState(false);
+  // Fração da explosão (0 = montado, 1 = todo aberto).
+  const [explosao, setExplosao] = useState(0);
 
   function alternarAmpliado() {
     // Ampliar liga as etiquetas: é para isso que se amplia. Desligar de novo é
@@ -362,13 +369,23 @@ export default function Visualizador3D({
 
     // Peças e centro do modelo: preenchidos quando o arquivo chega, mas
     // declarados aqui porque os marcadores precisam deles para achar a peça.
+    // Cada CHAVE reúne vários nós (o GLB traz uma peça por nó, `peca_<chave>__n`):
+    // ligar/desligar e trocar material valem para todos os nós da chave.
     interface PecaCarregada {
-      no: THREE.Object3D;
+      nos: THREE.Object3D[];
       pintaveis: THREE.Mesh[];
       centro: THREE.Vector3;
     }
     const pecasCarregadas = new Map<string, PecaCarregada>();
     const centroDoModelo = new THREE.Vector3();
+    // Cada nó com a sua posição original e a direção para onde voa ao explodir
+    // (radial, a partir do centro do modelo).
+    const explodiveis: { no: THREE.Object3D; origem: THREE.Vector3; direcao: THREE.Vector3 }[] = [];
+    let amplitudeExplosao = 1;
+    let explosaoAtual = 0;
+
+    // Tira o `__<n>` do fim: "gaveta__7" -> "gaveta".
+    const chaveDaPeca = (nome: string) => nome.slice(PREFIXO_PECA.length).replace(/__\d+$/, "");
 
     // Camada dos marcadores ("mudou aqui"): pílula com ícone, haste e ponto na
     // peça. É DOM cru, irmão da tela do WebGL, porque a posição deles muda a
@@ -589,12 +606,19 @@ export default function Visualizador3D({
         if (!vivo) return;
         const modelo = glb.scene;
 
-        // Índice das peças: o nó que se acende e apaga, as malhas que trocam de
-        // acabamento e o centro (medido AGORA, com tudo visível, para o
-        // marcador saber apontar até peça que foi apagada depois).
+        // Índice das peças, agrupando os nós pela CHAVE (o GLB traz uma peça por
+        // nó). Guarda as malhas pintáveis e o centro do grupo (medido AGORA, com
+        // tudo visível, para o marcador achar peça que foi apagada depois).
+        const caixaPorChave = new Map<string, THREE.Box3>();
         for (const no of modelo.children) {
           if (!no.name.startsWith(PREFIXO_PECA)) continue;
-          const pintaveis: THREE.Mesh[] = [];
+          const chave = chaveDaPeca(no.name);
+          const grupo = pecasCarregadas.get(chave) ?? {
+            nos: [],
+            pintaveis: [],
+            centro: new THREE.Vector3(),
+          };
+          grupo.nos.push(no);
           no.traverse((filho) => {
             const malha = filho as THREE.Mesh;
             if (!malha.isMesh) return;
@@ -604,11 +628,16 @@ export default function Visualizador3D({
             malha.receiveShadow = true;
             if ((malha.material as THREE.Material).name === MATERIAL_CONFIGURAVEL) {
               malha.userData.materialCad = malha.material;
-              pintaveis.push(malha);
+              grupo.pintaveis.push(malha);
             }
           });
-          const centro = new THREE.Box3().setFromObject(no).getCenter(new THREE.Vector3());
-          pecasCarregadas.set(no.name.slice(PREFIXO_PECA.length), { no, pintaveis, centro });
+          pecasCarregadas.set(chave, grupo);
+
+          const caixa = new THREE.Box3().setFromObject(no);
+          caixaPorChave.set(chave, (caixaPorChave.get(chave) ?? caixa.clone()).union(caixa));
+        }
+        for (const [chave, caixa] of caixaPorChave) {
+          caixa.getCenter(pecasCarregadas.get(chave)!.centro);
         }
 
         cena.add(modelo);
@@ -617,6 +646,19 @@ export default function Visualizador3D({
           .setFromObject(modelo)
           .getBoundingSphere(new THREE.Sphere());
         centroDoModelo.copy(esfera.center);
+
+        // Prepara a explosão: cada nó guarda a posição de origem e uma direção
+        // radial (para longe do centro). Peça central (offset ~0) sobe um pouco,
+        // para o tampo e afins não ficarem presos no meio.
+        amplitudeExplosao = esfera.radius * 1.15;
+        for (const no of modelo.children) {
+          if (!no.name.startsWith(PREFIXO_PECA)) continue;
+          const centroNo = new THREE.Box3().setFromObject(no).getCenter(new THREE.Vector3());
+          const direcao = centroNo.clone().sub(esfera.center);
+          if (direcao.length() < esfera.radius * 0.05) direcao.set(0, 1, 0);
+          direcao.normalize();
+          explodiveis.push({ no, origem: no.position.clone(), direcao });
+        }
 
         // Borrão (sombra barata do nível Padrão).
         sombraBlob = sombraDeContato(modelo);
@@ -690,15 +732,30 @@ export default function Visualizador3D({
         function focarPeca(chave: string) {
           const peca = pecasCarregadas.get(chave);
           if (!peca) return;
-          const caixa = new THREE.Box3().setFromObject(peca.no);
+          const caixa = new THREE.Box3();
+          for (const no of peca.nos) caixa.expandByObject(no);
+          if (caixa.isEmpty()) return;
           const centro = caixa.getCenter(new THREE.Vector3());
-          const raioPeca = Math.max(caixa.getSize(new THREE.Vector3()).length() / 2, esfera.radius * 0.12);
+          const raioPeca = Math.max(
+            caixa.getSize(new THREE.Vector3()).length() / 2,
+            esfera.radius * 0.12,
+          );
           const direcao = camera.position.clone().sub(controles.target).normalize();
           const distancia = Math.min(
             distanciaPara(raioPeca, 1.7),
             distanciaPara(esfera.radius, FOLGA),
           );
           voar(centro.clone().addScaledVector(direcao, distancia), centro);
+        }
+
+        // Espalha as peças a partir do centro. `fracao` 0 = montado, 1 = todo
+        // aberto; anima suave até o alvo pedido.
+        function explodir(fracao: number) {
+          explosaoAtual = Math.max(0, Math.min(1, fracao));
+          for (const { no, origem, direcao } of explodiveis) {
+            no.position.copy(origem).addScaledVector(direcao, explosaoAtual * amplitudeExplosao);
+          }
+          pedirQuadro();
         }
 
         // Gira até a peça quando ela está escondida atrás do produto — usado ao
@@ -753,7 +810,7 @@ export default function Visualizador3D({
           for (const acerto of raycaster.intersectObject(modelo, true)) {
             let no: THREE.Object3D | null = acerto.object;
             while (no && !no.name.startsWith(PREFIXO_PECA)) no = no.parent;
-            if (no?.visible) return no.name.slice(PREFIXO_PECA.length);
+            if (no?.visible) return chaveDaPeca(no.name);
           }
           return null;
         }
@@ -789,6 +846,8 @@ export default function Visualizador3D({
             const vista = VISTAS.find((item) => item.chave === chave);
             if (vista) olharDe(vista.dir.clone(), true);
           },
+          focar: focarPeca,
+          explodir,
           girarAuto(ligar) {
             autoGiro = ligar;
             controles.autoRotate = ligar;
@@ -818,8 +877,9 @@ export default function Visualizador3D({
             renderer.domElement.style.touchAction = ampliado ? "none" : "pan-y";
           },
           aplicar(atual) {
-            for (const [chave, { no, pintaveis }] of pecasCarregadas) {
-              no.visible = !atual.ocultas.has(chave);
+            for (const [chave, { nos, pintaveis }] of pecasCarregadas) {
+              const oculta = atual.ocultas.has(chave);
+              for (const no of nos) no.visible = !oculta;
               const inox = acabamentoDaPeca(atual, chave) === "inox";
               for (const malha of pintaveis) {
                 malha.material = inox
@@ -883,6 +943,11 @@ export default function Visualizador3D({
   useEffect(() => {
     cenaRef.current?.girarAuto(autoGiro);
   }, [autoGiro, carregado]);
+
+  // Espalha/monta as peças conforme o slider.
+  useEffect(() => {
+    cenaRef.current?.explodir(explosao);
+  }, [explosao, carregado]);
 
   // Aplica as escolhas e aponta o que mudou. Roda a cada mudança de estado e
   // também logo depois do carregamento — por isso `carregado` é dependência.
@@ -982,6 +1047,22 @@ export default function Visualizador3D({
             {vista.rotulo}
           </button>
         ))}
+        <span className="mx-0.5 h-4 w-px bg-border" />
+        {/* Explodir: arrastar o cursor separa as peças (abre as gavetas e
+            mostra o interior); o próprio slider é o controle. */}
+        <div className="pointer-events-auto flex items-center gap-1.5 pl-1 pr-2">
+          <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(explosao * 100)}
+            onChange={(evento) => setExplosao(Number(evento.target.value) / 100)}
+            title="Explodir / montar"
+            aria-label="Explodir o modelo"
+            className="h-1 w-16 cursor-pointer accent-[var(--color-primary)] sm:w-24"
+          />
+        </div>
       </div>
 
       {/* Seletor de qualidade: o vendedor escolhe qual nível mandar (vai no

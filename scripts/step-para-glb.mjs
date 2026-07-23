@@ -214,60 +214,47 @@ async function principal() {
     return materiais.get(chaveAcabamento);
   }
 
-  const malhasPorPeca = new Map();
+  // Um NÓ POR PEÇA (não mais um bloco por chave). Cada peça vira
+  // `peca_<chave>__<n>`: o front agrupa pela chave (visibilidade e material) e,
+  // com as peças soltas, consegue explodir o modelo e separar cada gaveta. O
+  // nome carrega a chave; o `__<n>` só desempata.
+  let sequencia = 0;
   for (const grupo of [...grupos.values()].sort((a, b) => a.chave.localeCompare(b.chave))) {
-    let vertices = 0;
-    let indices = 0;
-    for (const parte of grupo.partes) {
-      vertices += parte.attributes.position.array.length / 3;
-      indices += parte.index.array.length;
-    }
-
-    const posicoes = new Float32Array(vertices * 3);
-    const normais = new Float32Array(vertices * 3);
-    const elementos = new Uint32Array(indices);
-    let deslocamentoVertice = 0;
-    let cursorIndice = 0;
-
     for (const parte of grupo.partes) {
       const p = parte.attributes.position.array;
+      const posicoes = new Float32Array(p.length);
       for (let i = 0; i < p.length; i += 3) {
-        posicoes[deslocamentoVertice * 3 + i] = (p[i] + deslocamento[0]) * ESCALA;
-        posicoes[deslocamentoVertice * 3 + i + 1] = (p[i + 1] + deslocamento[1]) * ESCALA;
-        posicoes[deslocamentoVertice * 3 + i + 2] = (p[i + 2] + deslocamento[2]) * ESCALA;
+        posicoes[i] = (p[i] + deslocamento[0]) * ESCALA;
+        posicoes[i + 1] = (p[i + 1] + deslocamento[1]) * ESCALA;
+        posicoes[i + 2] = (p[i + 2] + deslocamento[2]) * ESCALA;
       }
-      normais.set(parte.attributes.normal.array, deslocamentoVertice * 3);
-      const ind = parte.index.array;
-      for (let i = 0; i < ind.length; i++) {
-        elementos[cursorIndice + i] = ind[i] + deslocamentoVertice;
-      }
-      deslocamentoVertice += p.length / 3;
-      cursorIndice += ind.length;
+
+      const primitiva = doc
+        .createPrimitive()
+        .setAttribute(
+          "POSITION",
+          doc.createAccessor().setType("VEC3").setArray(posicoes).setBuffer(buffer),
+        )
+        .setAttribute(
+          "NORMAL",
+          doc
+            .createAccessor()
+            .setType("VEC3")
+            .setArray(new Float32Array(parte.attributes.normal.array))
+            .setBuffer(buffer),
+        )
+        .setIndices(
+          doc
+            .createAccessor()
+            .setType("SCALAR")
+            .setArray(new Uint32Array(parte.index.array))
+            .setBuffer(buffer),
+        )
+        .setMaterial(material(grupo.acabamento));
+
+      const nome = `${PREFIXO_PECA}${grupo.chave}__${sequencia++}`;
+      cena.addChild(doc.createNode(nome).setMesh(doc.createMesh(nome).addPrimitive(primitiva)));
     }
-
-    const primitiva = doc
-      .createPrimitive()
-      .setAttribute(
-        "POSITION",
-        doc.createAccessor().setType("VEC3").setArray(posicoes).setBuffer(buffer),
-      )
-      .setAttribute(
-        "NORMAL",
-        doc.createAccessor().setType("VEC3").setArray(normais).setBuffer(buffer),
-      )
-      .setIndices(doc.createAccessor().setType("SCALAR").setArray(elementos).setBuffer(buffer))
-      .setMaterial(material(grupo.acabamento));
-
-    const existente = malhasPorPeca.get(grupo.chave);
-    if (existente) {
-      existente.addPrimitive(primitiva);
-    } else {
-      malhasPorPeca.set(grupo.chave, doc.createMesh(grupo.chave).addPrimitive(primitiva));
-    }
-  }
-
-  for (const [chave, malha] of malhasPorPeca) {
-    cena.addChild(doc.createNode(`${PREFIXO_PECA}${chave}`).setMesh(malha));
   }
 
   await MeshoptEncoder.ready;
