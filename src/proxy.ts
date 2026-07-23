@@ -9,5 +9,15 @@ export default NextAuth(authConfig).auth;
 
 export const config = {
   // Roda em todas as rotas, menos assets estáticos e otimização de imagem.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  //
+  // Arquivo de `public/` (foto do produto, modelo 3D) também fica de fora, pela
+  // EXTENSÃO. Sem isso a foto do configurador quebra: o otimizador do Next
+  // busca o PNG original por HTTP no próprio servidor, essa busca interna não
+  // leva o cookie de sessão, e o proxy responde com o redirecionamento para
+  // /login em vez da imagem. O preço é que esses arquivos ficam legíveis por
+  // quem tiver a URL exata — são as mesmas fotos e modelos que qualquer
+  // vendedor logado já vê.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|glb|mjs)$).*)",
+  ],
 };

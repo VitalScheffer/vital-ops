@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Box,
   CheckCircle2,
   History,
   Info,
@@ -9,9 +10,10 @@ import {
   SendHorizonal,
 } from "lucide-react";
 import Image from "next/image";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 
 import { criarConfiguracao } from "@/app/(app)/configurador/actions";
+import { PreviewProduto } from "@/components/configurador/PreviewProduto";
 import { FormFeedback } from "@/components/FormFeedback";
 import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
 import {
@@ -25,6 +27,7 @@ import {
 } from "@/lib/configurador/codigo";
 import type { RespostaConhecida } from "@/lib/configurador/fila";
 import type { ItemHistorico } from "@/lib/configurador/historico";
+import { estado3d, grupoMexeNo3d } from "@/lib/configurador/modelo3d";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
 
@@ -99,6 +102,10 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
   }
 
   const imagem = imagemDoProduto(produto, escolhas);
+  // O que o modelo 3D mostra para as escolhas de agora. Memorizado porque é a
+  // dependência do efeito que mexe na cena: recalcular a cada tecla digitada em
+  // "observações" mandaria o visualizador redesenhar à toa.
+  const modelo = useMemo(() => estado3d(produto, escolhas), [produto, escolhas]);
   const resolucao = resolverSelecoes(produto, escolhas);
   const selecoes = resolucao.ok ? resolucao.selecoes : [];
   const desvios = foraDoPadrao(selecoes);
@@ -115,6 +122,28 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
       opcao: escolha.opcao,
       texto: escolha.texto?.trim() || undefined,
     }));
+
+  // A prévia é UMA só, montada num lugar ou no outro conforme a largura da
+  // tela: no computador ela mora no painel do Resumo (que já acompanha a
+  // rolagem); no celular fica grudada no alto da coluna das opções. Duas cópias
+  // seriam duas telas WebGL, o dobro do custo, para mostrar a mesma coisa.
+  const [ehDesktop, setEhDesktop] = useState<boolean | null>(null);
+  useEffect(() => {
+    const consulta = window.matchMedia("(min-width: 1024px)");
+    const aplicar = () => setEhDesktop(consulta.matches);
+    aplicar();
+    consulta.addEventListener("change", aplicar);
+    return () => consulta.removeEventListener("change", aplicar);
+  }, []);
+
+  const preview = (
+    <PreviewProduto
+      produto={produto}
+      imagem={imagem}
+      estado={modelo}
+      compacto={ehDesktop === false}
+    />
+  );
 
   return (
     <form action={formAction} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -176,8 +205,11 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
           </p>
         )}
 
-        {/* A foto acompanha a escolha (ex.: modelo slim x grande). `key` força a
-            troca da imagem em vez de reaproveitar a anterior enquanto carrega. */}
+        {/* A foto acompanha a escolha (ex.: modelo slim x grande) e continua
+            sendo a referência do produto INTEIRO: o 3D é o CAD de uma
+            configuração só, e o modelo grande, por exemplo, só existe na foto.
+            `key` força a troca da imagem em vez de reaproveitar a anterior
+            enquanto carrega. */}
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <Image
             key={imagem}
@@ -193,13 +225,28 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
           </p>
         </div>
 
+        {/* Prévia do celular: gruda no alto da coluna e desce junto com as
+            opções, para o vendedor ver o produto mudar sem voltar ao topo. */}
+        {ehDesktop === false && <div className="sticky top-16 z-10 lg:hidden">{preview}</div>}
+
         {produto.grupos.map((grupo) => {
           const escolhido = escolhas[grupo.codigo]?.opcao;
           const opcaoEscolhida = grupo.opcoes.find((opcao) => opcao.codigo === escolhido);
           return (
             <fieldset key={grupo.codigo} className="rounded-xl border border-border bg-card p-4">
-              <legend className="px-1 text-sm font-semibold text-card-foreground">
+              <legend className="flex items-center gap-2 px-1 text-sm font-semibold text-card-foreground">
                 {grupo.rotulo}
+                {/* Onde o 3D responde à escolha. Poupa o vendedor de descobrir
+                    isso testando opção por opção. */}
+                {produto.modelo3d && grupoMexeNo3d(grupo) && (
+                  <span
+                    title="Esta escolha muda o modelo 3D"
+                    className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                  >
+                    <Box className="h-3 w-3" />
+                    3D
+                  </span>
+                )}
               </legend>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {grupo.opcoes.map((opcao) => {
@@ -269,7 +316,10 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
         </div>
       </div>
 
-      <aside className="flex h-fit flex-col gap-4 rounded-xl border border-border bg-card p-4 lg:sticky lg:top-20">
+      {/* O painel acompanha a rolagem no computador. Se a soma (resumo + 3D +
+          desvios) passar da altura da janela, ele rola por dentro — o botão de
+          enviar não pode ficar fora de alcance. */}
+      <aside className="flex h-fit flex-col gap-4 rounded-xl border border-border bg-card p-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
         <div>
           <h2 className="text-sm font-semibold text-card-foreground">Resumo</h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -280,6 +330,8 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
           </p>
         </div>
 
+        {ehDesktop === true && preview}
+
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-card-foreground">
             {desvios.length === 0 ? (
@@ -288,13 +340,20 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
               <AlertTriangle className="h-4 w-4 text-warning" />
             )}
             Fora do padrão
+            {desvios.length > 0 && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {desvios.length}
+              </span>
+            )}
           </h3>
           {desvios.length === 0 ? (
             <p className="mt-1 text-xs text-muted-foreground">
               Tudo igual ao modelo da foto.
             </p>
           ) : (
-            <ul className="mt-2 flex flex-col gap-1.5">
+            // Rola por dentro: numa configuração muito fora do padrão esta
+            // lista cresceria sem parar e empurraria o 3D para fora da tela.
+            <ul className="mt-2 flex max-h-40 flex-col gap-1.5 overflow-y-auto pr-1">
               {desvios.map((desvio) => (
                 <li key={desvio.grupoCodigo} className="text-xs text-card-foreground">
                   <span className="text-muted-foreground">{desvio.grupoRotulo}:</span>{" "}
@@ -302,6 +361,16 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
                 </li>
               ))}
             </ul>
+          )}
+          {desvios.length > 0 && (
+            <button
+              type="button"
+              onClick={voltarAoPadrao}
+              className="mt-2 flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-card-foreground"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Voltar ao padrão
+            </button>
           )}
         </div>
 

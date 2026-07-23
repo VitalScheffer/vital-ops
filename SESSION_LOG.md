@@ -3671,3 +3671,86 @@ flecha passando as fotos do slim e do grande e que elas passem sozinha a cada 5s
   na seta trocando a foto SEM navegar, e o clique em qualquer outro ponto do card
   levando pro configurador.
 - Segue em aberto o padrao do grupo MODELO (hoje SLIM).
+
+## 2026-07-23 - Configurador: modelo 3D no lugar da foto estatica
+
+### Resumo
+Pedido: "no configurador, colocar um modelo 3D no lugar das imagens, que va
+mudando conforme muda a configuracao, e deixar a previa embaixo do Resumo,
+descendo junto com a rolagem". Entregue o pipeline inteiro: conversor do STEP do
+CAD para GLB, visualizador three.js no painel do Resumo (e grudado no alto da
+coluna no celular) e o vinculo entre as opcoes do catalogo e as pecas do modelo.
+O CAD recebido foi o do Carro de Emergencia slim (CREHS MT001 C0PTD R00); a Maca
+Padiola continua na foto (sem CAD).
+
+7 grupos mexem no 3D: Material (pintado x inox), Tampo (idem, so a peca do
+tampo), Tabua de massagem, Cilindro de oxigenio, Regua de tomadas,
+Desfibrilador e Soro (acendem/apagam a peca). O que o CAD nao sabe mudar
+(modelo grande, numero de gavetas, rodizio, rebaixo do tampo, acessorios nao
+modelados) leva `aviso3d` na opcao e aparece como aviso ao lado da previa.
+
+### Arquivos criados/alterados
+- `scripts/step-para-glb.mjs` (novo) - conversor STEP -> GLB (occt-import-js +
+  gltf-transform + meshopt). Descarta parafuso/rebite/porca/corredica (187k dos
+  292k triangulos), agrupa por PECA, centraliza no chao, mm -> m. Saida: 0,58 MB.
+- `public/configurador/3d/carro-emergencia.glb` (novo) - 105k triangulos, 13
+  pecas nomeadas `peca_<chave>`.
+- `src/lib/configurador/catalogo.ts` - `Modelo3dCatalogo` no produto e
+  `pecas3d` / `acabamento3d` / `aviso3d` na opcao.
+- `src/lib/configurador/modelo3d.ts` (novo) - `estado3d()` puro: quais pecas
+  apagar, qual acabamento e quais avisos, a partir das escolhas.
+- `src/lib/configurador/modelo3d.test.ts` (novo) - 11 testes, inclusive dois que
+  cobram do catalogo: peca citada tem que existir no arquivo, e grupo que o 3D
+  nao representa so pode ter UMA opcao sem aviso.
+- `src/components/configurador/Visualizador3D.tsx` (novo, client) - three.js.
+- `src/components/configurador/PreviewProduto.tsx` (novo, client) - decide 3D ou
+  foto, carrega o three por `next/dynamic` com `ssr: false`.
+- `src/components/configurador/ConfiguradorForm.tsx` - previa unica montada no
+  painel (desktop) ou grudada no alto da coluna (celular), selo "3D" nos grupos
+  que mexem no modelo, lista de desvios com rolagem propria, botao "Voltar ao
+  padrao".
+- `src/proxy.ts` - matcher passa a excluir arquivos de `public/` pela extensao.
+
+### Decisoes importantes
+- **O STEP nao vai para o navegador.** 8,4 MB de texto e ~48 s de tesselagem.
+  O conversor roda na mao quando o CAD muda e o `.glb` (0,58 MB) e versionado.
+- **Um arquivo com TODAS as pecas, e a escolha so acende/apaga no.** Trocar de
+  opcao nao recarrega nada, entao a resposta e imediata. O nome do no
+  (`peca_<chave>`) e o contrato entre o script e o front.
+- **Prefixo `peca_` e `acab_`, sem `:` nem `.`** - o three apaga esses
+  caracteres do nome do no ao carregar o glTF.
+- **Fasteners e corredicas fora do modelo.** Metade dos triangulos em pecas que
+  ninguem ve numa previa de 340 px.
+- **Uma unica tela WebGL.** No celular a previa fica no alto da coluna das
+  opcoes (sticky), no computador dentro do painel do Resumo; e a MESMA
+  instancia, montada num lugar ou no outro por `matchMedia`, nao duas.
+- **`aviso3d` por opcao, e nao um mapa "o CAD e assim".** O aviso fica escrito
+  do lado da opcao que foge do desenho, em portugues, e o teste cobra que grupo
+  nao representado tenha no maximo uma opcao sem aviso.
+- **A foto de referencia CONTINUA no topo da coluna.** O 3D e o CAD de UMA
+  configuracao (o slim); o modelo grande so existe na foto.
+- **Ampliar usa portal para o `<body>`.** Dentro do painel, qualquer ancestral
+  com transform/filtro/opacidade viraria a referencia do `fixed` e a janela
+  ampliada sairia do lugar, com o botao de fechar fora da tela. A tela do WebGL
+  e reanexada ao novo container (mesma cena, sem recarregar).
+- **`public/` fora do proxy de auth.** O otimizador de imagem do Next busca o
+  PNG original por HTTP no proprio servidor, sem o cookie de sessao; o proxy
+  respondia com redirect para /login e a foto quebrava (icone de imagem
+  quebrada na tela do configurador). Preco: foto e modelo ficam legiveis por
+  quem tiver a URL exata. Verificado: `/configurador/...png` e `.glb` -> 200,
+  `/configurador` e `/produtos` -> 307 para /login (rotas seguem protegidas).
+
+### Comandos relevantes
+- `npm i three` + `npm i -D @types/three occt-import-js @gltf-transform/core
+  @gltf-transform/functions @gltf-transform/extensions meshoptimizer`
+- `node scripts/step-para-glb.mjs "<STEP>" public/configurador/3d/carro-emergencia.glb`
+- `npx tsc --noEmit`, `npx eslint src scripts`, `npx vitest run` (30 arquivos,
+  356 testes) -> tudo verde
+
+### Pendencias / proximos passos
+- **Padrao das gavetas nao bate com a propria foto do catalogo.** O CAD e a foto
+  mostram 3 gavetas + gavetao; o catalogo marca "4 gavetas" como padrao. Enquanto
+  ficar assim, a previa abre ja avisando "o 3D mostra 3 gavetas + gavetao".
+- Segue em aberto o padrao do grupo MODELO (hoje SLIM).
+- CAD do modelo Grande e das demais variantes: quando chegar, rodar o conversor
+  e trocar o `aviso3d` da opcao por um segundo `modelo3d`.
