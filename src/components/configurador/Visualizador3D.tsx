@@ -7,6 +7,8 @@ import {
   Link2,
   Loader2,
   Maximize2,
+  Pause,
+  Play,
   RotateCcw,
   TriangleAlert,
   X,
@@ -114,6 +116,17 @@ const RECEITAS: Record<Qualidade, Receita> = {
 const DIRECAO_CAMERA = new THREE.Vector3(0.9, 0.5, 1);
 const FOLGA = 1.12;
 
+// Vistas rápidas: de que direção a câmera olha o produto. A "3/4" é o ângulo
+// herói (o de abertura); as outras são as ortográficas de sempre num catálogo.
+const VISTAS = [
+  { chave: "tresQuartos", rotulo: "3/4", dir: new THREE.Vector3(0.9, 0.5, 1) },
+  { chave: "frente", rotulo: "Frente", dir: new THREE.Vector3(0, 0.18, 1) },
+  { chave: "lado", rotulo: "Lado", dir: new THREE.Vector3(1, 0.18, 0.05) },
+  { chave: "cima", rotulo: "Cima", dir: new THREE.Vector3(0.001, 1, 0.35) },
+] as const;
+
+type ChaveVista = (typeof VISTAS)[number]["chave"];
+
 // Quanto tempo o marcador do "mudou aqui" fica na tela.
 const DESTAQUE_MS = 3800;
 // Quanto tempo o botão de copiar fica dizendo que copiou.
@@ -158,6 +171,10 @@ interface Cena {
   // Troca o nível de qualidade sem recarregar o modelo: mexe em luz, sombra,
   // exposição, resolução e oclusão de ambiente.
   qualidade: (nivel: Qualidade) => void;
+  // Voa suave até uma das vistas rápidas (frente, lado, cima, 3/4).
+  vista: (chave: ChaveVista) => void;
+  // Liga/desliga o giro automático (turntable).
+  girarAuto: (ligar: boolean) => void;
 }
 
 interface Visualizador3DProps {
@@ -208,6 +225,15 @@ export default function Visualizador3D({
   useEffect(() => {
     qualidadeRef.current = qualidade;
   }, [qualidade]);
+
+  // A abertura cinematográfica só roda na tela do cliente; lida por referência
+  // para não entrar como dependência do efeito de montagem.
+  const anotarDeInicioRef = useRef(anotarDeInicio);
+  useEffect(() => {
+    anotarDeInicioRef.current = anotarDeInicio;
+  }, [anotarDeInicio]);
+
+  const [autoGiro, setAutoGiro] = useState(false);
 
   function alternarAmpliado() {
     // Ampliar liga as etiquetas: é para isso que se amplia. Desligar de novo é
@@ -296,6 +322,8 @@ export default function Visualizador3D({
     // Ambos nascem quando o modelo chega (dependem do tamanho dele).
     let sombraBlob: THREE.Mesh | null = null;
     let sombraPlano: THREE.Mesh | null = null;
+    // Remove os ouvintes de clique (registrados quando o modelo chega).
+    let limparClique: (() => void) | undefined;
 
     // Reconfigura a cena para um nível. Não recria nada (o renderer e o modelo
     // continuam os mesmos): só ajusta intensidades, visibilidade, resolução da
@@ -328,6 +356,7 @@ export default function Visualizador3D({
     controles.enableDamping = true;
     controles.enablePan = false;
     controles.zoomSpeed = 0.8;
+    controles.autoRotateSpeed = 1.4; // giro automático devagar, de vitrine
     // Giro livre nos dois eixos, como em qualquer visualizador de CAD: dá para
     // olhar o carro por baixo (rodízios, base) e por cima (tampo).
 
@@ -446,11 +475,48 @@ export default function Visualizador3D({
       }
     }
 
-    // Giro automático: guarda o ângulo de partida e o de chegada e caminha
-    // entre os dois. Qualquer arrasto do usuário cancela (o `start` abaixo).
-    let giro: { de: number; para: number; phi: number; raio: number; inicio: number } | null = null;
+    // Voo de câmera: caminha suave da posição/alvo atuais até um destino. É o
+    // motor das vistas rápidas, do foco ao clicar numa peça e da abertura
+    // cinematográfica. Qualquer arrasto do usuário cancela (o `start` abaixo).
+    interface Voo {
+      posDe: THREE.Vector3;
+      posPara: THREE.Vector3;
+      alvoDe: THREE.Vector3;
+      alvoPara: THREE.Vector3;
+      inicio: number;
+      duracao: number;
+    }
+    let voo: Voo | null = null;
+    // Giro automático (turntable). Ligado, o produto roda sozinho; o laço fica
+    // vivo enquanto isso.
+    let autoGiro = false;
+    let retomarGiro: ReturnType<typeof setTimeout> | undefined;
+
+    function voar(posPara: THREE.Vector3, alvoPara: THREE.Vector3, duracao = GIRO_MS) {
+      voo = {
+        posDe: camera.position.clone(),
+        posPara: posPara.clone(),
+        alvoDe: controles.target.clone(),
+        alvoPara: alvoPara.clone(),
+        inicio: performance.now(),
+        duracao,
+      };
+      pedirQuadro();
+    }
+
     controles.addEventListener("start", () => {
-      giro = null;
+      voo = null;
+      // Pega no produto = pausa o giro automático; volta sozinho depois de um
+      // tempo parado, para o cliente mexer sem brigar com a rotação.
+      controles.autoRotate = false;
+      clearTimeout(retomarGiro);
+    });
+    controles.addEventListener("end", () => {
+      if (!autoGiro) return;
+      retomarGiro = setTimeout(() => {
+        controles.autoRotate = true;
+        pedirQuadro();
+      }, 2500);
     });
 
     // Desenho SOB DEMANDA. Antes o laço rodava a 60 quadros por segundo para
@@ -461,19 +527,18 @@ export default function Visualizador3D({
     let precisaDesenhar = false;
 
     function laco(agora: number) {
-      if (giro) {
-        const parte = Math.min((agora - giro.inicio) / GIRO_MS, 1);
+      if (voo) {
+        const parte = Math.min((agora - voo.inicio) / voo.duracao, 1);
         // easeInOutCubic: sai e chega devagar, sem tranco.
         const suave = parte < 0.5 ? 4 * parte ** 3 : 1 - (-2 * parte + 2) ** 3 / 2;
-        const theta = giro.de + (giro.para - giro.de) * suave;
-        camera.position.setFromSphericalCoords(giro.raio, giro.phi, theta).add(controles.target);
-        camera.lookAt(controles.target);
-        if (parte === 1) giro = null;
+        camera.position.lerpVectors(voo.posDe, voo.posPara, suave);
+        controles.target.lerpVectors(voo.alvoDe, voo.alvoPara, suave);
+        if (parte === 1) voo = null;
         precisaDesenhar = true;
       }
 
-      // `update()` devolve true enquanto a inércia do arrasto ainda está
-      // acabando; é o que mantém o laço vivo até o produto parar de verdade.
+      // `update()` devolve true enquanto a inércia do arrasto (ou o giro
+      // automático) ainda mexe a câmera; é o que mantém o laço vivo.
       const assentando = controles.update();
       if (assentando || precisaDesenhar) {
         renderer.render(cena, camera);
@@ -481,7 +546,7 @@ export default function Visualizador3D({
         precisaDesenhar = false;
       }
 
-      animacao = assentando || giro ? requestAnimationFrame(laco) : 0;
+      animacao = assentando || voo || controles.autoRotate ? requestAnimationFrame(laco) : 0;
     }
 
     function pedirQuadro() {
@@ -586,53 +651,130 @@ export default function Visualizador3D({
 
         aplicarQualidade(qualidadeRef.current);
 
-        function enquadrar() {
-          // Distância em que o produto inteiro cabe na MENOR abertura da tela (a
-          // vertical num painel largo, a horizontal num painel estreito).
+        // Distância em que uma esfera de raio `r` cabe na MENOR abertura da tela
+        // (a vertical num painel largo, a horizontal num painel estreito).
+        function distanciaPara(r: number, folga: number) {
           const fovVertical = (camera.fov * Math.PI) / 180;
           const fovHorizontal = 2 * Math.atan(Math.tan(fovVertical / 2) * camera.aspect);
-          const distancia =
-            (esfera.radius / Math.sin(Math.min(fovVertical, fovHorizontal) / 2)) * FOLGA;
-          camera.position
-            .copy(esfera.center)
-            .addScaledVector(DIRECAO_CAMERA.clone().normalize(), distancia);
-          controles.target.copy(esfera.center);
+          return (r / Math.sin(Math.min(fovVertical, fovHorizontal) / 2)) * folga;
+        }
+
+        // Câmera olhando o produto inteiro do ângulo `direcao`. `voando` faz a
+        // transição suave (vistas rápidas); sem ele, corta na hora (enquadrar).
+        function olharDe(direcao: THREE.Vector3, voando: boolean) {
+          const distancia = distanciaPara(esfera.radius, FOLGA);
+          const posicao = esfera.center
+            .clone()
+            .addScaledVector(direcao.clone().normalize(), distancia);
+          if (voando) voar(posicao, esfera.center);
+          else {
+            camera.position.copy(posicao);
+            controles.target.copy(esfera.center);
+            controles.update();
+            pedirQuadro();
+          }
+        }
+
+        function enquadrar() {
           // Dá para chegar perto de um detalhe (a trava, o suporte de soro) sem
           // atravessar o produto, e afastar até enxergar o carro inteiro.
           controles.minDistance = esfera.radius * 0.45;
-          controles.maxDistance = distancia * 2;
-          controles.update();
-          pedirQuadro();
+          controles.maxDistance = distanciaPara(esfera.radius, FOLGA) * 2;
+          olharDe(DIRECAO_CAMERA, false);
         }
         enquadrar();
 
-        // Gira até a peça só quando ela está escondida atrás do produto. O
-        // deslocamento dela em relação ao centro é o que diz para que lado ela
-        // olha; peça central (tampo, estrutura) não pede giro nenhum.
+        // Voa até uma peça e a enquadra de perto, mantendo o ângulo atual da
+        // câmera (só aproxima e recentra). É o que roda ao clicar numa peça ou
+        // num item da especificação.
+        function focarPeca(chave: string) {
+          const peca = pecasCarregadas.get(chave);
+          if (!peca) return;
+          const caixa = new THREE.Box3().setFromObject(peca.no);
+          const centro = caixa.getCenter(new THREE.Vector3());
+          const raioPeca = Math.max(caixa.getSize(new THREE.Vector3()).length() / 2, esfera.radius * 0.12);
+          const direcao = camera.position.clone().sub(controles.target).normalize();
+          const distancia = Math.min(
+            distanciaPara(raioPeca, 1.7),
+            distanciaPara(esfera.radius, FOLGA),
+          );
+          voar(centro.clone().addScaledVector(direcao, distancia), centro);
+        }
+
+        // Gira até a peça quando ela está escondida atrás do produto — usado ao
+        // apontar uma mudança. Mantém a distância; só troca o ângulo horizontal.
         function girarAte(ancora: THREE.Vector3) {
           const lado = new THREE.Vector3(ancora.x - esfera.center.x, 0, ancora.z - esfera.center.z);
           if (lado.length() < esfera.radius * 0.12) return;
 
-          const atual = new THREE.Spherical().setFromVector3(
-            camera.position.clone().sub(controles.target),
-          );
+          const relativo = camera.position.clone().sub(controles.target);
+          const atual = new THREE.Spherical().setFromVector3(relativo);
           const desejado = Math.atan2(lado.x, lado.z);
-          // Diferença pelo caminho mais curto: sem isto o giro pode dar a volta
-          // pelo lado longo quando os ângulos cruzam o -180°.
           const diferenca = Math.atan2(
             Math.sin(desejado - atual.theta),
             Math.cos(desejado - atual.theta),
           );
           if (Math.abs(diferenca) < GIRO_MINIMO) return;
-          giro = {
-            de: atual.theta,
-            para: atual.theta + diferenca,
-            phi: atual.phi,
-            raio: atual.radius,
-            inicio: performance.now(),
-          };
-          pedirQuadro();
+          const destino = new THREE.Spherical(atual.radius, atual.phi, atual.theta + diferenca);
+          voar(new THREE.Vector3().setFromSpherical(destino).add(controles.target), controles.target);
         }
+
+        // Abertura cinematográfica: começa um pouco girada e mais longe e voa
+        // até o ângulo herói. Só na tela do cliente (`anotarDeInicio`), para o
+        // configurador do vendedor não ficar animando a cada ajuste.
+        if (anotarDeInicioRef.current) {
+          const distancia = distanciaPara(esfera.radius, FOLGA);
+          const giroInicial = new THREE.Vector3(-0.4, 0.35, 1);
+          camera.position
+            .copy(esfera.center)
+            .addScaledVector(giroInicial.normalize(), distancia * 1.25);
+          controles.update();
+          voar(
+            esfera.center.clone().addScaledVector(DIRECAO_CAMERA.clone().normalize(), distancia),
+            esfera.center,
+            1400,
+          );
+        }
+
+        // Clicar numa peça a enquadra de perto. Distingue clique de arrasto
+        // (o arrasto gira o produto): só conta como clique quando o ponteiro
+        // quase não andou entre apertar e soltar.
+        const raycaster = new THREE.Raycaster();
+        const ndc = new THREE.Vector2();
+        let apertouEm: { x: number; y: number } | null = null;
+
+        function chaveNoPonto(evento: PointerEvent): string | null {
+          const caixa = renderer.domElement.getBoundingClientRect();
+          ndc.set(
+            ((evento.clientX - caixa.left) / caixa.width) * 2 - 1,
+            -((evento.clientY - caixa.top) / caixa.height) * 2 + 1,
+          );
+          raycaster.setFromCamera(ndc, camera);
+          for (const acerto of raycaster.intersectObject(modelo, true)) {
+            let no: THREE.Object3D | null = acerto.object;
+            while (no && !no.name.startsWith(PREFIXO_PECA)) no = no.parent;
+            if (no?.visible) return no.name.slice(PREFIXO_PECA.length);
+          }
+          return null;
+        }
+
+        function aoApertar(evento: PointerEvent) {
+          apertouEm = { x: evento.clientX, y: evento.clientY };
+        }
+        function aoSoltar(evento: PointerEvent) {
+          if (!apertouEm) return;
+          const andou = Math.hypot(evento.clientX - apertouEm.x, evento.clientY - apertouEm.y);
+          apertouEm = null;
+          if (andou > 6) return; // foi arrasto, não clique
+          const chave = chaveNoPonto(evento);
+          if (chave) focarPeca(chave);
+        }
+        renderer.domElement.addEventListener("pointerdown", aoApertar);
+        renderer.domElement.addEventListener("pointerup", aoSoltar);
+        limparClique = () => {
+          renderer.domElement.removeEventListener("pointerdown", aoApertar);
+          renderer.domElement.removeEventListener("pointerup", aoSoltar);
+        };
 
         cenaRef.current = {
           enquadrar,
@@ -642,6 +784,16 @@ export default function Visualizador3D({
             alvo.append(renderer.domElement, camada);
             observador.observe(alvo);
             redimensionar(alvo);
+          },
+          vista(chave) {
+            const vista = VISTAS.find((item) => item.chave === chave);
+            if (vista) olharDe(vista.dir.clone(), true);
+          },
+          girarAuto(ligar) {
+            autoGiro = ligar;
+            controles.autoRotate = ligar;
+            clearTimeout(retomarGiro);
+            pedirQuadro();
           },
           qualidade: aplicarQualidade,
           destacar(destaque) {
@@ -694,7 +846,9 @@ export default function Visualizador3D({
       vivo = false;
       if (animacao !== 0) cancelAnimationFrame(animacao);
       controles.removeEventListener("change", pedirQuadro);
+      limparClique?.();
       clearTimeout(sumico);
+      clearTimeout(retomarGiro);
       observador.disconnect();
       controles.dispose();
       camada.remove();
@@ -724,6 +878,11 @@ export default function Visualizador3D({
   useEffect(() => {
     cenaRef.current?.qualidade(qualidade);
   }, [qualidade, carregado]);
+
+  // Liga/desliga o giro automático.
+  useEffect(() => {
+    cenaRef.current?.girarAuto(autoGiro);
+  }, [autoGiro, carregado]);
 
   // Aplica as escolhas e aponta o que mudou. Roda a cada mudança de estado e
   // também logo depois do carregamento — por isso `carregado` é dependência.
@@ -784,7 +943,7 @@ export default function Visualizador3D({
       </div>
 
       {ampliado && (
-        <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card/90 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
+        <p className="pointer-events-none absolute bottom-14 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card/90 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
           {anotacoes.length === 0
             ? "Tudo no padrão: nada para apontar no modelo."
             : anotando
@@ -792,6 +951,38 @@ export default function Visualizador3D({
               : "Etiquetas escondidas."}
         </p>
       )}
+
+      {/* Barra da câmera: giro automático (turntable) e vistas rápidas. Clicar
+          numa peça do 3D também aproxima nela. */}
+      <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-card/90 p-1 backdrop-blur">
+        <button
+          type="button"
+          onClick={() => setAutoGiro((valor) => !valor)}
+          title={autoGiro ? "Parar o giro" : "Girar sozinho"}
+          aria-label={autoGiro ? "Parar o giro" : "Girar sozinho"}
+          aria-pressed={autoGiro}
+          className={`pointer-events-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition-colors ${
+            autoGiro
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-card-foreground"
+          }`}
+        >
+          {autoGiro ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+          Girar
+        </button>
+        <span className="mx-0.5 h-4 w-px bg-border" />
+        {VISTAS.map((vista) => (
+          <button
+            key={vista.chave}
+            type="button"
+            onClick={() => cenaRef.current?.vista(vista.chave)}
+            title={`Vista ${vista.rotulo}`}
+            className="pointer-events-auto rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-card-foreground"
+          >
+            {vista.rotulo}
+          </button>
+        ))}
+      </div>
 
       {/* Seletor de qualidade: o vendedor escolhe qual nível mandar (vai no
           link do cliente) e o cliente também pode trocar. */}

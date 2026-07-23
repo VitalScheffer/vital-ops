@@ -3934,3 +3934,41 @@ cliente, com a escolha gravada no link (?q=). Sem escolha, fica Padrao.
 ### Pendencias / proximos passos
 - SSAO/oclusao de ambiente no Maximo (adiado).
 - Padrao das gavetas (4 no catalogo x 3+gavetao no CAD) e do grupo MODELO.
+
+## 2026-07-23 - Configurador 3D: camera dinamica
+
+### Resumo
+Feedback: Alta/Maxima quase iguais e "nao impressionou"; pediu camera dinamica
+pra analisar detalhes, algo que a concorrencia nao fez. Entregue a camera
+dinamica (bloco 1 de varios): abertura cinematografica, giro automatico
+(turntable), vistas rapidas e clicar-na-peca-pra-focar. Tudo com o modelo/asset
+atual.
+
+### Arquivos alterados
+- `src/components/configurador/Visualizador3D.tsx`:
+  - O "giro" (so angulo) virou "voo" de camera generico (posicao+alvo, easing).
+  - `olharDe`/vistas rapidas (VISTAS: 3/4, Frente, Lado, Cima), `focarPeca`
+    (enquadra a peca de perto), raycast no clique (distingue clique de arrasto),
+    giro automatico (OrbitControls.autoRotate) com pausa ao interagir e retomada.
+  - Abertura cinematografica so na tela do cliente (`anotarDeInicio`).
+  - Barra de camera na sobreposicao (Girar + vistas).
+
+### Decisoes importantes
+- **Voo unico pra tudo.** Vistas, foco, abertura e apontar-mudanca usam o mesmo
+  tween posicao+alvo; menos codigo e movimento consistente.
+- **Desenho sob demanda mantido.** O laco so vive enquanto ha voo, autoRotate ou
+  inercia - giro automatico nao vira 60fps eterno parado.
+- **Clique x arrasto por limiar (6px).** Nao rouba o arrastar-pra-girar.
+- **Ambiente premium (HDRI/softbox) revertido.** Escurecia o inox e nao deu pra
+  validar; volta pro RoomEnvironment (bom no carbono). Fica pro proximo bloco.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npx eslint src`, `npx vitest run` (32 arq, 381 testes),
+  `npm run build` -> verde. Verificado no navegador (/ver): abertura, turntable,
+  4 vistas, clique-pra-focar OK.
+
+### Pendencias / proximos passos (blocos seguintes desta tarefa)
+- Explodir / abrir gavetas (precisa regerar o GLB com nos por peca/gaveta).
+- Hotspots com descricao + cotas (AxLxP).
+- Render premium (HDRI de estudio ajustado, chao com reflexo) sem escurecer inox.
+- Clicar no item da especificacao tambem focar a peca.
