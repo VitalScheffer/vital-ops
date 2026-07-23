@@ -4,6 +4,7 @@ import { ConferenciaCliente } from "@/components/configurador/ConferenciaCliente
 import { produtoPorSlug } from "@/lib/configurador/catalogo";
 import { decodificarEscolhas } from "@/lib/configurador/compartilhar";
 import { resolverSelecoes } from "@/lib/configurador/codigo";
+import { qualidadeDaUrl } from "@/lib/configurador/qualidade";
 
 // Tela de conferência do cliente. É a ÚNICA página do sistema aberta sem login
 // (ver `isPublicPath` em `auth.config.ts`), e por isso segue duas regras:
@@ -16,7 +17,7 @@ import { resolverSelecoes } from "@/lib/configurador/codigo";
 
 interface ConferenciaPageProps {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ c?: string | string[] }>;
+  searchParams: Promise<{ c?: string | string[]; q?: string | string[] }>;
 }
 
 export async function generateMetadata({ params }: ConferenciaPageProps) {
@@ -32,7 +33,7 @@ export async function generateMetadata({ params }: ConferenciaPageProps) {
 
 export default async function ConferenciaPage({ params, searchParams }: ConferenciaPageProps) {
   const { slug } = await params;
-  const { c } = await searchParams;
+  const { c, q } = await searchParams;
   const produto = produtoPorSlug(slug);
   if (!produto) {
     notFound();
@@ -47,6 +48,11 @@ export default async function ConferenciaPage({ params, searchParams }: Conferen
   }
 
   return (
-    <ConferenciaCliente produto={produto} escolhas={escolhas} selecoes={resolucao.selecoes} />
+    <ConferenciaCliente
+      produto={produto}
+      escolhas={escolhas}
+      selecoes={resolucao.selecoes}
+      qualidadeInicial={qualidadeDaUrl(q)}
+    />
   );
 }

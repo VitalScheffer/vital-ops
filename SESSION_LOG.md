@@ -3881,3 +3881,56 @@ na tela do cliente, um olho que oculta/mostra as linhas do que foi mudado.
 - Verificado no navegador (1366x768, rota publica): sem rolagem de pagina,
   modelo cinza em carbono e prateado em inox, fundo de estudio, etiquetas e olho
   funcionando. 377 testes, build verde.
+
+## 2026-07-23 - Configurador 3D: niveis de qualidade + estudio + modelo cinza
+
+### Resumo
+Modelo 3D parecia branco e o vendedor queria escolher a qualidade do render a
+mandar pro cliente. Entregue: fundo de estudio, cinza de aco de verdade e um
+seletor de 3 niveis (Padrao/Alta/Maxima) na previa do vendedor E na tela do
+cliente, com a escolha gravada no link (?q=). Sem escolha, fica Padrao.
+
+### Arquivos criados/alterados
+- `src/lib/configurador/qualidade.ts` (novo) - tipo `Qualidade`, lista, default,
+  validador e `qualidadeDaUrl` (le o ?q=). So o tipo/lista mora aqui; a receita
+  visual (luz, sombra, exposicao) fica no Visualizador3D.
+- `src/lib/configurador/qualidade.test.ts` (novo) - 3 testes.
+- `src/components/configurador/Visualizador3D.tsx` - fundo de estudio (radial
+  claro), luz de 3 pontos, sombra projetada real (ShadowMaterial) alternando com
+  o borrao, exposicao/reflexo por nivel, `aplicarQualidade` que troca tudo sem
+  recarregar, seletor de nivel na sobreposicao. Antialias sempre ligado (a
+  travada era o laco eterno, ja resolvido).
+- `src/components/configurador/PreviewProduto.tsx` e `ConfiguradorForm.tsx` -
+  estado de qualidade do vendedor, passado ao viewer e gravado no link.
+- `src/components/configurador/ConferenciaCliente.tsx` - estado de qualidade do
+  cliente (inicia do ?q=), seletor visivel.
+- `src/lib/configurador/compartilhar.ts` - `linkDeConferencia` ganha a
+  qualidade (so entra na URL quando foge do padrao).
+- `src/app/ver/[slug]/page.tsx` - le ?q= e passa `qualidadeInicial`.
+- `scripts/step-para-glb.mjs` - cor "pintado" #d7dade -> #9aa0a6 (cinza de aco).
+- GLB regerado.
+
+### Decisoes importantes
+- **O branco era luz, nao cor.** Ambiente de reflexo claro + luz forte + tonemap
+  lavavam o cinza; sobre o card escuro do cliente, o claro lia como branco.
+  Corrigido com fundo de estudio + exposicao/reflexo menores nos niveis Alta/
+  Maxima + cor base mais cinza.
+- **Reflexo em 0.8 (nao 0.62).** Baixar demais o reflexo escurecia o INOX (metal
+  polido so tem cor do que reflete). 0.8 mantem o carbono cinza e o inox claro.
+- **Troca de nivel sem recarregar.** So intensidade/visibilidade/resolucao na
+  mesma cena; render sob demanda, entao nivel alto so custa em movimento.
+- **SSAO removido.** O SSAOPass nao integrou (tela transparente + geometria
+  meshopt quantizada apagavam o modelo; fundo opaco tambem nao resolveu). Maximo
+  virou render nitido em resolucao cheia + sombra 4096. Confiavel > quebrado.
+  Fica como melhoria futura (abordagem de fundo opaco ou outra tecnica de AO).
+
+### Comandos relevantes
+- `node scripts/step-para-glb.mjs "<STEP>" public/configurador/3d/carro-emergencia.glb`
+- `npx tsc --noEmit`, `npx eslint src`, `npx vitest run` (32 arquivos, 381
+  testes), `npm run build` -> tudo verde
+- Verificado no navegador (rota publica /ver, sem login): os 3 niveis trocam ao
+  vivo, carbono cinza, inox prateado, sombra real no chao, sem erro no console.
+
+### Pendencias / proximos passos
+- SSAO/oclusao de ambiente no Maximo (adiado).
+- Padrao das gavetas (4 no catalogo x 3+gavetao no CAD) e do grupo MODELO.

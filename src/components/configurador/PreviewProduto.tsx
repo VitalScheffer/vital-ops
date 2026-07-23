@@ -7,6 +7,7 @@ import { useCallback, useState } from "react";
 
 import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
 import type { Destaque, Estado3d } from "@/lib/configurador/modelo3d";
+import type { Qualidade } from "@/lib/configurador/qualidade";
 
 // O three.js só é baixado por quem abre um produto que tem modelo, e só no
 // navegador (`ssr: false`): WebGL não existe no servidor.
@@ -30,6 +31,8 @@ interface PreviewProdutoProps {
   estado: Estado3d;
   // O que difere do padrão, para a tela ampliada apontar peça por peça.
   anotacoes: readonly Destaque[];
+  qualidade: Qualidade;
+  aoMudarQualidade: (nivel: Qualidade) => void;
   // Copia o link da tela de conferência do cliente. Só o configurador passa
   // isto; a própria tela do cliente não mostra o botão.
   aoCopiarLink?: () => Promise<boolean>;
@@ -43,6 +46,8 @@ export function PreviewProduto({
   imagem,
   estado,
   anotacoes,
+  qualidade,
+  aoMudarQualidade,
   aoCopiarLink,
   compacto,
 }: PreviewProdutoProps) {
@@ -61,6 +66,8 @@ export function PreviewProduto({
             arquivo={modelo.arquivo}
             estado={estado}
             anotacoes={anotacoes}
+            qualidade={qualidade}
+            aoMudarQualidade={aoMudarQualidade}
             aoCopiarLink={aoCopiarLink}
             onFalha={aoFalhar}
           />

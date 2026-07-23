@@ -91,6 +91,21 @@ describe("linkDeConferencia", () => {
     );
   });
 
+  it("grava a qualidade só quando foge do padrão", () => {
+    const padrao = escolhasPadrao(carro);
+    // Qualidade padrão não entra na URL (link mais curto).
+    expect(linkDeConferencia("https://x.com", carro, padrao, "padrao")).toBe(
+      "https://x.com/ver/carro-emergencia",
+    );
+    expect(linkDeConferencia("https://x.com", carro, padrao, "maxima")).toBe(
+      "https://x.com/ver/carro-emergencia?q=maxima",
+    );
+    const inox = { ...padrao, MAT: { opcao: "INOX" } };
+    expect(linkDeConferencia("https://x.com", carro, inox, "alta")).toBe(
+      "https://x.com/ver/carro-emergencia?c=MAT.INOX&q=alta",
+    );
+  });
+
   it("escapa o texto livre para não quebrar a URL", () => {
     const escolhas = { ...escolhasPadrao(maca), MED: { opcao: "MOUT", texto: "2200 x 700 mm" } };
     const link = linkDeConferencia("https://x.com", maca, escolhas);

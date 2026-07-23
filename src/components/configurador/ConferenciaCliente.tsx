@@ -15,6 +15,7 @@ import {
   type SelecaoResolvida,
 } from "@/lib/configurador/codigo";
 import { estado3d, mudancas } from "@/lib/configurador/modelo3d";
+import type { Qualidade } from "@/lib/configurador/qualidade";
 
 const Visualizador3D = dynamic(() => import("@/components/configurador/Visualizador3D"), {
   ssr: false,
@@ -30,12 +31,21 @@ interface ConferenciaClienteProps {
   produto: ProdutoCatalogo;
   escolhas: EscolhasBrutas;
   selecoes: readonly SelecaoResolvida[];
+  // Nível de qualidade que o vendedor escolheu ao gerar o link. O cliente pode
+  // trocar na tela.
+  qualidadeInicial: Qualidade;
 }
 
 // O que o cliente vê quando abre o link: o produto girando em 3D e, do lado, a
 // lista do que foi especificado, com o que foge do modelo de série em destaque.
-export function ConferenciaCliente({ produto, escolhas, selecoes }: ConferenciaClienteProps) {
+export function ConferenciaCliente({
+  produto,
+  escolhas,
+  selecoes,
+  qualidadeInicial,
+}: ConferenciaClienteProps) {
   const [falhou, setFalhou] = useState(false);
+  const [qualidade, setQualidade] = useState<Qualidade>(qualidadeInicial);
   const modelo = falhou ? undefined : produto.modelo3d;
 
   const estado = useMemo(() => estado3d(produto, escolhas), [produto, escolhas]);
@@ -72,6 +82,8 @@ export function ConferenciaCliente({ produto, escolhas, selecoes }: ConferenciaC
                 estado={estado}
                 anotacoes={anotacoes}
                 anotarDeInicio
+                qualidade={qualidade}
+                aoMudarQualidade={setQualidade}
                 onFalha={() => setFalhou(true)}
               />
             ) : (

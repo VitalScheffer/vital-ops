@@ -1,5 +1,6 @@
-import { type ProdutoCatalogo } from "@/lib/configurador/catalogo";
+  import { type ProdutoCatalogo } from "@/lib/configurador/catalogo";
 import { escolhasPadrao, type EscolhaBruta, type EscolhasBrutas } from "@/lib/configurador/codigo";
+import { QUALIDADE_PADRAO, type Qualidade } from "@/lib/configurador/qualidade";
 
 // Link de conferência: a configuração inteira cabe na URL, e a tela pública
 // (`/ver/<produto>`) monta o 3D a partir dela.
@@ -62,13 +63,18 @@ export function decodificarEscolhas(
 
 // A URL que o vendedor copia e manda para o cliente. `origem` é o endereço do
 // próprio site (`window.location.origin`), para o link sair certo em produção,
-// em pré-visualização da Vercel ou rodando local, sem nada configurado.
+// em pré-visualização da Vercel ou rodando local, sem nada configurado. A
+// qualidade só entra na URL quando foge do padrão (link mais curto no comum).
 export function linkDeConferencia(
   origem: string,
   produto: ProdutoCatalogo,
   escolhas: EscolhasBrutas,
+  qualidade: Qualidade = QUALIDADE_PADRAO,
 ): string {
+  const partes: string[] = [];
   const codificado = codificarEscolhas(produto, escolhas);
-  const consulta = codificado ? `?c=${encodeURIComponent(codificado)}` : "";
-  return `${origem}/ver/${produto.slug}${consulta}`;
+  if (codificado) partes.push(`c=${encodeURIComponent(codificado)}`);
+  if (qualidade !== QUALIDADE_PADRAO) partes.push(`q=${qualidade}`);
+  const consulta = partes.join("&");
+  return `${origem}/ver/${produto.slug}${consulta ? `?${consulta}` : ""}`;
 }

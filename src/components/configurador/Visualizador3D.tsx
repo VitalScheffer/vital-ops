@@ -26,6 +26,7 @@ import {
   type Estado3d,
   type TipoDestaque,
 } from "@/lib/configurador/modelo3d";
+import { QUALIDADES, type Qualidade } from "@/lib/configurador/qualidade";
 
 // Visualizador do modelo 3D do produto. Carrega UM arquivo com todas as peças e
 // obedece ao `Estado3d`: apaga a peça que a escolha não pede e troca o material
@@ -53,6 +54,60 @@ const INOX = { cor: 0xdfe3e8, metalico: 1, rugosidade: 0.24 };
 // dar volume e destacar o contorno do produto. Fixo nos dois temas de
 // propósito — é o backdrop de uma foto de produto, não parte da interface.
 const FUNDO_ESTUDIO = "radial-gradient(circle at 50% 38%, #f3f5f6 0%, #c8ced3 100%)";
+
+// Receita de cada nível de qualidade. "Padrão" reproduz o visual leve de sempre
+// (uma luz e reflexo cheio — é o que já estava no ar). "Alta" e "Máxima" baixam
+// a exposição e o reflexo (para o cinza aparecer em vez de estourar), acendem
+// luz de preenchimento e contraluz (dão volume) e trocam o borrão do chão por
+// sombra projetada de verdade. "Máxima" ainda desenha em resolução cheia e com
+// sombra mais definida — as bordas ficam mais limpas.
+interface Receita {
+  exposicao: number; // toneMappingExposure
+  reflexo: number; // scene.environmentIntensity
+  chave: number; // luz principal
+  preenchimento: number; // luz de preenchimento (mata sombra dura)
+  contra: number; // contraluz (separa do fundo)
+  ambiente: number; // luz ambiente chapada
+  sombraReal: boolean; // sombra projetada x borrão
+  sombraMapa: number; // resolução do mapa de sombra
+  pixelMax: number; // teto de resolução
+}
+
+const RECEITAS: Record<Qualidade, Receita> = {
+  padrao: {
+    exposicao: 1,
+    reflexo: 1,
+    chave: 1.6,
+    preenchimento: 0,
+    contra: 0,
+    ambiente: 0.35,
+    sombraReal: false,
+    sombraMapa: 1024,
+    pixelMax: 1.5,
+  },
+  alta: {
+    exposicao: 0.92,
+    reflexo: 0.8,
+    chave: 2.3,
+    preenchimento: 0.7,
+    contra: 1.1,
+    ambiente: 0.16,
+    sombraReal: true,
+    sombraMapa: 2048,
+    pixelMax: 1.75,
+  },
+  maxima: {
+    exposicao: 0.92,
+    reflexo: 0.8,
+    chave: 2.3,
+    preenchimento: 0.7,
+    contra: 1.1,
+    ambiente: 0.16,
+    sombraReal: true,
+    sombraMapa: 4096,
+    pixelMax: 2,
+  },
+};
 
 // De onde a câmera olha (à direita, um pouco acima e à frente) e quanta folga
 // sobra em volta do produto.
@@ -100,6 +155,9 @@ interface Cena {
   // (mesmo contexto, mesmo modelo carregado) aparecer no painel e, ao ampliar,
   // dentro do portal — sem recarregar nada.
   anexar: (container: HTMLElement | null) => void;
+  // Troca o nível de qualidade sem recarregar o modelo: mexe em luz, sombra,
+  // exposição, resolução e oclusão de ambiente.
+  qualidade: (nivel: Qualidade) => void;
 }
 
 interface Visualizador3DProps {
@@ -112,6 +170,11 @@ interface Visualizador3DProps {
   // link justamente para ver o que foi pedido de diferente. No configurador
   // elas ficam desligadas até ampliar, para não tampar o produto no painel.
   anotarDeInicio?: boolean;
+  // Nível de qualidade atual e como avisar quando o usuário troca. Controlado
+  // pelo pai porque o configurador precisa saber qual nível o vendedor escolheu
+  // para gravá-lo no link do cliente.
+  qualidade: Qualidade;
+  aoMudarQualidade: (nivel: Qualidade) => void;
   // Endereço da tela de conferência desta configuração. Vindo preenchido,
   // aparece o botão que copia o link para mandar ao cliente.
   aoCopiarLink?: () => Promise<boolean>;
@@ -125,6 +188,8 @@ export default function Visualizador3D({
   estado,
   anotacoes,
   anotarDeInicio,
+  qualidade,
+  aoMudarQualidade,
   aoCopiarLink,
   onFalha,
 }: Visualizador3DProps) {
@@ -135,6 +200,14 @@ export default function Visualizador3D({
   const [ampliado, setAmpliado] = useState(false);
   const [anotando, setAnotando] = useState(Boolean(anotarDeInicio));
   const [linkCopiado, setLinkCopiado] = useState<boolean | null>(null);
+
+  // Guardado por referência para o efeito de montagem ler o nível inicial sem
+  // ter `qualidade` como dependência (senão a cena WebGL remontaria a cada
+  // troca de nível em vez de só reconfigurar).
+  const qualidadeRef = useRef(qualidade);
+  useEffect(() => {
+    qualidadeRef.current = qualidade;
+  }, [qualidade]);
 
   function alternarAmpliado() {
     // Ampliar liga as etiquetas: é para isso que se amplia. Desligar de novo é
@@ -166,11 +239,12 @@ export default function Visualizador3D({
     let vivo = true;
     let renderer: THREE.WebGLRenderer;
     try {
+      // Antialiasing por multiamostragem sempre ligado: a travada de antes vinha
+      // do laço eterno (já resolvido com desenho sob demanda), não do MSAA. Nos
+      // níveis Alta/Máxima ainda sobe a resolução; no Máxima o SSAO desenha por
+      // um composer à parte.
       renderer = new THREE.WebGLRenderer({
-        // Serrilhado por multiamostragem custa banda de memória em tela grande.
-        // Numa tela densa (retina, celular) o próprio pixel já resolve, e aí ele
-        // sai; na tela comum ele fica, que é onde faz falta.
-        antialias: window.devicePixelRatio < 1.5,
+        antialias: true,
         alpha: true,
         powerPreference: "high-performance",
       });
@@ -179,12 +253,10 @@ export default function Visualizador3D({
       return;
     }
 
-    // Teto de resolução: em tela densa, desenhar 2x em cada eixo é 4x de
-    // trabalho por quadro para uma diferença que quase não se vê num painel
-    // deste tamanho. É a mudança que mais tira travada em vídeo integrado.
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(container.clientWidth, container.clientHeight || 1);
     renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.domElement.className = "h-full w-full";
     // O OrbitControls bloqueia todo gesto de toque sobre a tela; devolvemos o
     // arrasto vertical ao navegador para a página continuar rolando no celular
@@ -207,10 +279,50 @@ export default function Visualizador3D({
     cena.environment = ambiente;
     pmrem.dispose();
 
-    const luz = new THREE.DirectionalLight(0xffffff, 1.6);
-    luz.position.set(2, 3, 2.5);
-    cena.add(luz);
-    cena.add(new THREE.AmbientLight(0xffffff, 0.35));
+    // Luz de 3 pontos: chave (principal, e a que projeta a sombra), preenchimento
+    // (do lado oposto, suaviza a sombra dura) e contraluz (por trás, destaca o
+    // contorno). No nível Padrão só a chave fica acesa, reproduzindo o de antes.
+    const luzChave = new THREE.DirectionalLight(0xffffff, 1.6);
+    luzChave.position.set(2.6, 3.6, 2.4);
+    const luzPreenchimento = new THREE.DirectionalLight(0xffffff, 0);
+    luzPreenchimento.position.set(-3, 1.6, 1.2);
+    const luzContra = new THREE.DirectionalLight(0xffffff, 0);
+    luzContra.position.set(-1.4, 2.6, -3);
+    const luzAmbiente = new THREE.AmbientLight(0xffffff, 0.35);
+    cena.add(luzChave, luzChave.target, luzPreenchimento, luzContra, luzAmbiente);
+
+    // Sombra no chão em duas formas, trocadas pelo nível: o borrão barato
+    // (`sombraBlob`) e a projetada de verdade sobre um plano (`sombraPlano`).
+    // Ambos nascem quando o modelo chega (dependem do tamanho dele).
+    let sombraBlob: THREE.Mesh | null = null;
+    let sombraPlano: THREE.Mesh | null = null;
+
+    // Reconfigura a cena para um nível. Não recria nada (o renderer e o modelo
+    // continuam os mesmos): só ajusta intensidades, visibilidade, resolução da
+    // sombra e teto de resolução. Some com o borrão quando entra a sombra real
+    // e vice-versa.
+    function aplicarQualidade(nivel: Qualidade) {
+      const r = RECEITAS[nivel];
+      renderer.toneMappingExposure = r.exposicao;
+      cena.environmentIntensity = r.reflexo;
+      luzChave.intensity = r.chave;
+      luzPreenchimento.intensity = r.preenchimento;
+      luzContra.intensity = r.contra;
+      luzAmbiente.intensity = r.ambiente;
+      luzChave.castShadow = r.sombraReal;
+      if (luzChave.shadow.mapSize.width !== r.sombraMapa) {
+        luzChave.shadow.mapSize.set(r.sombraMapa, r.sombraMapa);
+        // Descarta o mapa atual para o three recriar no tamanho novo.
+        luzChave.shadow.map?.dispose();
+        luzChave.shadow.map = null;
+      }
+      if (sombraBlob) sombraBlob.visible = !r.sombraReal;
+      if (sombraPlano) sombraPlano.visible = r.sombraReal;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, r.pixelMax));
+      const alvo = renderer.domElement.parentElement;
+      if (alvo) redimensionar(alvo);
+      pedirQuadro();
+    }
 
     const controles = new OrbitControls(camera, renderer.domElement);
     controles.enableDamping = true;
@@ -381,7 +493,7 @@ export default function Visualizador3D({
     // só passa a valer depois que o controle processa o movimento.
     controles.addEventListener("change", pedirQuadro);
 
-    function ajustarAo(alvo: HTMLElement) {
+    function redimensionar(alvo: HTMLElement) {
       const largura = alvo.clientWidth;
       const altura = alvo.clientHeight;
       if (largura === 0 || altura === 0) return;
@@ -395,7 +507,7 @@ export default function Visualizador3D({
     // o tamanho vem do alvo do evento e não de uma variável fixa.
     const observador = new ResizeObserver((entradas) => {
       const alvo = entradas[0]?.target;
-      if (alvo instanceof HTMLElement) ajustarAo(alvo);
+      if (alvo instanceof HTMLElement) redimensionar(alvo);
     });
     observador.observe(container);
 
@@ -420,7 +532,12 @@ export default function Visualizador3D({
           const pintaveis: THREE.Mesh[] = [];
           no.traverse((filho) => {
             const malha = filho as THREE.Mesh;
-            if (malha.isMesh && (malha.material as THREE.Material).name === MATERIAL_CONFIGURAVEL) {
+            if (!malha.isMesh) return;
+            // Toda peça projeta e recebe sombra (a projetada só existe nos
+            // níveis Alta/Máxima; quando desligada não custa nada).
+            malha.castShadow = true;
+            malha.receiveShadow = true;
+            if ((malha.material as THREE.Material).name === MATERIAL_CONFIGURAVEL) {
               malha.userData.materialCad = malha.material;
               pintaveis.push(malha);
             }
@@ -430,12 +547,44 @@ export default function Visualizador3D({
         }
 
         cena.add(modelo);
-        cena.add(sombraDeContato(modelo));
 
         const esfera = new THREE.Box3()
           .setFromObject(modelo)
           .getBoundingSphere(new THREE.Sphere());
         centroDoModelo.copy(esfera.center);
+
+        // Borrão (sombra barata do nível Padrão).
+        sombraBlob = sombraDeContato(modelo);
+        cena.add(sombraBlob);
+
+        // Sombra projetada de verdade (níveis Alta/Máxima): um plano no chão que
+        // recebe a sombra, e a luz-chave configurada para cobrir o modelo.
+        sombraPlano = new THREE.Mesh(
+          new THREE.PlaneGeometry(esfera.radius * 6, esfera.radius * 6),
+          new THREE.ShadowMaterial({ opacity: 0.3 }),
+        );
+        sombraPlano.rotation.x = -Math.PI / 2;
+        sombraPlano.position.set(esfera.center.x, 0.001, esfera.center.z);
+        sombraPlano.receiveShadow = true;
+        sombraPlano.visible = false;
+        cena.add(sombraPlano);
+
+        const raio = esfera.radius;
+        luzChave.position.set(esfera.center.x + raio * 1.6, raio * 3, esfera.center.z + raio * 1.6);
+        luzChave.target.position.copy(esfera.center);
+        luzChave.target.updateMatrixWorld();
+        luzChave.shadow.bias = -0.0004;
+        luzChave.shadow.normalBias = 0.02;
+        const camSombra = luzChave.shadow.camera;
+        camSombra.left = -raio * 1.7;
+        camSombra.right = raio * 1.7;
+        camSombra.top = raio * 1.7;
+        camSombra.bottom = -raio * 1.7;
+        camSombra.near = raio * 0.5;
+        camSombra.far = raio * 8;
+        camSombra.updateProjectionMatrix();
+
+        aplicarQualidade(qualidadeRef.current);
 
         function enquadrar() {
           // Distância em que o produto inteiro cabe na MENOR abertura da tela (a
@@ -492,8 +641,9 @@ export default function Visualizador3D({
             observador.disconnect();
             alvo.append(renderer.domElement, camada);
             observador.observe(alvo);
-            ajustarAo(alvo);
+            redimensionar(alvo);
           },
+          qualidade: aplicarQualidade,
           destacar(destaque) {
             transitorio?.elemento.remove();
             transitorio = criarMarcador(destaque);
@@ -561,12 +711,19 @@ export default function Visualizador3D({
       });
       materialInox.dispose();
       ambiente.dispose();
+      luzChave.shadow.map?.dispose();
       renderer.domElement.remove();
       renderer.dispose();
       cenaRef.current = null;
       setCarregado(false);
     };
   }, [arquivo]);
+
+  // Aplica o nível de qualidade escolhido. Roda na troca e logo após o
+  // carregamento (por isso `carregado` é dependência).
+  useEffect(() => {
+    cenaRef.current?.qualidade(qualidade);
+  }, [qualidade, carregado]);
 
   // Aplica as escolhas e aponta o que mudou. Roda a cada mudança de estado e
   // também logo depois do carregamento — por isso `carregado` é dependência.
@@ -635,6 +792,31 @@ export default function Visualizador3D({
               : "Etiquetas escondidas."}
         </p>
       )}
+
+      {/* Seletor de qualidade: o vendedor escolhe qual nível mandar (vai no
+          link do cliente) e o cliente também pode trocar. */}
+      <div
+        className="pointer-events-none absolute left-2 top-2 flex overflow-hidden rounded-lg border border-border bg-card/90 backdrop-blur"
+        role="group"
+        aria-label="Qualidade do 3D"
+      >
+        {QUALIDADES.map((nivel) => (
+          <button
+            key={nivel.chave}
+            type="button"
+            onClick={() => aoMudarQualidade(nivel.chave)}
+            title={`Qualidade ${nivel.rotulo}: ${nivel.descricao}`}
+            aria-pressed={qualidade === nivel.chave}
+            className={`pointer-events-auto px-2 py-1 text-[11px] font-medium transition-colors ${
+              qualidade === nivel.chave
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-card-foreground"
+            }`}
+          >
+            {nivel.rotulo}
+          </button>
+        ))}
+      </div>
 
       <div className="pointer-events-none absolute right-2 top-2 flex gap-1">
         <button

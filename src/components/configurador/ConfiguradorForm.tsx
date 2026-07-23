@@ -29,6 +29,7 @@ import type { RespostaConhecida } from "@/lib/configurador/fila";
 import { linkDeConferencia } from "@/lib/configurador/compartilhar";
 import type { ItemHistorico } from "@/lib/configurador/historico";
 import { estado3d, grupoMexeNo3d, mudancas } from "@/lib/configurador/modelo3d";
+import { QUALIDADE_PADRAO, type Qualidade } from "@/lib/configurador/qualidade";
 import { formatarNumeroConfiguracao } from "@/lib/contracts";
 import { IDLE_FORM_STATE, type FormState } from "@/lib/form";
 
@@ -141,11 +142,15 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
     return () => consulta.removeEventListener("change", aplicar);
   }, []);
 
+  // Nível de qualidade que o vendedor escolhe na prévia; vai gravado no link
+  // para o cliente abrir no mesmo nível.
+  const [qualidade, setQualidade] = useState<Qualidade>(QUALIDADE_PADRAO);
+
   // Link da tela de conferência do cliente. Montado na hora do clique, e não a
   // cada render, porque depende de `window` (o endereço do próprio site) e
   // porque só interessa quando alguém pede.
   async function copiarLinkDoCliente() {
-    const link = linkDeConferencia(window.location.origin, produto, escolhas);
+    const link = linkDeConferencia(window.location.origin, produto, escolhas, qualidade);
     try {
       await navigator.clipboard.writeText(link);
       return true;
@@ -163,6 +168,8 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
       imagem={imagem}
       estado={modelo}
       anotacoes={anotacoes}
+      qualidade={qualidade}
+      aoMudarQualidade={setQualidade}
       aoCopiarLink={produto.modelo3d ? copiarLinkDoCliente : undefined}
       compacto={ehDesktop === false}
     />
