@@ -4245,3 +4245,50 @@ confirmada por request real (307 pra /login).
 - O iframe `blob:` da impressao de pranchas esta coberto por `frame-src blob:`
   na politica, mas nao foi exercitado no navegador (exigiria compilar um PDF de
   verdade).
+
+## 2026-07-24 - TLS do banco exigido no codigo (fecha a pendencia do sslmode)
+
+### Resumo
+Fechada a ultima pendencia da auditoria. A garantia de TLS saiu da string de
+conexao e passou para o codigo.
+
+### Correcao de uma conclusao anterior
+Na entrada anterior ficou registrado que o `DATABASE_URL` de PRODUCAO "nao tem
+sslmode" e "e diferente do local". **Estava errado.** A variavel esta marcada
+como Sensitive na Vercel, ou seja, o valor nao e recuperavel depois de salvo:
+o `vercel env pull` nao devolveu o valor real, e foi isso que meu script leu.
+Nao ha indicio de que producao esteja sem TLS.
+
+### O que foi feito
+`src/lib/db.ts` passa `ssl: { rejectUnauthorized: true }` ao `PrismaPg`, em vez
+de depender do `sslmode` escrito na URL.
+
+### Decisoes importantes
+- **A garantia fica no codigo, nao na env var.** O valor e sensivel na Vercel e
+  ninguem consegue le-lo depois, nem para revisar. Pendurar a seguranca do
+  transporte num texto que nao da para inspecionar e apostar que ninguem vai
+  colar a URL errada um dia. No codigo, fica versionado e revisavel.
+- **`rejectUnauthorized: true` equivale a `verify-full`**: o Node valida a
+  cadeia E o hostname. Um `sslmode=require` sozinho cifra mas aceita qualquer
+  certificado, o que nao protege contra alguem no meio do caminho.
+- **Sem fallback.** Se a validacao falhar, a conexao falha e aparece. Cair para
+  conexao nao validada em silencio seria o tipo de coisa que esta auditoria
+  existiu para achar.
+- O `.env` local ficou com `sslmode=verify-full` (redundante agora, mas
+  coerente).
+
+### Comandos relevantes
+- Teste (script temporario, ja removido): o cliente do app conecta com
+  `rejectUnauthorized: true`, e o handshake TLS puro no mesmo host devolve
+  `authorized=true`, emissor Let's Encrypt. Ou seja, o certificado do Neon e
+  publicamente confiavel e a validacao estrita passa.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (36 arquivos / 412 testes),
+  `npm run build` -> verde.
+
+### Risco residual
+O teste rodou contra o host do `.env` local. Ha evidencia forte de ser o mesmo
+banco de producao (os reports criados pelo app em producao aparecem nessa
+conexao), mas nao da para confirmar o host de producao byte a byte, porque o
+valor e sensivel. Se por acaso for outro host com certificado que nao valide, o
+sintoma aparece no primeiro acesso ao banco depois do deploy, e a reversao e
+tirar a linha `ssl` do `db.ts`.
