@@ -1,4 +1,8 @@
-import { opcaoPadrao, type ProdutoCatalogo } from "@/lib/configurador/catalogo";
+import {
+  opcaoPadrao,
+  type Modelo3dCatalogo,
+  type ProdutoCatalogo,
+} from "@/lib/configurador/catalogo";
 
 // Núcleo do configurador: transformar as escolhas cruas da tela em seleções
 // resolvidas (com rótulo), montar o código de identidade da combinação e apontar
@@ -172,6 +176,23 @@ export function imagemDoProduto(produto: ProdutoCatalogo, escolhas: EscolhasBrut
     }
   }
   return produto.imagem;
+}
+
+// Modelo 3D das escolhas atuais. Mesma regra da foto: uma opção pode trazer o
+// CAD inteiro (o carro grande é outro desenho, não uma peça do slim), e vale a
+// primeira na ordem dos grupos; sem nenhuma, fica o modelo do produto.
+export function modelo3dDoProduto(
+  produto: ProdutoCatalogo,
+  escolhas: EscolhasBrutas,
+): Modelo3dCatalogo | undefined {
+  for (const grupo of produto.grupos) {
+    const escolhido = escolhas[grupo.codigo]?.opcao;
+    const opcao = grupo.opcoes.find((item) => item.codigo === escolhido);
+    if (opcao?.modelo3d) {
+      return opcao.modelo3d;
+    }
+  }
+  return produto.modelo3d;
 }
 
 // Valor escolhido, em texto: "Inox" ou "Outro peso (200 kg)". Fonte única do

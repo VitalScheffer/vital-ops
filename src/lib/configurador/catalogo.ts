@@ -47,6 +47,10 @@ export interface OpcaoCatalogo {
   // `pecas3d: []`, e não a ausência do campo.
   pecas3d?: readonly string[];
   acabamento3d?: AcabamentoOpcao;
+  // Troca o modelo 3D INTEIRO enquanto esta opção estiver marcada (o carro
+  // slim e o grande são dois CADs distintos, não uma peça que liga/desliga).
+  // Vale a primeira opção marcada que tiver, na ordem dos grupos.
+  modelo3d?: Modelo3dCatalogo;
   // O que o 3D deixa de mostrar quando esta opção está marcada (o CAD publicado
   // é de UMA configuração; o que não dá para ligar/desligar fica na foto do
   // desenho). Aparece como aviso ao lado da prévia. Opção nova que o modelo não
@@ -106,6 +110,11 @@ export interface ProdutoCatalogo {
   grupos: readonly GrupoCatalogo[];
 }
 
+// Avisos da maca, todos sobre o CAD publicado (MCPDS MT001 C0PTD).
+const AVISO_LEITO = "o 3D mostra o leito de aço com colchonete";
+const AVISO_RODIZIOS_MACA = 'o 3D mostra rodízios 3"';
+const AVISO_SORO = "o 3D mostra uma haste de soro";
+
 const MACA_PADIOLA: ProdutoCatalogo = {
   slug: "maca-padiola",
   nome: "Maca Padiola",
@@ -116,41 +125,62 @@ const MACA_PADIOLA: ProdutoCatalogo = {
   imagem: "/configurador/maca-padiola.jpg",
   imagemLargura: 1600,
   imagemAltura: 759,
+  modelo3d: {
+    arquivo: "/configurador/3d/maca-padiola.glb",
+    arquivoAr: "/configurador/3d/maca-padiola-ar.glb",
+    desenho: "MCPDS MT001 C0PTD",
+    pecas: ["estrutura", "leito", "grades", "rodizios", "soro", "trava"],
+    dimensoesMm: { altura: 1742, largura: 715, profundidade: 2036 },
+    info: {
+      estrutura: {
+        nome: "Estrutura",
+        descricao: "Chassi tubular da maca, com os suportes estruturais e o movimentador.",
+      },
+      leito: { nome: "Leito", descricao: "Superfície onde o paciente é transportado." },
+      grades: { nome: "Grades laterais", descricao: "Grades de proteção nas laterais." },
+      rodizios: { nome: "Rodízios", descricao: "Rodas giratórias, com freio." },
+      soro: { nome: "Suporte de soro", descricao: "Haste de soro com ganchos." },
+      trava: { nome: "Travas", descricao: "Travas do quadro basculante." },
+    },
+  },
   grupos: [
     {
       codigo: "MAT",
       rotulo: "Material",
+      foco3d: "estrutura",
       opcoes: [
-        { codigo: "CARB", rotulo: "Carbono", padrao: true },
-        { codigo: "INOX", rotulo: "Inox" },
+        { codigo: "CARB", rotulo: "Carbono", padrao: true, acabamento3d: { acabamento: "pintado" } },
+        { codigo: "INOX", rotulo: "Inox", acabamento3d: { acabamento: "inox" } },
       ],
     },
     {
       codigo: "EST",
       rotulo: "Estrutura",
       opcoes: [
-        { codigo: "SOLD", rotulo: "Soldada" },
+        { codigo: "SOLD", rotulo: "Soldada", aviso3d: "o 3D mostra a versão desmontável" },
         { codigo: "DESM", rotulo: "Desmontável", padrao: true },
       ],
     },
     {
       codigo: "LEI",
       rotulo: "Leito",
+      foco3d: "leito",
       opcoes: [
-        { codigo: "ACO", rotulo: "Aço" },
+        { codigo: "ACO", rotulo: "Aço", aviso3d: AVISO_LEITO },
         { codigo: "ACOCOL", rotulo: "Aço + colchonete", padrao: true },
-        { codigo: "MADEST", rotulo: "Madeira estofado" },
+        { codigo: "MADEST", rotulo: "Madeira estofado", aviso3d: AVISO_LEITO },
       ],
     },
     {
       codigo: "ROD",
       rotulo: "Rodízios",
+      foco3d: "rodizios",
       opcoes: [
         { codigo: "R3", rotulo: '3"', padrao: true },
-        { codigo: "R4", rotulo: '4"' },
-        { codigo: "R5", rotulo: '5"' },
-        { codigo: "R6", rotulo: '6"' },
-        { codigo: "R8", rotulo: '8"' },
+        { codigo: "R4", rotulo: '4"', aviso3d: AVISO_RODIZIOS_MACA },
+        { codigo: "R5", rotulo: '5"', aviso3d: AVISO_RODIZIOS_MACA },
+        { codigo: "R6", rotulo: '6"', aviso3d: AVISO_RODIZIOS_MACA },
+        { codigo: "R8", rotulo: '8"', aviso3d: AVISO_RODIZIOS_MACA },
       ],
     },
     {
@@ -164,19 +194,30 @@ const MACA_PADIOLA: ProdutoCatalogo = {
     {
       codigo: "GRA",
       rotulo: "Grades laterais",
+      foco3d: "grades",
       opcoes: [
-        { codigo: "GCP", rotulo: "Aço carbono pintado", padrao: true },
-        { codigo: "GIP", rotulo: "Aço inox polido" },
+        {
+          codigo: "GCP",
+          rotulo: "Aço carbono pintado",
+          padrao: true,
+          acabamento3d: { acabamento: "pintado", pecas: ["grades"] },
+        },
+        {
+          codigo: "GIP",
+          rotulo: "Aço inox polido",
+          acabamento3d: { acabamento: "inox", pecas: ["grades"] },
+        },
       ],
     },
     {
       codigo: "SOR",
       rotulo: "Suporte de soro",
+      foco3d: "soro",
       opcoes: [
-        { codigo: "SS0", rotulo: "Não", padrao: true },
-        { codigo: "SS4", rotulo: "Sim, nos quatro cantos" },
-        { codigo: "SSD", rotulo: "Sim, em diagonal apenas" },
-        { codigo: "SS1", rotulo: "Sim, em um canto apenas" },
+        { codigo: "SS0", rotulo: "Não", padrao: true, pecas3d: [] },
+        { codigo: "SS4", rotulo: "Sim, nos quatro cantos", pecas3d: ["soro"], aviso3d: AVISO_SORO },
+        { codigo: "SSD", rotulo: "Sim, em diagonal apenas", pecas3d: ["soro"], aviso3d: AVISO_SORO },
+        { codigo: "SS1", rotulo: "Sim, em um canto apenas", pecas3d: ["soro"] },
       ],
     },
     {
@@ -184,7 +225,7 @@ const MACA_PADIOLA: ProdutoCatalogo = {
       rotulo: "Suporte para cilindro de oxigênio",
       opcoes: [
         { codigo: "OX0", rotulo: "Não", padrao: true },
-        { codigo: "OX1", rotulo: "Sim" },
+        { codigo: "OX1", rotulo: "Sim", aviso3d: "este acessório não está no 3D da maca" },
       ],
     },
     {
@@ -216,6 +257,33 @@ const MACA_PADIOLA: ProdutoCatalogo = {
       ],
     },
   ],
+};
+
+// Nome e descrição de cada peça do carro, para o cartão que aparece ao clicar
+// numa peça do 3D. Serve aos dois CADs (slim e grande), que têm as mesmas peças.
+const INFO_CARRO: Readonly<Record<string, PecaInfo>> = {
+  estrutura: {
+    nome: "Estrutura",
+    descricao: "Corpo do carro em chapa dobrada, com laterais e base reforçadas.",
+  },
+  tampo: { nome: "Tampo superior", descricao: "Superfície de apoio no topo do carro." },
+  gavetas: { nome: "Gavetas", descricao: "Gavetas frontais com puxador e corrediça telescópica." },
+  gavetao: { nome: "Gavetão", descricao: "Gaveta inferior mais alta, para itens maiores." },
+  alca: { nome: "Alça de condução", descricao: "Alça tubular para empurrar o carro." },
+  rodizios: { nome: "Rodízios", descricao: "Rodas giratórias, duas com freio." },
+  trava: { nome: "Trava das gavetas", descricao: "Trava frontal por cadeado." },
+  divisorias: { nome: "Divisórias", descricao: "Separadores internos da gaveta." },
+  soro: { nome: "Suporte de soro", descricao: "Haste de soro com ganchos." },
+  desfibrilador: {
+    nome: "Suporte de desfibrilador",
+    descricao: "Bandeja para acomodar o desfibrilador.",
+  },
+  oxigenio: {
+    nome: "Suporte de oxigênio",
+    descricao: "Apoio lateral para o cilindro de oxigênio.",
+  },
+  tabua: { nome: "Tábua de massagem", descricao: "Tábua de RCP presa na lateral." },
+  regua: { nome: "Régua de tomadas", descricao: "Régua de tomadas com cabo." },
 };
 
 // Avisos repetidos em várias opções do mesmo grupo. Todos descrevem o CAD
@@ -262,30 +330,7 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
       "regua",
     ],
     dimensoesMm: { altura: 960, largura: 477, profundidade: 495 },
-    info: {
-      estrutura: {
-        nome: "Estrutura",
-        descricao: "Corpo do carro em chapa dobrada, com laterais e base reforçadas.",
-      },
-      tampo: { nome: "Tampo superior", descricao: "Superfície de apoio no topo do carro." },
-      gavetas: { nome: "Gavetas", descricao: "Gavetas frontais com puxador e corrediça telescópica." },
-      gavetao: { nome: "Gavetão", descricao: "Gaveta inferior mais alta, para itens maiores." },
-      alca: { nome: "Alça de condução", descricao: "Alça tubular para empurrar o carro." },
-      rodizios: { nome: "Rodízios", descricao: "Rodas giratórias, duas com freio." },
-      trava: { nome: "Trava das gavetas", descricao: "Trava frontal por cadeado." },
-      divisorias: { nome: "Divisórias", descricao: "Separadores internos da gaveta." },
-      soro: { nome: "Suporte de soro", descricao: "Haste de soro com ganchos." },
-      desfibrilador: {
-        nome: "Suporte de desfibrilador",
-        descricao: "Bandeja para acomodar o desfibrilador.",
-      },
-      oxigenio: {
-        nome: "Suporte de oxigênio",
-        descricao: "Apoio lateral para o cilindro de oxigênio.",
-      },
-      tabua: { nome: "Tábua de massagem", descricao: "Tábua de RCP presa na lateral." },
-      regua: { nome: "Régua de tomadas", descricao: "Régua de tomadas com cabo." },
-    },
+    info: INFO_CARRO,
   },
   grupos: [
     {
@@ -302,7 +347,28 @@ const CARRO_EMERGENCIA: ProdutoCatalogo = {
           codigo: "GRAND",
           rotulo: "Grande",
           imagem: "/configurador/carro-emergencia-grande.png",
-          aviso3d: "o 3D continua mostrando o slim",
+          // O grande é outro CAD (CREHI), não uma variação do slim: marcar esta
+          // opção troca o arquivo 3D inteiro.
+          modelo3d: {
+            arquivo: "/configurador/3d/carro-emergencia-grande.glb",
+            arquivoAr: "/configurador/3d/carro-emergencia-grande-ar.glb",
+            desenho: "CREHI MT003 C0PTD",
+            pecas: [
+              "estrutura",
+              "gavetas",
+              "alca",
+              "rodizios",
+              "trava",
+              "divisorias",
+              "soro",
+              "desfibrilador",
+              "oxigenio",
+              "tabua",
+              "regua",
+            ],
+            dimensoesMm: { altura: 906, largura: 738, profundidade: 570 },
+            info: INFO_CARRO,
+          },
         },
       ],
     },

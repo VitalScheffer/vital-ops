@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
+import type { Modelo3dCatalogo, ProdutoCatalogo } from "@/lib/configurador/catalogo";
 import type { Destaque, Estado3d } from "@/lib/configurador/modelo3d";
 import type { Qualidade } from "@/lib/configurador/qualidade";
 
@@ -29,6 +29,8 @@ interface PreviewProdutoProps {
   // não tem modelo 3D (ou quando o 3D não abre no aparelho).
   imagem: string;
   estado: Estado3d;
+  // Modelo 3D das escolhas atuais (o carro grande é outro CAD que o slim).
+  modelo3d?: Modelo3dCatalogo;
   // O que difere do padrão, para a tela ampliada apontar peça por peça.
   anotacoes: readonly Destaque[];
   qualidade: Qualidade;
@@ -48,6 +50,7 @@ export function PreviewProduto({
   produto,
   imagem,
   estado,
+  modelo3d,
   anotacoes,
   qualidade,
   aoMudarQualidade,
@@ -58,7 +61,7 @@ export function PreviewProduto({
 }: PreviewProdutoProps) {
   const [falhou, setFalhou] = useState(false);
   const aoFalhar = useCallback(() => setFalhou(true), []);
-  const modelo = falhou ? undefined : produto.modelo3d;
+  const modelo = falhou ? undefined : modelo3d;
 
   return (
     // `shrink-0`: dentro do painel do Resumo (uma coluna flex que rola por

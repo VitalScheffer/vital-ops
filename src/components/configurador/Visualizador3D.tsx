@@ -361,6 +361,9 @@ export default function Visualizador3D({
     let caixaCotas: THREE.Box3Helper | null = null;
     const rotulosCota: { elemento: HTMLElement; ancora: THREE.Vector3 }[] = [];
     let cotasVisiveis = false;
+    // Recalcula a caixa e os rótulos a partir das peças visíveis. Definida
+    // quando o modelo chega.
+    let atualizarCotas: () => void = () => {};
 
     // Reconfigura a cena para um nível. Não recria nada (o renderer e o modelo
     // continuam os mesmos): só ajusta intensidades, visibilidade, resolução da
@@ -687,12 +690,9 @@ export default function Visualizador3D({
           .getBoundingSphere(new THREE.Sphere());
         centroDoModelo.copy(esfera.center);
 
-        // Cotas (A×L×P): a caixa envolvente do modelo montado e três rótulos em
-        // centímetros nos meios das arestas. Nascem escondidos; um botão liga.
-        const caixaModelo = new THREE.Box3().setFromObject(modelo);
-        const min = caixaModelo.min;
-        const max = caixaModelo.max;
-        const tamanho = caixaModelo.getSize(new THREE.Vector3());
+        // Cotas (A×L×P): caixa envolvente + três rótulos em centímetros nos
+        // meios das arestas. Nascem escondidas; um botão liga.
+        const caixaModelo = new THREE.Box3();
         caixaCotas = new THREE.Box3Helper(caixaModelo, new THREE.Color(0x334155));
         const linhaCota = caixaCotas.material as THREE.LineBasicMaterial;
         linhaCota.transparent = true;
@@ -700,18 +700,36 @@ export default function Visualizador3D({
         caixaCotas.visible = false;
         cena.add(caixaCotas);
 
-        const cm = (metros: number) => Math.round(metros * 100);
-        const criarRotuloCota = (texto: string, ancora: THREE.Vector3) => {
+        for (let i = 0; i < 3; i++) {
           const elemento = document.createElement("div");
           elemento.className =
             "absolute left-0 top-0 hidden -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-card/95 px-1.5 py-0.5 text-[11px] font-semibold text-card-foreground shadow backdrop-blur";
-          elemento.textContent = texto;
           camada.appendChild(elemento);
-          rotulosCota.push({ elemento, ancora });
+          rotulosCota.push({ elemento, ancora: new THREE.Vector3() });
+        }
+
+        // Mede o que está VISÍVEL agora: com o suporte de soro desligado, a
+        // altura da maca não pode continuar contando a haste.
+        atualizarCotas = () => {
+          caixaModelo.makeEmpty();
+          for (const { nos } of pecasCarregadas.values()) {
+            for (const no of nos) if (no.visible) caixaModelo.expandByObject(no);
+          }
+          if (caixaModelo.isEmpty()) return;
+          const min = caixaModelo.min;
+          const max = caixaModelo.max;
+          const tamanho = caixaModelo.getSize(new THREE.Vector3());
+          const cm = (metros: number) => Math.round(metros * 100);
+          const cotas: [string, THREE.Vector3][] = [
+            [`L ${cm(tamanho.x)} cm`, new THREE.Vector3((min.x + max.x) / 2, min.y, max.z)],
+            [`P ${cm(tamanho.z)} cm`, new THREE.Vector3(max.x, min.y, (min.z + max.z) / 2)],
+            [`A ${cm(tamanho.y)} cm`, new THREE.Vector3(max.x, (min.y + max.y) / 2, max.z)],
+          ];
+          rotulosCota.forEach(({ elemento, ancora }, posicao) => {
+            elemento.textContent = cotas[posicao][0];
+            ancora.copy(cotas[posicao][1]);
+          });
         };
-        criarRotuloCota(`L ${cm(tamanho.x)} cm`, new THREE.Vector3((min.x + max.x) / 2, min.y, max.z));
-        criarRotuloCota(`P ${cm(tamanho.z)} cm`, new THREE.Vector3(max.x, min.y, (min.z + max.z) / 2));
-        criarRotuloCota(`A ${cm(tamanho.y)} cm`, new THREE.Vector3(max.x, (min.y + max.y) / 2, max.z));
 
         // Borrão (sombra barata do nível Padrão).
         sombraBlob = sombraDeContato(modelo);
@@ -897,7 +915,10 @@ export default function Visualizador3D({
             for (const { elemento } of rotulosCota) {
               elemento.style.display = mostrar ? "block" : "none";
             }
-            if (mostrar) posicionarCotas();
+            if (mostrar) {
+              atualizarCotas();
+              posicionarCotas();
+            }
             pedirQuadro();
           },
           girarAuto(ligar) {
@@ -939,6 +960,8 @@ export default function Visualizador3D({
                   : (malha.userData.materialCad as THREE.Material);
               }
             }
+            // Peça que apareceu/sumiu muda o tamanho do produto.
+            if (cotasVisiveis) atualizarCotas();
             pedirQuadro();
           },
         };

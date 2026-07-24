@@ -55,7 +55,9 @@ function opcaoMarcada(grupo: GrupoCatalogo, escolhas: EscolhasBrutas) {
 // acabamento. Serve para marcar esses grupos na tela: o vendedor descobre onde
 // olhar sem precisar testar opção por opção.
 export function grupoMexeNo3d(grupo: GrupoCatalogo): boolean {
-  return grupo.opcoes.some((opcao) => opcao.pecas3d !== undefined || opcao.acabamento3d);
+  return grupo.opcoes.some(
+    (opcao) => opcao.pecas3d !== undefined || opcao.acabamento3d || opcao.modelo3d,
+  );
 }
 
 export function estado3d(produto: ProdutoCatalogo, escolhas: EscolhasBrutas): Estado3d {

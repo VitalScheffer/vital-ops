@@ -10,6 +10,7 @@ import type { ProdutoCatalogo } from "@/lib/configurador/catalogo";
 import {
   escolhasPadrao,
   imagemDoProduto,
+  modelo3dDoProduto,
   textoDaSelecao,
   type EscolhasBrutas,
   type SelecaoResolvida,
@@ -55,7 +56,8 @@ export function ConferenciaCliente({
   const [foco, setFoco] = useState<{ chave: string; nonce: number }>();
   const [pecaFocada, setPecaFocada] = useState<string | null>(null);
   const [arAberto, setArAberto] = useState(false);
-  const modelo = falhou ? undefined : produto.modelo3d;
+  // O carro grande é outro CAD; a escolha do modelo decide qual arquivo abre.
+  const modelo = falhou ? undefined : modelo3dDoProduto(produto, escolhas);
 
   const estado = useMemo(() => estado3d(produto, escolhas), [produto, escolhas]);
   // Comparado com o modelo de série: é o que a tela ampliada aponta peça a peça.
@@ -258,6 +260,7 @@ export function ConferenciaCliente({
         <VisualizarAR
           arquivo={modelo.arquivoAr ?? modelo.arquivo}
           nome={produto.nome}
+          dimensoesMm={modelo.dimensoesMm}
           onFechar={() => setArAberto(false)}
         />
       )}

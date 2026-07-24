@@ -55,10 +55,16 @@ const ACABAMENTOS = {
 };
 
 // --- Peças -----------------------------------------------------------------
-// Cada regra casa pelo CÓDIGO da peça (o prefixo "CREHS PC013" / "COMRZ G3PCF"
-// que vem do PDM), que é estável — o resto do nome tem acento e abreviação e
-// muda de revisão para revisão. Vale a PRIMEIRA regra que casar, então ordem
-// importa: o específico vem antes do genérico.
+// Duas formas de casar, nesta ordem:
+// - `codigos`: prefixo do código do PDM ("COMRZ", "COMAD"). Usado para os itens
+//   de catálogo (comprados), cujo código é igual em todos os produtos.
+// - `palavras`: o que o nome DIZ ("SORO", "DESFIBRILADOR", "GAVETA"). É o que
+//   faz a mesma tabela servir para o carro slim (CREHS), o grande (CREHI) e a
+//   maca (MCPDS) — cada projeto numera as peças do seu jeito, mas todos as
+//   chamam pelo mesmo nome.
+//
+// Vale a PRIMEIRA regra que casar, então ordem importa: o específico vem antes
+// do genérico ("ESTRUTURA GAVETA" tem de cair em `gavetas`, não em `estrutura`).
 //
 // `chave` é o que o catálogo usa para ligar/desligar a peça.
 const PECAS = [
@@ -66,28 +72,33 @@ const PECAS = [
   { chave: null, codigos: ["COMRT", "COMPA", "COMPC"], nota: "rebites, parafusos e porcas" },
   { chave: null, codigos: ["COMCD"], nota: "corrediças (ficam dentro da gaveta fechada)" },
 
-  // Acessórios que o formulário liga e desliga.
-  { chave: "soro", acabamento: "cromado", codigos: ["CREHS PC016"] },
+  // Itens de catálogo (código igual em qualquer produto).
   { chave: "soro", acabamento: "plasticoAzul", codigos: ["COMGC", "COMMR", "COMMP"] },
-  { chave: "desfibrilador", acabamento: "cromado", codigos: ["CREHS SM006", "CREHS PC017"] },
-  { chave: "desfibrilador", acabamento: "pintado", codigos: ["CREHS PC018"] },
-  { chave: "oxigenio", acabamento: "plasticoBranco", codigos: ["CREHS PC013"] },
-  { chave: "oxigenio", acabamento: "borracha", codigos: ["COMVL"] },
-  { chave: "tabua", acabamento: "pintado", codigos: ["CREHS PC019"] },
-  { chave: "tabua", acabamento: "plasticoBranco", codigos: ["CREHS PC020"] },
   { chave: "regua", acabamento: "plasticoPreto", codigos: ["COMRU"] },
-  { chave: "trava", acabamento: "pintado", codigos: ["CREHS SM004", "CREHS PC007"] },
   { chave: "trava", acabamento: "latao", codigos: ["COMAD"] },
-  { chave: "divisorias", acabamento: "plasticoBranco", codigos: ["CREHS PC021", "CREHS PC022"] },
-
-  // Partes fixas do carro.
-  { chave: "tampo", acabamento: "pintado", codigos: ["CREHS PC010"] },
-  { chave: "gavetas", acabamento: "pintado", codigos: ["CREHS PC008", "CREHS PC009"] },
-  { chave: "gavetao", acabamento: "pintado", codigos: ["CREHS PC011", "CREHS PC012"] },
   { chave: "gavetas", acabamento: "plasticoPreto", codigos: ["COMPX"] },
   { chave: "rodizios", acabamento: "galvanizado", codigos: ["COMRZ", "COMBC"] },
-  { chave: "alca", acabamento: "cromado", codigos: ["CREHS PC004", "CREHS PC005"] },
-  { chave: "estrutura", acabamento: "pintado", codigos: ["CREHS PC", "CREHS SM", "COMDB"] },
+  { chave: "oxigenio", acabamento: "borracha", codigos: ["COMVL"] },
+
+  // Acessórios que o formulário liga e desliga, pelo nome da peça.
+  { chave: "desfibrilador", acabamento: "cromado", palavras: ["DESFIBRILADOR"] },
+  { chave: "soro", acabamento: "cromado", palavras: ["SORO"] },
+  { chave: "oxigenio", acabamento: "plasticoBranco", palavras: ["CILINDRO", "OXIGENIO"] },
+  { chave: "tabua", acabamento: "pintado", palavras: ["TABUA", "MASSAGEM"] },
+  { chave: "regua", acabamento: "plasticoPreto", palavras: ["TOMADA"] },
+  { chave: "divisorias", acabamento: "plasticoBranco", palavras: ["DIVISORIA"] },
+  // Antes da trava: "TRAVA BRAÇO MOVIMENTO" é parte da alça, não da gaveta.
+  { chave: "alca", acabamento: "cromado", palavras: ["BRACO MOVIMENTO", "BRACO PARA MOVIMENTO"] },
+  { chave: "trava", acabamento: "pintado", palavras: ["TRAVA", "CADEADO"] },
+
+  // Partes fixas, também pelo nome.
+  { chave: "gavetao", acabamento: "pintado", palavras: ["GAVETAO"] },
+  { chave: "gavetas", acabamento: "pintado", palavras: ["GAVETA"] },
+  { chave: "tampo", acabamento: "pintado", palavras: ["TAMPO"] },
+  { chave: "rodizios", acabamento: "galvanizado", palavras: ["RODIZIO"] },
+  // Maca: o leito é a superfície onde o paciente deita; as grades, laterais.
+  { chave: "leito", acabamento: "pintado", palavras: ["LEITO", "COLCHONETE"] },
+  { chave: "grades", acabamento: "cromado", palavras: ["GRADE"] },
 ];
 
 // O braço de movimento (a alça cromada) vem dentro do "CONJUNTO LATERAL DIR."
@@ -101,18 +112,31 @@ function codigoDe(nome) {
   return partes.slice(0, 2).join(" ");
 }
 
+// Sem acento e em maiúsculo, para "REFORÇO"/"DIVISÓRIA" casarem escritos de
+// qualquer jeito.
+function semAcento(texto) {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase();
+}
+
 function classificar(nomeMalha, nomeNo) {
   const nome = nomeMalha || nomeNo;
   if (!nomeMalha && codigoDe(nomeNo) === ALCA_SEM_NOME) {
     return { chave: "alca", acabamento: "cromado" };
   }
   const codigo = codigoDe(nome);
+  const limpo = semAcento(nome);
   for (const regra of PECAS) {
-    if (regra.codigos.some((prefixo) => codigo.startsWith(prefixo))) {
+    const porCodigo = regra.codigos?.some((prefixo) => codigo.startsWith(prefixo));
+    const porPalavra = regra.palavras?.some((palavra) => limpo.includes(palavra));
+    if (porCodigo || porPalavra) {
       return { chave: regra.chave, acabamento: regra.acabamento };
     }
   }
-  return { chave: "estrutura", acabamento: "pintado", desconhecida: nome };
+  // Sobrou: é chapa/tubo da estrutura. Não é erro — é o caso comum.
+  return { chave: "estrutura", acabamento: "pintado" };
 }
 
 function sRGBParaLinear(hex) {
@@ -150,12 +174,11 @@ async function principal() {
   // depois concatenamos, para não realocar a cada instância.
   const grupos = new Map();
   const descartados = new Map();
-  const desconhecidas = new Set();
 
   function visitar(no) {
     for (const indice of no.meshes ?? []) {
       const malha = lido.meshes[indice];
-      const { chave, acabamento, desconhecida } = classificar(malha.name, no.name);
+      const { chave, acabamento } = classificar(malha.name, no.name);
       const triangulos = malha.index.array.length / 3;
 
       if (chave === null) {
@@ -163,7 +186,6 @@ async function principal() {
         descartados.set(codigo, (descartados.get(codigo) ?? 0) + triangulos);
         continue;
       }
-      if (desconhecida) desconhecidas.add(desconhecida);
 
       const id = `${chave}|${acabamento}`;
       const grupo = grupos.get(id) ?? { chave, acabamento, partes: [], triangulos: 0 };
@@ -287,10 +309,6 @@ async function principal() {
   console.log(`\ndescartado: ${descartadoTotal} triângulos`);
   for (const [codigo, triangulos] of [...descartados].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${codigo.padEnd(16)} ${triangulos}`);
-  }
-  if (desconhecidas.size > 0) {
-    console.log("\nsem regra própria (caíram em `estrutura`):");
-    for (const nome of desconhecidas) console.log(`  ${nome}`);
   }
   const tamanho = fs.statSync(saida).size;
   console.log(`\ngravado ${saida} — ${(tamanho / 1024 / 1024).toFixed(2)} MB`);

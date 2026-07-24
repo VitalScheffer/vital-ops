@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Ruler, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -15,11 +15,16 @@ import { createPortal } from "react-dom";
 interface VisualizarARProps {
   arquivo: string;
   nome: string;
+  // Medidas externas em mm, para o cliente conferir o tamanho.
+  dimensoesMm?: { altura: number; largura: number; profundidade: number };
   onFechar: () => void;
 }
 
-export function VisualizarAR({ arquivo, nome, onFechar }: VisualizarARProps) {
+export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: VisualizarARProps) {
   const [pronto, setPronto] = useState(false);
+  const [medidas, setMedidas] = useState(false);
+
+  const cm = (mm: number) => Math.round(mm / 10);
 
   // Registra o custom element uma vez (o import tem efeito colateral de
   // `customElements.define`). Só no cliente.
@@ -50,16 +55,42 @@ export function VisualizarAR({ arquivo, nome, onFechar }: VisualizarARProps) {
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
         <p className="min-w-0 truncate text-sm font-medium">{nome} · ver no meu espaço</p>
-        <button
-          type="button"
-          onClick={onFechar}
-          aria-label="Fechar"
-          className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-white/25"
-        >
-          <X className="h-4 w-4" />
-          Fechar
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {dimensoesMm && (
+            <button
+              type="button"
+              onClick={() => setMedidas((valor) => !valor)}
+              aria-pressed={medidas}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                medidas ? "bg-white text-[#0a5560]" : "bg-white/15 hover:bg-white/25"
+              }`}
+            >
+              <Ruler className="h-4 w-4" />
+              Medidas
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar"
+            className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-white/25"
+          >
+            <X className="h-4 w-4" />
+            Fechar
+          </button>
+        </div>
       </div>
+
+      {/* As medidas ficam sobre o visor. Durante a sessão de AR quem manda na
+          tela é o app do sistema, então elas valem para a conferência aqui. */}
+      {medidas && dimensoesMm && (
+        <div className="pointer-events-none absolute left-1/2 top-16 z-10 -translate-x-1/2 rounded-xl bg-white/95 px-4 py-2 text-center text-[#13262b] shadow-lg">
+          <p className="text-xs font-semibold">
+            {cm(dimensoesMm.altura)} × {cm(dimensoesMm.largura)} × {cm(dimensoesMm.profundidade)} cm
+          </p>
+          <p className="text-[11px] text-[#5b6b72]">altura × largura × profundidade</p>
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1">
         {pronto ? (

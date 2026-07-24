@@ -20,6 +20,7 @@ import {
   escolhasPadrao,
   foraDoPadrao,
   imagemDoProduto,
+  modelo3dDoProduto,
   montarCodigo,
   resolverSelecoes,
   TEXTO_LIVRE_MAX,
@@ -104,6 +105,7 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
   }
 
   const imagem = imagemDoProduto(produto, escolhas);
+  const modelo3d = modelo3dDoProduto(produto, escolhas);
   // O que o modelo 3D mostra para as escolhas de agora. Memorizado porque é a
   // dependência do efeito que mexe na cena: recalcular a cada tecla digitada em
   // "observações" mandaria o visualizador redesenhar à toa.
@@ -167,10 +169,11 @@ export function ConfiguradorForm({ produto, historico, respostas }: Configurador
       produto={produto}
       imagem={imagem}
       estado={modelo}
+      modelo3d={modelo3d}
       anotacoes={anotacoes}
       qualidade={qualidade}
       aoMudarQualidade={setQualidade}
-      aoCopiarLink={produto.modelo3d ? copiarLinkDoCliente : undefined}
+      aoCopiarLink={modelo3d ? copiarLinkDoCliente : undefined}
       compacto={ehDesktop === false}
     />
   );

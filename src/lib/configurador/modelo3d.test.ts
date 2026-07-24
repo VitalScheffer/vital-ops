@@ -60,9 +60,9 @@ describe("estado3d", () => {
   });
 
   it("avisa o que a combinação tem e o modelo não mostra", () => {
-    const estado = estado3d(carro, com({ MOD: "GRAND", LIX: "LIX1" }));
+    const estado = estado3d(carro, com({ GAV: "G5", LIX: "LIX1" }));
     const grupos = estado.avisos.map((aviso) => aviso.grupoRotulo);
-    expect(grupos).toContain("Modelo");
+    expect(grupos).toContain("Gavetas");
     expect(grupos).toContain("Suporte para lixeira");
     expect(estado.avisos.every((aviso) => aviso.texto.length > 0)).toBe(true);
   });
@@ -174,8 +174,10 @@ describe("catálogo x modelo 3D", () => {
   });
 
   it("marca como 3D só os grupos que mudam o modelo", () => {
+    // MOD entra porque cada opção traz o SEU CAD (slim e grande são desenhos
+    // diferentes); os outros acendem peça ou trocam acabamento.
     const mexem = carro.grupos.filter(grupoMexeNo3d).map((grupo) => grupo.codigo);
-    expect(mexem).toEqual(["MAT", "TAM", "TAB", "OXI", "REG", "DES", "SOR"]);
+    expect(mexem).toEqual(["MOD", "MAT", "TAM", "TAB", "OXI", "REG", "DES", "SOR"]);
   });
 
   // O CAD publicado é de UMA configuração: em cada grupo que ele não sabe
