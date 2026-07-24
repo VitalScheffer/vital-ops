@@ -22,8 +22,8 @@
     "bcryptjs": "^3.0.3",
     "fflate": "^0.8.3",
     "lucide-react": "^1.23.0",
-    "next": "16.2.10",
-    "next-auth": "^5.0.0-beta.31",
+    "next": "16.2.11",
+    "next-auth": "5.0.0-beta.32",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38",
     "pg": "^8.16.0",
@@ -33,6 +33,14 @@
     "three": "^0.185.1",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
+  },
+  "_comentario_overrides": "Versões forçadas de dependências INDIRETAS que vieram com CVE (npm audit). Elas não são importadas pelo nosso código: entram por baixo do next e do prisma, que ainda apontam para versões vulneráveis. Ao subir o next, reveja se ainda são necessárias.",
+  "overrides": {
+    "sharp": "^0.35.3",
+    "postcss": "^8.5.23",
+    "fast-uri": "^4.1.1",
+    "@hono/node-server": "^2.0.11",
+    "valibot": "^1.4.2"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.4.1",
@@ -45,7 +53,7 @@
     "@types/react-dom": "^19",
     "@types/three": "^0.185.1",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.2.11",
     "meshoptimizer": "^1.2.0",
     "occt-import-js": "^0.0.23",
     "tailwindcss": "^4",

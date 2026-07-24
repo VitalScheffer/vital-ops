@@ -1,3 +1,4 @@
+import { entregaDeAnexo } from "@/lib/anexos";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -28,16 +29,23 @@ export async function GET(
     return new Response("Acesso negado.", { status: 403 });
   }
 
-  const ehImagem = anexo.mime.startsWith("image/");
-  const disposition = ehImagem ? "inline" : "attachment";
+  // O Content-Type vem da allowlist, NÃO do banco: o MIME foi escolhido por
+  // quem enviou, e devolvê-lo cru era o que permitia um anexo abrir na aba como
+  // documento executável (ver src/lib/anexos.ts).
+  const { contentType, disposition } = entregaDeAnexo(anexo.mime);
   const corpo = new Uint8Array(anexo.dados);
 
   return new Response(corpo, {
     headers: {
-      "Content-Type": anexo.mime || "application/octet-stream",
+      "Content-Type": contentType,
       "Content-Disposition": `${disposition}; filename="${encodeURIComponent(anexo.nome)}"`,
       "Content-Length": String(corpo.byteLength),
       "Cache-Control": "private, max-age=3600",
+      // Cinto e suspensório do Content-Type acima: `nosniff` impede o navegador
+      // de adivinhar outro tipo pelo conteúdo, e a CSP nega qualquer execução
+      // caso ele adivinhe assim mesmo.
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
 }

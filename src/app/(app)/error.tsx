@@ -22,6 +22,10 @@ export default function AppError({
       mensagem: error.message || "Erro sem mensagem.",
       rota: pathname,
       digest: error.digest,
+      // Sem o stack, o report chega só com a mensagem e não diz ONDE quebrou.
+      // Em produção ele vem minificado, mas chunk e linha já localizam o arquivo
+      // pelo source map.
+      stack: error.stack,
     });
   }, [error, pathname]);
 

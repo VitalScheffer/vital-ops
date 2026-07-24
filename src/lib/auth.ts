@@ -7,6 +7,7 @@ import { audit } from "@/lib/audit";
 import { authConfig, isCompanyEmail } from "@/lib/auth.config";
 import type { Role } from "@/lib/contracts";
 import { prisma } from "@/lib/db";
+import { ACAO_FALHA_LOGIN, inicioJanelaFalhas, loginBloqueado } from "@/lib/loginGuard";
 import { syncUser } from "@/lib/users";
 
 // Reconstrói um Headers "real" (o audit() checa instanceof Headers) para capturar
@@ -54,8 +55,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
+        // Conta as falhas recentes ANTES de comparar a senha. Já bloqueado, sai
+        // sem registrar nova falha: se cada tentativa recontasse, a janela nunca
+        // esvaziaria e o bloqueio viraria permanente.
+        const falhas = await prisma.auditLog.count({
+          where: {
+            action: ACAO_FALHA_LOGIN,
+            actorEmail: email,
+            createdAt: { gte: inicioJanelaFalhas(new Date()) },
+          },
+        });
+        if (loginBloqueado(falhas)) {
+          return null;
+        }
+
         const ok = await bcrypt.compare(password, user.passwordHash);
         if (!ok) {
+          // Só audita falha de conta que EXISTE. Auditar e-mail inventado
+          // deixaria qualquer um encher o AuditLog variando o endereço.
+          try {
+            await audit({
+              actor: { id: user.id, email },
+              action: ACAO_FALHA_LOGIN,
+              entity: "User",
+              entityId: user.id,
+              summary: `Tentativa de login com senha incorreta para ${email}.`,
+              req: await tryRequestHeaders(),
+            });
+          } catch {
+            // auditoria falhando não pode virar login aceito nem erro na tela
+          }
           return null;
         }
 
@@ -78,12 +107,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (typeof token.email === "string" && token.email) {
         const appUser = await prisma.user.findUnique({
           where: { email: token.email },
-          select: { id: true, role: true },
+          select: { id: true, role: true, active: true },
         });
-        if (appUser) {
-          token.uid = appUser.id;
-          token.role = appUser.role;
+        // Desativar ou excluir alguém tem que DERRUBAR a sessão dele, não só
+        // impedir o próximo login: o `active` era checado no authorize e em
+        // lugar nenhum depois, então quem já estava dentro continuava entrando
+        // por até 30 dias. Devolver null aqui invalida o token na hora.
+        if (!appUser || !appUser.active) {
+          return null;
         }
+        token.uid = appUser.id;
+        token.role = appUser.role;
       }
       return token;
     },

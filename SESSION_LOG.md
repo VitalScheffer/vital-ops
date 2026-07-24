@@ -3972,3 +3972,210 @@ atual.
 - Hotspots com descricao + cotas (AxLxP).
 - Render premium (HDRI de estudio ajustado, chao com reflexo) sem escurecer inox.
 - Clicar no item da especificacao tambem focar a peca.
+
+## 2026-07-24 - Investigacao: "Failed to construct 'Image'" no /configurador/carro-emergencia
+
+### Resumo
+Chegaram 6 reports ERRO_SISTEMA identicos na tela do Carro de Emergencia com a
+mensagem `Failed to construct 'Image': Please use the 'new' operator, this DOM
+object constructor cannot be called as a function.`. Investigado sem alterar
+codigo. Conclusao: episodio unico e transitorio, de dentro da sessao de
+desenvolvimento do configurador 3D, ja resolvido no codigo publicado.
+
+### O que os dados mostram
+- Consulta de leitura na tabela `Report` (script temporario, ja removido):
+  os 6 registros sao do mesmo intervalo de 4 segundos, 2026-07-23 14:31:43.983Z
+  a 14:31:47.996Z (11:31 BRT), mesmo autor (admin) e mesmo user-agent
+  (Chrome 150 / Windows). Nao sao 6 ocorrencias diferentes, e o error boundary
+  registrando a cada remontagem (Fast Refresh).
+- `contexto` nulo nos 6, ou seja, sem `digest`: erro de cliente, nao de Server
+  Component.
+- Nao existe nenhum outro ERRO_SISTEMA no banco, nem antes nem depois. As ~26h
+  seguintes incluem toda a evolucao do configurador 3D e varios deploys.
+
+### Causa provavel
+A mensagem so aparece quando o React renderiza como componente o construtor DOM
+`window.Image`, isto e, quando um arquivo usa `<Image ... />` sem ter o
+`import Image from "next/image"`. Sem o import, o identificador cai no global do
+browser e o React o chama sem `new`. O horario (11:31) cai 8 minutos antes do
+commit `3a754b9` "Configurador: modelo 3D que acompanha as escolhas", quando
+`PreviewProduto`/`Visualizador3D` estavam sendo criados: arquivo salvo antes do
+import, HMR recarregou, boundary remontou 6 vezes.
+
+### Estado atual (verificado)
+- Nenhuma chamada a `Image(` em `src` (nem no commit `ac35c83`, vigente na hora).
+- Os 4 arquivos que usam `<Image>` (ConfiguradorForm, PreviewProduto,
+  ConferenciaCliente, FotosProduto) importam de "next/image".
+- `npx tsc --noEmit` limpo, `npm run lint` limpo, `npm test` 32 arquivos /
+  381 testes verdes.
+
+### Ressalva
+Nao houve reproducao: o erro nao deixou stack (o boundary so guarda
+`error.message`) e nao rodei o app local apontando para o banco de producao.
+A conclusao e por evidencia circunstancial, forte mas indireta.
+
+### Comandos relevantes
+- `npx tsx scripts/_erros-tmp.ts` (leitura da tabela Report; arquivo removido)
+- `npx tsc --noEmit`, `npm run lint`, `npm test`
+
+### Pendencias / proximos passos
+- Sugerido (nao implementado, aguardando ok): gravar `error.stack` em
+  `contexto` no `src/app/(app)/error.tsx`, para o proximo caso vir com o ponto
+  exato do codigo.
+- Sugerido (nao implementado): deduplicar ERRO_SISTEMA identicos numa janela
+  curta, para nao encher a fila com o mesmo episodio.
+- Os 6 reports continuam com status ABERTO; fechar depende do ok do usuario.
+
+## 2026-07-24 - Report de erro do sistema: stack no card e dedupe (continuacao)
+
+### Resumo
+Aprovadas e implementadas as duas melhorias sugeridas na entrada anterior, e
+fechados os 6 reports do episodio do carro-emergencia.
+
+### Arquivos criados/alterados
+- `src/lib/reports.ts` (novo): logica pura do `Report.contexto` dos erros do
+  sistema. `contextoErroInicial`, `contextoErroRepetido`, `lerContextoErro` e a
+  janela de dedupe (`JANELA_DEDUPE_MS`, 10 min).
+- `src/lib/reports.test.ts` (novo): 11 testes, incluindo o caso real (6
+  ocorrencias viram 1 report com contador 6).
+- `src/app/(app)/error.tsx`: passa `error.stack` para o registro.
+- `src/app/(app)/reports-actions.ts`:
+  - `registrarErroSistema` grava `{ocorrencias, digest, stack}` em `contexto` e,
+    se ja existe ERRO_SISTEMA ABERTO com mesma rota+mensagem nos ultimos 10 min,
+    soma ocorrencia no card existente em vez de criar outro.
+  - `ReportView` ganhou `ocorrencias` e `stack`; `listarReports` so manda o
+    `stack` para admin.
+- `src/components/ReportDialog.tsx`: "N x nesta tela" na linha de metadados e
+  um `<details>` "Detalhe tecnico" com o stack (so admin).
+
+### Decisoes importantes
+- **Dedupe soma, nao descarta.** O erro repetido vira contador (`ocorrencias`) e
+  `ultimaEm` no card aberto: nao perde a informacao de que repetiu, e a fila nao
+  enche de card igual.
+- **Stack so para admin.** E detalhe interno do codigo; o autor comum do report
+  so precisa do andamento. Filtrado no servidor, nao no cliente.
+- **Primeiro stack prevalece.** Na repeticao, so preenche o stack se o card
+  ainda nao tinha (caso de report gravado antes desta mudanca).
+- **`type` e nao `interface` em `ContextoErro`.** O campo Json do Prisma exige
+  `InputJsonObject`, e so o type alias tem a assinatura de indice implicita.
+- **Janela de 10 minutos.** Cobre o episodio (que durou 4s) com folga, sem
+  esconder uma recorrencia real mais tarde no dia.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (33 arquivos / 392 testes),
+  `npm run build` -> tudo verde.
+- Script temporario (ja removido) marcou os 6 reports como RESOLVIDO, restrito
+  aos 6 IDs exatos + trava de tipo e rota, com resposta explicando a causa.
+  Resultado: 6 atualizados, 0 ERRO_SISTEMA em aberto no banco.
+
+### Pendencias / proximos passos
+- Commit e push pendentes (aguardando ok; push em master publica na Vercel).
+- Nao houve verificacao no navegador: o caminho exige derrubar uma tela de
+  proposito. O comportamento novo esta coberto pelos testes da logica pura.
+
+## 2026-07-24 - Auditoria de seguranca e correcoes
+
+### Resumo
+Pedido: verificar se o vital-ops esta protegido (XSS, TLS, SQL injection etc.) e
+depois corrigir tudo. Auditoria feita e as correcoes aplicadas. O achado mais
+grave era um XSS armazenado via anexo de report.
+
+### Achados e o que foi feito
+
+**1. XSS armazenado via anexo (ALTO, corrigido).** O MIME do anexo vinha do
+cliente sem validacao e voltava cru no `Content-Type`; `image/*` recebia
+`Content-Disposition: inline`. Um SVG com `<script>`, aberto pelo link
+`target="_blank"` do modal, executava no dominio da aplicacao com a sessao de
+quem abriu (na pratica o admin, que e quem abre anexo pra tratar report).
+Corrigido com allowlist nas duas pontas (`src/lib/anexos.ts`), `nosniff` e
+`Content-Security-Policy: default-src 'none'; sandbox` na resposta.
+
+**2. Dependencias com CVE (ALTO, corrigido).** De 10 vulnerabilidades
+(2 criticas, 5 altas) para 1. Next 16.2.10 -> 16.2.11 (fechava, entre outras, o
+bypass de proxy/middleware no App Router, do qual a autenticacao inteira
+depende, e a exposicao nao autenticada dos endpoints de Server Function);
+next-auth beta.31 -> beta.32 (sobe o @auth/core, que era critico); overrides
+para sharp, postcss, fast-uri, @hono/node-server e valibot.
+
+**3. Nenhum header de seguranca (ALTO, corrigido).** `next.config.ts` nao tinha
+`headers()`. Adicionados nosniff, X-Frame-Options DENY, Referrer-Policy,
+Permissions-Policy e HSTS, mais CSP em modo RELATORIO.
+
+**4. Usuario desativado seguia entrando (MEDIO, corrigido).** O `active` era
+checado no `authorize` e em lugar nenhum depois, entao desativar alguem nao
+derrubava a sessao (ate 30 dias de JWT). O callback `jwt` agora le `active` e
+devolve null, invalidando o token na hora.
+
+**5. `registrarErroSistema` sem teto (MEDIO, corrigido).** Server Action que
+grava sem exigir sessao. Teto de 50 erros distintos por hora.
+
+**6. Sem rate limit no login (MEDIO, corrigido).** 10 falhas por e-mail em 15
+min bloqueiam novas tentativas. Falha de login passou a ser auditada (so
+existia auditoria de sucesso), e a propria auditoria e o contador.
+
+**Nao corrigido:** `xlsx@0.18.5` (prototype pollution + ReDoS) segue sem
+correcao publicada no npm. Mitigado por rodar so no cliente (confirmado: os 4
+parsers estao em componentes "use client"), entao o alcance e a aba de quem
+abriu a propria planilha. A alternativa e instalar do CDN da SheetJS, o que
+muda a origem da dependencia e precisa de decisao.
+
+### Verificado e OK (sem acao)
+- SQL injection: zero `$queryRaw`/`$executeRaw` no codigo; tudo Prisma
+  parametrizado.
+- XSS de render: unico `dangerouslySetInnerHTML` e literal fixo; o `innerHTML`
+  do Visualizador3D usa template estatico e poe o texto dinamico por
+  `textContent`.
+- RBAC: aplicado nas paginas E nas server actions. Mapeadas as 30+ actions e as
+  5 rotas de API: todas checam sessao (as de baixas via `guardarBaixas`).
+- IDOR no anexo: so admin ou o proprio autor.
+- Segredos: `.env*` no gitignore, nunca commitado (conferido no historico).
+- Tela publica `/ver/[slug]`: nao toca no banco, valida contra o catalogo,
+  noindex.
+- Sem open redirect, sem SSRF. TLS terminado na Vercel; banco com sslmode.
+
+### Arquivos criados/alterados
+- `src/lib/anexos.ts` + `.test.ts` (novos): allowlist de MIME e regra de entrega.
+- `src/lib/loginGuard.ts` + `.test.ts` (novos): teto e janela de falhas de login.
+- `src/lib/reports.ts`: constantes do teto de erros por janela.
+- `src/lib/auth.ts`: `active` no callback jwt; contagem de falhas e auditoria de
+  senha incorreta no `authorize`.
+- `src/app/api/reports/anexo/[id]/route.ts`: Content-Type pela allowlist,
+  nosniff e CSP.
+- `src/app/(app)/reports-actions.ts`: recusa de tipo no upload e teto de volume.
+- `src/components/ReportDialog.tsx`: `accept` alinhado com a allowlist.
+- `next.config.ts`: cabecalhos de seguranca e CSP em relatorio.
+- `package.json`: next 16.2.11, next-auth beta.32, bloco `overrides`.
+
+### Decisoes importantes
+- **Allowlist nas DUAS pontas.** Recusa no upload e Content-Type derivado da
+  allowlist na entrega, para que anexo antigo com MIME perigoso tambem saia como
+  download opaco.
+- **CSP em modo relatorio primeiro.** Uma CSP fechada cortaria o script de tema
+  do layout, o iframe `blob:` que imprime pranchas e o `blob:`/`data:` do
+  configurador 3D. Report-Only mede antes de poder quebrar tela.
+- **AuditLog como contador do rate limit.** Evita tabela e migracao, e auditar
+  falha de login era coisa que faltava de qualquer jeito.
+- **Falha so e auditada para conta que existe.** Auditar e-mail inventado
+  deixaria qualquer um encher o AuditLog variando o endereco.
+- **Ja bloqueado nao registra nova falha**, senao a janela nunca esvaziaria e o
+  bloqueio viraria permanente.
+- **Overrides documentados** com comentario no package.json, para serem
+  revistos no proximo upgrade do next.
+
+### Comandos relevantes
+- `npm audit --omit=dev`: de 10 (2 criticas, 5 altas) para 1 alta sem correcao.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (35 arquivos / 404 testes),
+  `npm run build` -> verde.
+- `npx next start -p 3100` + requests reais: os 6 cabecalhos saem na resposta;
+  rota protegida devolve 307 para /login e `/ver/carro-emergencia` devolve 200
+  (confirma que o upgrade do next-auth nao quebrou a autenticacao).
+
+### Pendencias / proximos passos
+- Endurecer a CSP (tirar `unsafe-inline` do script-src) exige nonce por request
+  no proxy. Antes disso, ler o console em producao pra ver o que o modo
+  relatorio acusa.
+- Decidir o que fazer com o `xlsx`.
+- `sslmode=require` no banco: fixar `verify-full` antes de o driver `pg` mudar a
+  semantica (ja avisa em warning).
+- Nao houve teste manual do bloqueio de login nem do desligamento de usuario em
+  producao; a logica pura esta coberta por teste, o caminho com banco nao.

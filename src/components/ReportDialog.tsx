@@ -215,12 +215,15 @@ function ReportModal({ onClose }: { onClose: () => void }) {
                 <label htmlFor="report-anexos" className="text-sm font-medium text-card-foreground">
                   Anexos (opcional)
                 </label>
+                {/* Formatos listados um a um, e não `image/*`, para casar com a
+                    allowlist do servidor (src/lib/anexos.ts): `image/*` deixaria
+                    escolher um SVG que a gravação vai recusar. */}
                 <input
                   id="report-anexos"
                   name="anexos"
                   type="file"
                   multiple
-                  accept="image/*,.pdf,.xlsx,.xls,.csv"
+                  accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.xlsx,.xls,.ods,.csv,.txt,.zip"
                   className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-card-foreground hover:file:bg-border"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -305,7 +308,20 @@ function ReportList({
             {TIPO_LABEL[r.tipo] ?? r.tipo} · {dateFormat.format(new Date(r.criadoEm))}
             {isAdmin && r.autorEmail ? ` · ${r.autorEmail}` : ""}
             {r.rota ? ` · ${r.rota}` : ""}
+            {r.ocorrencias && r.ocorrencias > 1 ? ` · ${r.ocorrencias}× nesta tela` : ""}
           </p>
+          {/* Stack fechado por padrão: é o que o admin abre para achar o ponto do
+              código, mas ocupa a tela inteira se ficar sempre visível. */}
+          {r.stack ? (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs font-medium text-primary hover:underline">
+                Detalhe técnico
+              </summary>
+              <pre className="mt-1.5 max-h-60 overflow-auto rounded-lg bg-muted px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                {r.stack}
+              </pre>
+            </details>
+          ) : null}
           {r.anexos.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-2">
               {r.anexos.map((a) =>

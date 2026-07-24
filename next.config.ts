@@ -11,7 +11,60 @@ import type { NextConfig } from "next";
 const BUILD =
   process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.NEXT_DEPLOYMENT_ID ?? "dev";
 
+// Política de conteúdo em modo RELATÓRIO. Ela não bloqueia nada: o navegador só
+// avisa no console o que TERIA sido bloqueado. É de propósito, porque três
+// coisas desta aplicação dependem de fontes que uma CSP fechada corta:
+//   - o script de tema embutido no layout (roda antes do primeiro paint);
+//   - o iframe `blob:` que imprime as pranchas compiladas;
+//   - o three.js/model-viewer do configurador 3D, que usa `blob:` para workers
+//     e `data:` para textura.
+// Rodar em relatório primeiro é o que diz se a lista abaixo está completa antes
+// de ela poder quebrar a tela de alguém.
+//
+// `script-src` aceita inline aqui porque o próprio Next injeta script embutido
+// no App Router; fechar isso exige nonce por request no proxy, que é o passo
+// seguinte e não cabe junto com o resto.
+const CSP_RELATORIO = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' blob:",
+  "worker-src 'self' blob:",
+  "frame-src 'self' blob:",
+  "connect-src 'self' blob: data:",
+].join("; ");
+
+// Cabeçalhos de segurança aplicados a TODA resposta. A Vercel já termina o TLS
+// e redireciona HTTP para HTTPS; o HSTS abaixo declara isso para o navegador,
+// que passa a nem tentar a versão insegura.
+const CABECALHOS_SEGURANCA = [
+  // Nunca adivinhar o tipo do conteúdo pelo que tem dentro.
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Ninguém embute esta aplicação em iframe (clickjacking). Vale para quem nos
+  // embute; o iframe que a tela de pranchas cria é `blob:` da própria página e
+  // não passa por aqui.
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Câmera liberada só para a origem, porque o "ver no meu espaço" (AR) usa a
+  // câmera do celular. O resto fica desligado.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(self), xr-spatial-tracking=(self), microphone=(), geolocation=(), payment=()",
+  },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  { key: "Content-Security-Policy-Report-Only", value: CSP_RELATORIO },
+];
+
 const nextConfig: NextConfig = {
+  async headers() {
+    return [{ source: "/:path*", headers: CABECALHOS_SEGURANCA }];
+  },
   // Prisma 7 (driver adapter pg) roda no servidor; não deve
   // ser empacotado pelo bundler das Server Components/Route Handlers.
   serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg"],
