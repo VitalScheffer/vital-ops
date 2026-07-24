@@ -85,19 +85,12 @@ export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: Visualiza
         </button>
       </div>
 
-      {/* As medidas ficam sobre o visor. Durante a sessão de AR quem manda na
-          tela é o app do sistema, então elas valem para a conferência aqui. */}
-      {medidas && dimensoesMm && (
-        <div className="pointer-events-none absolute left-1/2 top-16 z-10 -translate-x-1/2 rounded-xl bg-white/95 px-4 py-2 text-center text-[#13262b] shadow-lg">
-          <p className="text-xs font-semibold">
-            {cm(dimensoesMm.altura)} × {cm(dimensoesMm.largura)} × {cm(dimensoesMm.profundidade)} cm
-          </p>
-          <p className="text-[11px] text-[#5b6b72]">altura × largura × profundidade</p>
-        </div>
-      )}
-
       <div className="relative min-h-0 flex-1">
         {pronto ? (
+          // Os controles são FILHOS do <model-viewer> de propósito: no modo
+          // WebXR (Android Chrome) ele usa o próprio elemento como DOM overlay,
+          // então o que está aqui dentro continua na tela durante a projeção no
+          // ambiente. Fora dele, sumiriam ao entrar no AR.
           <model-viewer
             ref={visorRef}
             src={arquivo}
@@ -118,38 +111,48 @@ export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: Visualiza
             >
               Ver no meu espaço
             </button>
+
+            {medidas && dimensoesMm && (
+              <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-xl bg-white/95 px-4 py-2 text-center text-[#13262b] shadow-lg">
+                <p className="text-xs font-semibold">
+                  {cm(dimensoesMm.altura)} × {cm(dimensoesMm.largura)} ×{" "}
+                  {cm(dimensoesMm.profundidade)} cm
+                </p>
+                <p className="text-[11px] text-[#5b6b72]">altura × largura × profundidade</p>
+              </div>
+            )}
+
+            {/* Barra de controle: medidas e voltar ao tamanho real. */}
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/70 p-1 backdrop-blur">
+              {dimensoesMm && (
+                <button
+                  type="button"
+                  onClick={() => setMedidas((valor) => !valor)}
+                  aria-pressed={medidas}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors ${
+                    medidas ? "bg-white text-[#0a5560]" : "text-white hover:bg-white/15"
+                  }`}
+                >
+                  <Ruler className="h-4 w-4" />
+                  Medidas
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={tamanhoOriginal}
+                title="Voltar ao tamanho e ao ângulo originais"
+                className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-white/15"
+              >
+                <Maximize className="h-4 w-4" />
+                Tamanho real
+              </button>
+            </div>
           </model-viewer>
         ) : (
           <p className="flex h-full items-center justify-center text-sm text-white/70">
             Carregando…
           </p>
         )}
-
-        {/* Barra de controle sobre o visor: medidas e voltar ao tamanho real. */}
-        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/70 p-1 backdrop-blur">
-          {dimensoesMm && (
-            <button
-              type="button"
-              onClick={() => setMedidas((valor) => !valor)}
-              aria-pressed={medidas}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors ${
-                medidas ? "bg-white text-[#0a5560]" : "text-white hover:bg-white/15"
-              }`}
-            >
-              <Ruler className="h-4 w-4" />
-              Medidas
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={tamanhoOriginal}
-            title="Voltar ao tamanho e ao ângulo originais"
-            className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-white/15"
-          >
-            <Maximize className="h-4 w-4" />
-            Tamanho real
-          </button>
-        </div>
       </div>
 
       <p className="px-4 py-3 text-center text-[11px] text-white/60">

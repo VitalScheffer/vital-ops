@@ -19,6 +19,10 @@ interface LinhaManual {
   key: number;
   sku: string;
   descricao?: string;
+  // Unidade de medida do cadastro do Omie (KG, M3, UN...), preenchida ao
+  // escolher o produto na busca. Só informa em que unidade a baixa está sendo
+  // lançada; não vai no payload — quem baixa é o Omie, com a unidade dele.
+  unidade?: string;
   quantidade: string;
   pedido: string;
   notaFiscal: string;
@@ -33,6 +37,7 @@ function novaLinha(key: number, base?: Partial<LinhaManual>): LinhaManual {
     key,
     sku: "",
     descricao: undefined,
+    unidade: undefined,
     quantidade: "",
     pedido: "",
     notaFiscal: "",
@@ -91,12 +96,18 @@ export function BaixaManualCart({ onLinhas, disabled = false }: BaixaManualCartP
     aplicar(linhas.map((l) => (l.key === key ? { ...l, [campo]: valor } : l)));
   }
 
-  function escolherProduto(key: number, codigo: string, descricao: string) {
-    aplicar(linhas.map((l) => (l.key === key ? { ...l, sku: codigo, descricao } : l)));
+  function escolherProduto(key: number, codigo: string, descricao: string, unidade?: string) {
+    aplicar(linhas.map((l) => (l.key === key ? { ...l, sku: codigo, descricao, unidade } : l)));
   }
 
+  // SKU digitado à mão perde a descrição e a unidade escolhidas (não batem mais
+  // com o que está no campo).
   function digitarSku(key: number, valor: string) {
-    aplicar(linhas.map((l) => (l.key === key ? { ...l, sku: valor, descricao: undefined } : l)));
+    aplicar(
+      linhas.map((l) =>
+        l.key === key ? { ...l, sku: valor, descricao: undefined, unidade: undefined } : l,
+      ),
+    );
   }
 
   // Só o saldo (para o aviso qtd > saldo) — NÃO passa por `aplicar`, pra não
@@ -250,7 +261,9 @@ export function BaixaManualCart({ onLinhas, disabled = false }: BaixaManualCartP
                 value={linha.sku}
                 descricao={linha.descricao}
                 onChange={(valor) => digitarSku(linha.key, valor)}
-                onPick={(codigo, descricao) => escolherProduto(linha.key, codigo, descricao)}
+                onPick={(codigo, descricao, unidade) =>
+                  escolherProduto(linha.key, codigo, descricao, unidade)
+                }
                 index={index}
                 buscar={buscarProdutosBaixa}
                 saldoDe={saldoProdutoBaixa}
@@ -265,6 +278,19 @@ export function BaixaManualCart({ onLinhas, disabled = false }: BaixaManualCartP
                 placeholder="Qtd"
                 aria-label={`Quantidade do item ${index + 1}`}
                 className={`${inputClass} w-24`}
+              />
+              {/* Unidade do Omie: preenchida sozinha e TRAVADA — só informa se o
+                  item é baixado em KG, M3, UN... Sem produto escolhido (ou sem
+                  unidade no cadastro), fica vazia com um traço. */}
+              <input
+                value={linha.unidade ?? ""}
+                readOnly
+                disabled
+                tabIndex={-1}
+                placeholder="—"
+                title="Unidade de medida do cadastro do Omie"
+                aria-label={`Unidade de medida do item ${index + 1}`}
+                className={`${inputClass} w-16 cursor-not-allowed bg-muted/50 text-center text-muted-foreground`}
               />
               <button
                 type="button"
