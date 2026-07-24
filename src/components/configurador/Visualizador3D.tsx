@@ -4,7 +4,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  Layers,
   Link2,
   Loader2,
   Maximize2,
@@ -180,8 +179,6 @@ interface Cena {
   vista: (chave: ChaveVista) => void;
   // Voa até uma peça e a enquadra de perto (clique no 3D ou na especificação).
   focar: (chave: string) => void;
-  // Espalha as peças a partir do centro: 0 = montado, 1 = todo aberto.
-  explodir: (fracao: number) => void;
   // Liga/desliga a régua de cotas (A×L×P).
   mostrarCotas: (mostrar: boolean) => void;
   // Liga/desliga o giro automático (turntable).
@@ -253,8 +250,6 @@ export default function Visualizador3D({
   }, [anotarDeInicio]);
 
   const [autoGiro, setAutoGiro] = useState(false);
-  // Fração da explosão (0 = montado, 1 = todo aberto).
-  const [explosao, setExplosao] = useState(0);
 
   function alternarAmpliado() {
     // Ampliar liga as etiquetas: é para isso que se amplia. Desligar de novo é
@@ -413,11 +408,6 @@ export default function Visualizador3D({
     }
     const pecasCarregadas = new Map<string, PecaCarregada>();
     const centroDoModelo = new THREE.Vector3();
-    // Cada nó com a sua posição original e a direção para onde voa ao explodir
-    // (radial, a partir do centro do modelo).
-    const explodiveis: { no: THREE.Object3D; origem: THREE.Vector3; direcao: THREE.Vector3 }[] = [];
-    let amplitudeExplosao = 1;
-    let explosaoAtual = 0;
 
     // Tira o `__<n>` do fim: "gaveta__7" -> "gaveta".
     const chaveDaPeca = (nome: string) => nome.slice(PREFIXO_PECA.length).replace(/__\d+$/, "");
@@ -697,19 +687,6 @@ export default function Visualizador3D({
           .getBoundingSphere(new THREE.Sphere());
         centroDoModelo.copy(esfera.center);
 
-        // Prepara a explosão: cada nó guarda a posição de origem e uma direção
-        // radial (para longe do centro). Peça central (offset ~0) sobe um pouco,
-        // para o tampo e afins não ficarem presos no meio.
-        amplitudeExplosao = esfera.radius * 1.15;
-        for (const no of modelo.children) {
-          if (!no.name.startsWith(PREFIXO_PECA)) continue;
-          const centroNo = new THREE.Box3().setFromObject(no).getCenter(new THREE.Vector3());
-          const direcao = centroNo.clone().sub(esfera.center);
-          if (direcao.length() < esfera.radius * 0.05) direcao.set(0, 1, 0);
-          direcao.normalize();
-          explodiveis.push({ no, origem: no.position.clone(), direcao });
-        }
-
         // Cotas (A×L×P): a caixa envolvente do modelo montado e três rótulos em
         // centímetros nos meios das arestas. Nascem escondidos; um botão liga.
         const caixaModelo = new THREE.Box3().setFromObject(modelo);
@@ -825,16 +802,6 @@ export default function Visualizador3D({
           aoFocarRef.current?.(chave);
         }
 
-        // Espalha as peças a partir do centro. `fracao` 0 = montado, 1 = todo
-        // aberto; anima suave até o alvo pedido.
-        function explodir(fracao: number) {
-          explosaoAtual = Math.max(0, Math.min(1, fracao));
-          for (const { no, origem, direcao } of explodiveis) {
-            no.position.copy(origem).addScaledVector(direcao, explosaoAtual * amplitudeExplosao);
-          }
-          pedirQuadro();
-        }
-
         // Gira até a peça quando ela está escondida atrás do produto — usado ao
         // apontar uma mudança. Mantém a distância; só troca o ângulo horizontal.
         function girarAte(ancora: THREE.Vector3) {
@@ -924,7 +891,6 @@ export default function Visualizador3D({
             if (vista) olharDe(vista.dir.clone(), true);
           },
           focar: focarPeca,
-          explodir,
           mostrarCotas(mostrar) {
             cotasVisiveis = mostrar;
             if (caixaCotas) caixaCotas.visible = mostrar;
@@ -1030,11 +996,6 @@ export default function Visualizador3D({
   useEffect(() => {
     cenaRef.current?.girarAuto(autoGiro);
   }, [autoGiro, carregado]);
-
-  // Espalha/monta as peças conforme o slider.
-  useEffect(() => {
-    cenaRef.current?.explodir(explosao);
-  }, [explosao, carregado]);
 
   // Liga/desliga a régua de cotas.
   useEffect(() => {
@@ -1145,22 +1106,6 @@ export default function Visualizador3D({
             {vista.rotulo}
           </button>
         ))}
-        <span className="mx-0.5 h-4 w-px bg-border" />
-        {/* Explodir: arrastar o cursor separa as peças (abre as gavetas e
-            mostra o interior); o próprio slider é o controle. */}
-        <div className="pointer-events-auto flex items-center gap-1.5 pl-1 pr-2">
-          <Layers className="h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(explosao * 100)}
-            onChange={(evento) => setExplosao(Number(evento.target.value) / 100)}
-            title="Explodir / montar"
-            aria-label="Explodir o modelo"
-            className="h-1 w-16 cursor-pointer accent-[var(--color-primary)] sm:w-24"
-          />
-        </div>
         <span className="mx-0.5 h-4 w-px bg-border" />
         <button
           type="button"
