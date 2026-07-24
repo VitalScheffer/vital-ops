@@ -4179,3 +4179,69 @@ muda a origem da dependencia e precisa de decisao.
   semantica (ja avisa em warning).
 - Nao houve teste manual do bloqueio de login nem do desligamento de usuario em
   producao; a logica pura esta coberta por teste, o caminho com banco nao.
+
+## 2026-07-24 - CSP com nonce, xlsx fora do npm e zero vulnerabilidades
+
+### Resumo
+Fechamento das pendencias da auditoria: CSP saiu de modo relatorio para
+bloqueio real com nonce por request, o xlsx passou a vir do CDN oficial da
+SheetJS e o audit chegou a zero. O sslmode ficou pela metade, de proposito.
+
+### Achado que quase virou falha de autenticacao
+Passar uma funcao para `auth()` DESLIGA o redirect automatico do callback
+`authorized`. No `handleAuth` do next-auth:
+`else if (userMiddlewareOrRoute) { ... } else if (!authorized) { redirect }`.
+Com middleware proprio (necessario pro nonce), o segundo ramo nunca roda, e um
+`false` do `authorized` seria ignorado, liberando rota protegida pra anonimo.
+A checagem foi reescrita explicitamente no proxy, com a mesma `isPublicPath`, e
+confirmada por request real (307 pra /login).
+
+### Arquivos criados/alterados
+- `src/lib/csp.ts` + `.test.ts` (novos): nonce (16 bytes de
+  `crypto.getRandomValues`, base64) e montagem da politica.
+- `src/proxy.ts`: checagem de sessao explicita + nonce e CSP por resposta;
+  rota /api fica de fora (define a propria politica).
+- `src/lib/auth.config.ts`: `isPublicPath` exportada e o callback `authorized`
+  documentado como rede de seguranca, nao como a defesa efetiva.
+- `src/app/layout.tsx`: le `x-nonce` e carimba no script de tema.
+- `next.config.ts`: sai a CSP Report-Only (agora vem do proxy), ficam os
+  cabecalhos fixos.
+- `package.json`: xlsx via `https://cdn.sheetjs.com/xlsx-0.20.3/...tgz`.
+
+### Decisoes importantes
+- **`style-src` fica com `unsafe-inline` e SEM nonce.** O React usa atributo
+  `style=` em varias telas (gradiente do login, visor do AR, etiquetas do 3D) e
+  a CSP nivel 3 bloqueia atributo junto com bloco. Nonce em `style-src` faria o
+  navegador ignorar o `unsafe-inline`. O que sobra e injecao de CSS, que nao
+  executa codigo.
+- **`wasm-unsafe-eval` e obrigatorio.** O decoder meshopt do three.js e o
+  model-viewer compilam WebAssembly; sem isso o 3D nao abre.
+- **`strict-dynamic` tem limite conhecido.** Ele nao impede script criado
+  programaticamente por codigo ja confiavel; impede o que entra por injecao de
+  markup, que e o vetor de XSS de verdade. Medido: handler inline bloqueado
+  (`script-src-attr`), script externo criado por contexto confiavel passa.
+- **xlsx fora do npm.** A versao do registro (0.18.5) esta congelada com
+  prototype pollution e ReDoS; a SheetJS publica no proprio CDN. Preco: o build
+  passa a depender de cdn.sheetjs.com.
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (36 arquivos / 412 testes),
+  `npm run build` -> verde.
+- `npm audit` (com dev): **0 vulnerabilidades**, ante 10 (2 criticas, 5 altas).
+- Verificado no navegador com a CSP ativa (`next start` + Chrome DevTools):
+  `/ver/carro-emergencia` renderiza o 3D, `/configurador/carro-emergencia`,
+  `/pranchas` e a home autenticada sem erro de console; 22 scripts com o nonce
+  do header; handler inline injetado NAO executa e gera violacao de
+  `script-src-attr`.
+- Confirmado de quebra: as sessoes existentes sobreviveram ao upgrade do
+  next-auth (o Chrome seguiu logado como admin).
+
+### Pendencias / proximos passos
+- **sslmode em producao: NAO alterado.** `verify-full` foi testado contra o
+  banco e conecta (aplicado so no `.env` local). Mas o `DATABASE_URL` de
+  PRODUCAO na Vercel e diferente do local e nao tem `sslmode` nenhum. Sem
+  entender o porque (pooler? outro parametro de ssl?), mexer nessa string e
+  arriscar derrubar o banco em producao. Precisa de decisao com o valor a vista.
+- O iframe `blob:` da impressao de pranchas esta coberto por `frame-src blob:`
+  na politica, mas nao foi exercitado no navegador (exigiria compilar um PDF de
+  verdade).

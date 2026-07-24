@@ -15,7 +15,7 @@ export function isCompanyEmail(email?: string | null): boolean {
 // existe justamente para ser aberta por quem não tem login. Não consulta banco
 // nenhum — a configuração inteira vem na URL (ver `compartilhar.ts`) —, então
 // abrir essa rota não expõe nada além do que o vendedor decidiu enviar.
-function isPublicPath(pathname: string): boolean {
+export function isPublicPath(pathname: string): boolean {
   return (
     pathname === "/login" || pathname.startsWith("/api/auth") || pathname.startsWith("/ver/")
   );
@@ -32,7 +32,12 @@ export const authConfig = {
     signIn({ user, profile }) {
       return isCompanyEmail(profile?.email ?? user?.email);
     },
-    // Usado pelo proxy: libera rotas públicas, exige sessão no resto.
+    // ATENÇÃO: este callback NÃO é o que barra anônimo hoje. O next-auth só
+    // aplica o redirect dele quando o proxy é o handler cru; como `src/proxy.ts`
+    // passa uma função própria (para o nonce da CSP), aquele ramo é pulado e um
+    // `false` daqui seria ignorado. A decisão que vale está no proxy, usando a
+    // mesma `isPublicPath`. Fica aqui como rede de segurança para o caso de o
+    // proxy voltar a ser o handler cru.
     authorized({ request, auth }) {
       if (isPublicPath(request.nextUrl.pathname)) {
         return true;

@@ -11,35 +11,10 @@ import type { NextConfig } from "next";
 const BUILD =
   process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.NEXT_DEPLOYMENT_ID ?? "dev";
 
-// Política de conteúdo em modo RELATÓRIO. Ela não bloqueia nada: o navegador só
-// avisa no console o que TERIA sido bloqueado. É de propósito, porque três
-// coisas desta aplicação dependem de fontes que uma CSP fechada corta:
-//   - o script de tema embutido no layout (roda antes do primeiro paint);
-//   - o iframe `blob:` que imprime as pranchas compiladas;
-//   - o three.js/model-viewer do configurador 3D, que usa `blob:` para workers
-//     e `data:` para textura.
-// Rodar em relatório primeiro é o que diz se a lista abaixo está completa antes
-// de ela poder quebrar a tela de alguém.
+// A política de conteúdo (CSP) NÃO mora aqui: ela carrega um nonce novo a cada
+// resposta, então é montada por request no proxy (src/proxy.ts + src/lib/csp.ts).
+// Aqui ficam só os cabeçalhos que são iguais em toda resposta.
 //
-// `script-src` aceita inline aqui porque o próprio Next injeta script embutido
-// no App Router; fechar isso exige nonce por request no proxy, que é o passo
-// seguinte e não cabe junto com o resto.
-const CSP_RELATORIO = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' blob:",
-  "font-src 'self' data:",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline' blob:",
-  "worker-src 'self' blob:",
-  "frame-src 'self' blob:",
-  "connect-src 'self' blob: data:",
-].join("; ");
-
 // Cabeçalhos de segurança aplicados a TODA resposta. A Vercel já termina o TLS
 // e redireciona HTTP para HTTPS; o HSTS abaixo declara isso para o navegador,
 // que passa a nem tentar a versão insegura.
@@ -58,7 +33,6 @@ const CABECALHOS_SEGURANCA = [
     value: "camera=(self), xr-spatial-tracking=(self), microphone=(), geolocation=(), payment=()",
   },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-  { key: "Content-Security-Policy-Report-Only", value: CSP_RELATORIO },
 ];
 
 const nextConfig: NextConfig = {

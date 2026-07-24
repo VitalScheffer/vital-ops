@@ -31,9 +31,10 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "three": "^0.185.1",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },
+  "_comentario_xlsx": "O xlsx NÃO vem do npm: a versão publicada lá (0.18.5) está congelada e carrega prototype pollution + ReDoS sem correção. A SheetJS saiu do npm e publica no próprio CDN, que é a origem oficial hoje. Consequência: o build precisa alcançar cdn.sheetjs.com.",
   "_comentario_overrides": "Versões forçadas de dependências INDIRETAS que vieram com CVE (npm audit). Elas não são importadas pelo nosso código: entram por baixo do next e do prisma, que ainda apontam para versões vulneráveis. Ao subir o next, reveja se ainda são necessárias.",
   "overrides": {
     "sharp": "^0.35.3",
