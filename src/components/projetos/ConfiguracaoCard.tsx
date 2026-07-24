@@ -173,15 +173,33 @@ export function ConfiguracaoCard({ item }: { item: ConfiguracaoDaFila }) {
 
               {decisao === "ATENDER" ? (
                 <>
-                  <input
-                    name="projetoCad"
-                    required
-                    maxLength={60}
-                    autoFocus
-                    defaultValue={item.jaDesenhado?.projetoCad ?? ""}
-                    placeholder="Número do projeto"
-                    className={inputClass}
-                  />
+                  {/* O vínculo à vista: o número que a pessoa digita fica
+                      amarrado a ESTE código de configuração. É o que impede
+                      dois projetos para a mesma combinação — quando o código
+                      repete, o campo já vem preenchido com o projeto de antes. */}
+                  <label className="text-sm font-medium text-card-foreground">
+                    Número do projeto
+                    <input
+                      name="projetoCad"
+                      required
+                      maxLength={60}
+                      autoFocus
+                      defaultValue={item.jaDesenhado?.projetoCad ?? ""}
+                      placeholder="Ex.: 5-5-5"
+                      className={`mt-1 ${inputClass}`}
+                    />
+                  </label>
+                  <p className="-mt-1 text-xs text-muted-foreground">
+                    Fica vinculado a esta combinação:{" "}
+                    <span className="break-all font-mono text-card-foreground">{item.codigo}</span>
+                  </p>
+                  {item.jaDesenhado && (
+                    <p className="flex items-start gap-1.5 rounded-lg bg-success-dim px-3 py-2 text-xs text-success">
+                      <Copy className="mt-px h-3.5 w-3.5 shrink-0" />
+                      Já preenchido com o projeto {item.jaDesenhado.projetoCad}, que é o desta mesma
+                      combinação. Mantenha para não abrir projeto duplicado.
+                    </p>
+                  )}
                   <textarea
                     name="nota"
                     rows={2}
