@@ -1,8 +1,16 @@
 "use client";
 
-import { Ruler, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Maximize, Ruler, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+// O <model-viewer> traz estes métodos para reenquadrar o produto. Só o que a
+// gente usa — o elemento em si é um custom element sem tipos.
+interface Visor extends HTMLElement {
+  resetTurntableRotation?: (radianos?: number) => void;
+  updateFraming?: () => Promise<void>;
+  cameraOrbit?: string;
+}
 
 // "Ver no meu espaço": abre o produto em realidade aumentada, em tamanho real,
 // pela câmera do celular. Usa o <model-viewer> do Google (element web), que no
@@ -23,8 +31,19 @@ interface VisualizarARProps {
 export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: VisualizarARProps) {
   const [pronto, setPronto] = useState(false);
   const [medidas, setMedidas] = useState(false);
+  const visorRef = useRef<Visor>(null);
 
   const cm = (mm: number) => Math.round(mm / 10);
+
+  // Devolve o produto ao enquadramento de origem: desfaz o giro e a aproximação
+  // e reenquadra na escala real do CAD.
+  async function tamanhoOriginal() {
+    const visor = visorRef.current;
+    if (!visor) return;
+    visor.resetTurntableRotation?.(0);
+    visor.cameraOrbit = "0deg 75deg auto";
+    await visor.updateFraming?.();
+  }
 
   // Registra o custom element uma vez (o import tem efeito colateral de
   // `customElements.define`). Só no cliente.
@@ -55,30 +74,15 @@ export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: Visualiza
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
         <p className="min-w-0 truncate text-sm font-medium">{nome} · ver no meu espaço</p>
-        <div className="flex shrink-0 items-center gap-2">
-          {dimensoesMm && (
-            <button
-              type="button"
-              onClick={() => setMedidas((valor) => !valor)}
-              aria-pressed={medidas}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                medidas ? "bg-white text-[#0a5560]" : "bg-white/15 hover:bg-white/25"
-              }`}
-            >
-              <Ruler className="h-4 w-4" />
-              Medidas
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onFechar}
-            aria-label="Fechar"
-            className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-white/25"
-          >
-            <X className="h-4 w-4" />
-            Fechar
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onFechar}
+          aria-label="Fechar"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-white/25"
+        >
+          <X className="h-4 w-4" />
+          Fechar
+        </button>
       </div>
 
       {/* As medidas ficam sobre o visor. Durante a sessão de AR quem manda na
@@ -95,6 +99,7 @@ export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: Visualiza
       <div className="relative min-h-0 flex-1">
         {pronto ? (
           <model-viewer
+            ref={visorRef}
             src={arquivo}
             alt={nome}
             ar
@@ -109,7 +114,7 @@ export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: Visualiza
           >
             <button
               slot="ar-button"
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#0a5560] shadow-lg"
+              className="absolute bottom-20 left-1/2 -translate-x-1/2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#0a5560] shadow-lg"
             >
               Ver no meu espaço
             </button>
@@ -119,6 +124,32 @@ export function VisualizarAR({ arquivo, nome, dimensoesMm, onFechar }: Visualiza
             Carregando…
           </p>
         )}
+
+        {/* Barra de controle sobre o visor: medidas e voltar ao tamanho real. */}
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/70 p-1 backdrop-blur">
+          {dimensoesMm && (
+            <button
+              type="button"
+              onClick={() => setMedidas((valor) => !valor)}
+              aria-pressed={medidas}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors ${
+                medidas ? "bg-white text-[#0a5560]" : "text-white hover:bg-white/15"
+              }`}
+            >
+              <Ruler className="h-4 w-4" />
+              Medidas
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={tamanhoOriginal}
+            title="Voltar ao tamanho e ao ângulo originais"
+            className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-white/15"
+          >
+            <Maximize className="h-4 w-4" />
+            Tamanho real
+          </button>
+        </div>
       </div>
 
       <p className="px-4 py-3 text-center text-[11px] text-white/60">
