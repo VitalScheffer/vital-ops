@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BellRing,
   BookOpenCheck,
   Boxes,
   ChevronLeft,
@@ -26,6 +27,7 @@ const ICONS: Record<TutorialIcon, typeof HelpCircle> = {
   baixas: PackageMinus,
   users: Users,
   audit: ScrollText,
+  notificacoes: BellRing,
   reopen: BookOpenCheck,
 };
 

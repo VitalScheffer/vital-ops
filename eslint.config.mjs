@@ -18,6 +18,10 @@ const eslintConfig = defineConfig([
     // Worker minificado do pdfjs (vendor copiado de node_modules pro módulo
     // Pranchas) — não é código nosso, não faz sentido lintar.
     "public/pdf.worker.min.mjs",
+    // Service worker do Web Push: script clássico (não-módulo), roda no
+    // escopo global do worker (self/clients/caches) — fora do escopo de
+    // módulo que o eslint-config-next assume para o resto do projeto.
+    "public/sw.js",
   ]),
 ]);
 

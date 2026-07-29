@@ -11,6 +11,7 @@ export type TutorialIcon =
   | "baixas"
   | "users"
   | "audit"
+  | "notificacoes"
   | "reopen";
 
 export interface TutorialStep {
@@ -101,6 +102,17 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     ],
     icon: "audit",
     visibleTo: (navKeys) => navKeys.has("auditoria"),
+  },
+  {
+    key: "notificacoes",
+    title: "Notificações do Windows",
+    body: [
+      "O sininho no topo mostra o que precisa da sua atenção. Abra o dropdown e clique em \"Ativar notificações do Windows\" para receber um aviso do sistema operacional mesmo com a aba fora de foco ou minimizada.",
+      "Cada papel recebe o que é seu: gestor é avisado de pedido novo para decidir, quem pediu é avisado da decisão, Projetos é avisado de configuração nova, e o comercial é avisado da resposta.",
+      "Clicar na notificação leva direto para a tela do assunto. Dá para desativar a qualquer momento no mesmo sininho.",
+    ],
+    icon: "notificacoes",
+    visibleTo: always,
   },
   {
     key: "reopen",

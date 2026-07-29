@@ -60,7 +60,15 @@ export const config = {
   // /login em vez da imagem. O preço é que esses arquivos ficam legíveis por
   // quem tiver a URL exata — são as mesmas fotos e modelos que qualquer
   // vendedor logado já vê.
+  //
+  // `sw.js` (service worker do Web Push) fica de fora pelo MESMO motivo, e por
+  // um segundo: o navegador reconsulta esse arquivo sozinho de tempos em tempos
+  // para checar atualização, sem necessariamente levar cookie de sessão válido;
+  // se essa consulta caísse num redirect para /login, o service worker
+  // instalado continuaria funcionando, mas o navegador nunca veria uma
+  // atualização do arquivo. Preço igual ao das fotos: o script fica legível por
+  // quem tiver a URL, mas não tem segredo nenhum dentro dele.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|glb|mjs)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|glb|mjs)$).*)",
   ],
 };

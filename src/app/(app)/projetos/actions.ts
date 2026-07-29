@@ -13,6 +13,7 @@ import {
 import { prisma } from "@/lib/db";
 import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
+import { notificarUsuario } from "@/lib/push";
 import { canViewProjetos } from "@/lib/rbac";
 import { requestHeaders } from "@/lib/request";
 
@@ -124,7 +125,7 @@ export async function responderConfiguracao(
 
   const configuracao = await prisma.configuracao.findUnique({
     where: { id },
-    select: { id: true, numero: true, status: true, codigo: true },
+    select: { id: true, numero: true, status: true, codigo: true, autorId: true },
   });
   if (!configuracao) {
     return { status: "error", message: "Configuração não encontrada." };
@@ -160,6 +161,16 @@ export async function responderConfiguracao(
     before: { status: configuracao.status },
     after: { status, projetoCad: projetoCad || null, nota: nota || null },
     req: await requestHeaders(),
+  });
+
+  await notificarUsuario(configuracao.autorId, {
+    title: decisao === "ATENDER" ? "Configuração atendida" : "Configuração recusada",
+    body:
+      decisao === "ATENDER"
+        ? `${formatarNumeroConfiguracao(configuracao.numero)} atendida com o projeto ${projetoCad}.`
+        : `${formatarNumeroConfiguracao(configuracao.numero)} recusada: ${nota}`,
+    url: "/configurador",
+    tag: `configuracao-${configuracao.id}`,
   });
 
   revalidarTelas();

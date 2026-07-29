@@ -35,6 +35,7 @@ import type { FormState } from "@/lib/form";
 import { chamar } from "@/lib/omie";
 import { OmieBlocked } from "@/lib/omie/errors";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
+import { idsParaNotificar, notificarUsuario, notificarUsuarios } from "@/lib/push";
 import { canCancelRequisicao, canDecideRequisicao, canViewRequisicoes } from "@/lib/rbac";
 import { agruparPorLocal, localEfetivo } from "@/lib/requisicoes/locaisPorItem";
 import { requestHeaders } from "@/lib/request";
@@ -214,6 +215,20 @@ export async function criarRequisicao(_prev: FormState, formData: FormData): Pro
     req: await requestHeaders(),
   });
 
+  const usuariosAtivos = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, role: true, active: true },
+  });
+  const gestores = idsParaNotificar(usuariosAtivos, permissions, canDecideRequisicao, {
+    excluirId: session.user.id,
+  });
+  await notificarUsuarios(gestores, {
+    title: "Nova requisição",
+    body: `${numero} — ${itens.length} item(ns) para o setor ${setor.nome}. Solicitante: ${solicitanteNome}.`,
+    url: "/requisicoes",
+    tag: `requisicao-${criada.id}`,
+  });
+
   revalidatePath("/requisicoes");
   return {
     status: "success",
@@ -385,6 +400,12 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
       after: { status: "RECUSADA", motivo },
       req: await requestHeaders(),
     });
+    await notificarUsuario(requisicao.solicitanteId, {
+      title: "Requisição recusada",
+      body: `${numero} foi recusada. Motivo: ${motivo}`,
+      url: "/requisicoes",
+      tag: `requisicao-${id}`,
+    });
     revalidatePath("/requisicoes");
     return { status: "success", message: `Requisição ${numero} recusada.` };
   }
@@ -511,6 +532,16 @@ export async function decidirRequisicao(_prev: FormState, formData: FormData): P
     before: { status: "PENDENTE" },
     after: { status: "CONFIRMADA", baixados, falhas, localEstoque: localNome ?? localCodigo },
     req: await requestHeaders(),
+  });
+
+  await notificarUsuario(requisicao.solicitanteId, {
+    title: "Requisição confirmada",
+    body:
+      falhas > 0
+        ? `${numero} confirmada: ${baixados} item(ns) baixado(s), ${falhas} com falha.`
+        : `${numero} confirmada e o estoque foi baixado.`,
+    url: "/requisicoes",
+    tag: `requisicao-${id}`,
   });
 
   revalidatePath("/requisicoes");

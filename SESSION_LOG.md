@@ -4292,3 +4292,105 @@ conexao), mas nao da para confirmar o host de producao byte a byte, porque o
 valor e sensivel. Se por acaso for outro host com certificado que nao valide, o
 sintoma aparece no primeiro acesso ao banco depois do deploy, e a reversao e
 tirar a linha `ssl` do `db.ts`.
+
+## 2026-07-29 - Notificacoes do Windows (Web Push)
+
+### Resumo
+Pedido: "no vital ops tinha que ver de colocar notificacoes para o pessoal,
+cada um recebe do seu setor, e deve aparecer no Windows, mesmo quando ta fora
+de foco". O sininho ja existia (aviso in-app, so no carregamento da pagina);
+entrou por cima a assinatura Web Push (VAPID) de verdade, com service worker,
+para o toast aparecer no sistema operacional mesmo com a aba fora de foco ou
+fechada. 4 gatilhos ligados: requisicao criada avisa quem decide (ADMIN,
+GESTOR, FABRICA_GESTOR - exceto quem criou); requisicao decidida avisa quem
+pediu; configuracao enviada avisa a equipe de Projetos; configuracao
+respondida avisa o autor. `npx tsc --noEmit`, `npm run lint`, `npm test` (37
+arquivos, 417 testes) e `npm run build` verdes.
+
+### Arquivos criados/alterados
+- `prisma/schema.prisma` - modelo `PushSubscription` (endpoint unico, p256dh,
+  auth, userAgent) + relacao em `User`. Migration
+  `prisma/migrations/20260729203752_push_subscriptions` aplicada no Neon dev
+  (aditiva: so tabela nova).
+- `src/lib/contracts/push.ts` (novo) - zod do corpo de assinar/desassinar.
+- `src/lib/push/` (novo, server-only, espelha `src/lib/omie/`): `types.ts`
+  (payload), `destinatarios.ts` (puro, testado - filtra quem recebe a partir
+  de usuarios + mapa de permissoes + predicado RBAC), `config.ts` (VAPID do
+  env, mesma limpeza de BOM/aspas do Omie), `client.ts` (wrapper do
+  `web-push`, nunca lanca, marca expirado no 404/410), `stores.ts` (Prisma:
+  inscrever/desinscrever/listar/remover expiradas), `notificar.ts` (fachada
+  best-effort - nunca propaga erro pra Server Action chamadora), `index.ts`
+  (barrel), `__tests__/destinatarios.test.ts` (5 testes).
+- `public/sw.js` (novo) - service worker classico: evento `push` mostra o
+  toast, `notificationclick` foca aba existente ou abre a URL. Adicionado ao
+  `globalIgnores` do `eslint.config.mjs` (mesmo tratamento do worker do pdfjs).
+- `src/proxy.ts` - matcher passa a excluir `sw.js` tambem (o navegador
+  reconsulta esse arquivo sozinho de tempos em tempos; se caisse num redirect
+  pro /login, o service worker instalado continuaria valendo, mas a checagem
+  de atualizacao silenciosamente nunca veria o arquivo novo).
+- `src/app/api/push/subscribe/route.ts`, `.../unsubscribe/route.ts` (novos) -
+  POST autenticado, sem auditoria de proposito (registro de
+  dispositivo/navegador, nao mutacao de negocio).
+- `src/lib/pushClient.ts` (novo, client-safe, SEM import de Prisma/web-push) -
+  registra o service worker, assina/desassina, base64url -> Uint8Array da
+  chave publica VAPID.
+- `src/components/NotificacoesBell.tsx` - rodape novo no dropdown: botao
+  "Ativar/Desativar notificacoes do Windows".
+- `src/app/(app)/requisicoes/actions.ts` - `criarRequisicao` avisa quem decide;
+  `decidirRequisicao` avisa o solicitante (recusar e confirmar).
+- `src/app/(app)/configurador/actions.ts` - `criarConfiguracao` avisa a equipe
+  de Projetos.
+- `src/app/(app)/projetos/actions.ts` - `responderConfiguracao` avisa o autor
+  (select ganhou `autorId`).
+- `src/lib/changelog.ts` - entrada nova (topo do array).
+- `src/lib/tutorial.ts` + `src/components/Tutorial.tsx` - passo novo
+  "notificacoes" (sempre visivel), antes de "reopen"; `src/lib/tutorial.test.ts`
+  ajustado (a chave nova entra em toda expectativa).
+- `package.json` - `web-push` (dependencia) + `@types/web-push` (dev).
+- `.env` (local, nao versionado) e `.env.example` -
+  `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
+
+### Decisoes importantes
+- **Web Push de verdade (VAPID + service worker), nao polling.** O usuario
+  escolheu explicitamente essa opcao (a alternativa mais simples so cobre
+  "aba aberta em segundo plano", nao "navegador fechado").
+- **`pushClient.ts` fica FORA da pasta `src/lib/push/`** (que e server-only,
+  toca Prisma e `web-push`) - a fronteira cliente x servidor fica impossivel
+  de confundir, mesmo raciocinio de `permissions.ts` x `permissions.server.ts`.
+- **Nunca pedir permissao de notificacao sem gesto do usuario.** O botao no
+  sininho e o UNICO lugar que chama `Notification.requestPermission()`; o
+  efeito que restaura o estado do toggle no mount so LE a assinatura atual.
+- **Best-effort de ponta a ponta.** `notificarUsuarios` nunca lanca - falha de
+  push (VAPID nao configurado, endpoint expirado, banco fora) nao pode
+  derrubar a Server Action que criou a requisicao/configuracao.
+- **Assinatura expirada (404/410) e apagada, nao fica orfa.**
+- **Endpoint e do NAVEGADOR, nao da pessoa** - o upsert reatribui `userId` no
+  update (mesmo navegador podendo logar como outra pessoa depois).
+- **`react-hooks/set-state-in-effect`**: o "suporta push?" virou lazy
+  initializer do `useState` (calculado uma vez, sem `setState` sincrono no
+  corpo do efeito) - so o resultado assincrono de `assinaturaAtual()` seta
+  estado, dentro do `.then`.
+
+### Comandos relevantes
+- `npx prisma generate` + `npx prisma migrate dev --name push_subscriptions`
+  (Neon dev, aditivo).
+- `npx web-push generate-vapid-keys` (par gerado e salvo direto no `.env`
+  local; nao entram aqui no log - so em `.env`/variaveis da Vercel).
+- `npm install web-push` + `npm install -D @types/web-push`.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (37/417), `npm run build` ->
+  tudo verde.
+
+### Pendencias / proximos passos
+1. **Configurar as 3 variaveis na Vercel (producao)**: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
+   `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` - sem elas o botao "Ativar" aparece mas
+   o envio falha em silencio (best-effort), ninguem recebe nada.
+2. **Teste humano (nao feito aqui)**: logar, clicar "Ativar notificacoes do
+   Windows", aceitar o prompt do navegador, conferir a linha em
+   `PushSubscription` (Prisma Studio), disparar um dos 4 fluxos e ver o toast
+   aparecer com a aba fora de foco/minimizada, e que o clique leva pra tela
+   certa.
+3. Sem icone PNG proprio no toast (o projeto so tem a logo como SVG React) -
+   o navegador usa o icone padrao dele. Melhoria futura, nao bloqueia.
+4. Um usuario com varios navegadores/dispositivos acumula uma
+   `PushSubscription` por endpoint - nao ha tela de gestao/limpeza manual
+   disso ainda (so a limpeza automatica de expiradas).

@@ -5,31 +5,31 @@ import { tutorialSeenKey, tutorialStepsFor } from "@/lib/tutorial";
 describe("tutorialStepsFor", () => {
   it("sem acesso a Usuários/Auditoria, não vê esses passos (ex.: FUNCIONARIO padrão)", () => {
     const keys = tutorialStepsFor(["home", "produtos"]).map((step) => step.key);
-    expect(keys).toEqual(["welcome", "roles", "products", "reopen"]);
+    expect(keys).toEqual(["welcome", "roles", "products", "notificacoes", "reopen"]);
   });
 
   it("com Usuários e Auditoria no menu, vê todos os passos (ex.: GESTOR/ADMIN padrão)", () => {
     const keys = tutorialStepsFor(["home", "produtos", "usuarios", "auditoria"]).map(
       (step) => step.key,
     );
-    expect(keys).toEqual(["welcome", "roles", "products", "users", "audit", "reopen"]);
+    expect(keys).toEqual(["welcome", "roles", "products", "users", "audit", "notificacoes", "reopen"]);
   });
 
   it("Configurações no menu não adiciona passo (não existe passo de tutorial pra ela)", () => {
     const keys = tutorialStepsFor(["home", "produtos", "usuarios", "auditoria", "configuracoes"]).map(
       (step) => step.key,
     );
-    expect(keys).toEqual(["welcome", "roles", "products", "users", "audit", "reopen"]);
+    expect(keys).toEqual(["welcome", "roles", "products", "users", "audit", "notificacoes", "reopen"]);
   });
 
   it("Requisições no menu adiciona o passo do módulo (ex.: FABRICA padrão)", () => {
     const keys = tutorialStepsFor(["home", "requisicoes"]).map((step) => step.key);
-    expect(keys).toEqual(["welcome", "roles", "requisicoes", "reopen"]);
+    expect(keys).toEqual(["welcome", "roles", "requisicoes", "notificacoes", "reopen"]);
   });
 
   it("Baixa de estoque no menu adiciona o passo do módulo", () => {
     const keys = tutorialStepsFor(["home", "baixas"]).map((step) => step.key);
-    expect(keys).toEqual(["welcome", "roles", "baixas", "reopen"]);
+    expect(keys).toEqual(["welcome", "roles", "baixas", "notificacoes", "reopen"]);
   });
 
   it("todo passo tem título e ao menos um parágrafo", () => {

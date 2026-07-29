@@ -24,6 +24,17 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-07-29",
+    title: "Notificações do Windows",
+    items: [
+      "Agora dá para ativar notificações \"de verdade\" do sistema operacional: um aviso aparece na tela do Windows mesmo com o Vital Ops fora de foco ou minimizado.",
+      "Ative no sininho de notificações, no topo: abra o dropdown e clique em \"Ativar notificações do Windows\". O navegador vai pedir permissão uma vez só.",
+      "Cada pessoa recebe o que é do seu papel: gestor é avisado quando chega uma requisição nova para decidir; quem pediu é avisado quando o gestor confirma ou recusa; a equipe de Projetos é avisada quando o comercial envia uma configuração; e o comercial é avisado quando Projetos responde.",
+      "Clicar na notificação leva direto para a tela do assunto (Requisições, Configurador ou Projetos).",
+      "Dá para desativar a qualquer momento no mesmo sininho.",
+    ],
+  },
+  {
     date: "2026-07-22",
     title: "Configurador: entrou o Carro de Emergência",
     items: [

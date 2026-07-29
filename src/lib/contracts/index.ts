@@ -5,3 +5,4 @@ export * from "./produto";
 export * from "./requisicao";
 export * from "./baixa";
 export * from "./configuracao";
+export * from "./push";

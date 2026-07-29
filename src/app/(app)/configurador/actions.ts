@@ -17,7 +17,8 @@ import { criarConfiguracaoSchema, formatarNumeroConfiguracao } from "@/lib/contr
 import { prisma } from "@/lib/db";
 import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
-import { canViewConfigurador } from "@/lib/rbac";
+import { idsParaNotificar, notificarUsuarios } from "@/lib/push";
+import { canViewConfigurador, canViewProjetos } from "@/lib/rbac";
 import { requestHeaders } from "@/lib/request";
 
 function parseEscolhas(raw: FormDataEntryValue | null): unknown {
@@ -107,6 +108,20 @@ export async function criarConfiguracao(
     summary: `${formatarNumeroConfiguracao(criada.numero)} — ${produto.nome} (${codigo}), ${desvios.length} item(ns) fora do padrão`,
     after: { codigo, foraDoPadrao: desvios.length, resumo: resumoTexto(resolucao.selecoes) },
     req: await requestHeaders(),
+  });
+
+  const usuariosAtivos = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, role: true, active: true },
+  });
+  const equipeProjetos = idsParaNotificar(usuariosAtivos, permissions, canViewProjetos, {
+    excluirId: session.user.id,
+  });
+  await notificarUsuarios(equipeProjetos, {
+    title: "Nova configuração enviada",
+    body: `${formatarNumeroConfiguracao(criada.numero)} — ${produto.nome}${desvios.length > 0 ? `, ${desvios.length} item(ns) fora do padrão` : ""}`,
+    url: "/projetos",
+    tag: `configuracao-${criada.id}`,
   });
 
   revalidatePath("/configurador");

@@ -49,6 +49,7 @@ model User {
   reportsResolvidos    Report[]     @relation("ReportResolvedor")
   configuracoes        Configuracao[] @relation("ConfiguracaoAutor")
   configuracoesRespondidas Configuracao[] @relation("ConfiguracaoRespondente")
+  pushSubscriptions    PushSubscription[] @relation("PushSubscriptions")
 
   @@index([role])
 }
@@ -141,6 +142,25 @@ model ReportAnexo {
   report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   @@index([reportId])
+}
+
+// Assinatura de push (Web Push API) de UM navegador/dispositivo de UM usuário.
+// Um usuário pode ter várias (celular, notebook, Chrome e Edge...) — cada uma é
+// uma linha própria, chaveada pelo endpoint (URL do serviço de push do
+// navegador), que é o identificador natural e único do dispositivo/navegador.
+// Expirada/inválida (404/410 do serviço de push) é removida, não fica órfã.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  criadoEm  DateTime @default(now())
+
+  user User @relation("PushSubscriptions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // Permissões configuráveis por papel × módulo (item 3 da sessão de UI/RBAC).
