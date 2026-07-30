@@ -12,6 +12,10 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Ícone da marca (rasterizado de src/app/icon.svg via sharp — Notification API
+// não tem suporte confiável a SVG em todo navegador, por isso PNG).
+const ICONE = "/icon-notificacao.png";
+
 self.addEventListener("push", (event) => {
   let dados = { title: "Vital Ops", body: "Você tem uma novidade.", url: "/" };
   try {
@@ -28,6 +32,8 @@ self.addEventListener("push", (event) => {
       body: dados.body,
       tag: dados.tag,
       data: { url: dados.url },
+      icon: ICONE,
+      badge: ICONE,
     }),
   );
 });

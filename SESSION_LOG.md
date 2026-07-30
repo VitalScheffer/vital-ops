@@ -4436,10 +4436,56 @@ publicado de novo.
   `proxy.ts` no ar).
 
 ### Pendencias / proximos passos
-1. **Investigar por que o push pro `master` nao disparou deploy automatico**
-   na Vercel (integracao Git, branch de producao configurada, webhook do
-   GitHub) - deploys futuros por `git push` sozinho nao tem garantia de ir
-   pro ar até isso ser resolvido; por ora o caminho confirmado que funciona e
-   `vercel --prod` manual.
+1. ~~Investigar por que o push pro `master` nao disparou deploy automatico~~
+   **Resolvido/esclarecido em 2026-07-30**: nao era config quebrada. Ver
+   entrada seguinte - o push seguinte (so o SESSION_LOG) auto-deployou em 4s.
 2. Teste humano do fluxo de notificacao em producao (item 2 da entrada
    anterior) continua pendente.
+
+## 2026-07-30 (continuacao) - Icone da marca no toast + investigacao do auto-deploy
+
+### Resumo
+Dois pedidos: (1) o toast do Windows estava usando o icone padrao do
+navegador - trocar pela marca da Vital; (2) investigar por que o
+auto-deploy da Vercel nao disparou no push do commit `6a787a7` (entrada
+anterior).
+
+Sobre o (2): **a integracao Git-Vercel esta saudavel, nao e um problema de
+configuracao.** Evidencias:
+- `gh api orgs/VitalScheffer/installations` mostra o GitHub App da Vercel
+  instalado na org (`repository_selection: "all"`, no repo `vital-ops`
+  incluso), no suspenso, com o evento `push` habilitado.
+- O push seguinte, so com a atualizacao do SESSION_LOG (commit `5db623b`,
+  09:21:10), gerou um deploy de PRODUCAO automatico via o mesmo GitHub App
+  (`githubDeployment` no meta) as 09:21:14 - **4 segundos** depois do push.
+- Ou seja, o unico push que nao gerou deploy foi especificamente o de
+  `6a787a7` (a entrega das notificacoes) - um blip pontual (entrega de
+  webhook perdida do lado do GitHub, provavelmente), nao uma quebra
+  persistente. Sem acesso ao log de entregas do webhook do App (isso so o
+  dono do App, a propria Vercel, ve), entao a causa exata do blip em si
+  fica sem confirmacao - mas o sistema, hoje, funciona.
+- **Sem acao de configuracao necessaria.** Se acontecer de novo, o caminho
+  manual (`vercel --prod`) ja esta validado como fallback.
+
+Sobre o (1): a marca so existia como SVG (`src/app/icon.svg`, o favicon).
+Rasterizado para PNG 192x192 com `sharp` (ja presente em node_modules,
+puxado pelo Next) e referenciado no service worker.
+
+### Arquivos criados/alterados
+- `public/icon-notificacao.png` (novo) - `src/app/icon.svg` rasterizado a
+  192x192 via `sharp` (nao versionado como script: conversao pontual, o
+  favicon raramente muda).
+- `public/sw.js` - `icon`/`badge` do `showNotification` apontando pro PNG
+  novo.
+
+### Comandos relevantes
+- `gh api orgs/VitalScheffer/installations` (confirmou o GitHub App da
+  Vercel ativo e nao suspenso).
+- `npx vercel ls vital-ops --json` (comparou os `createdAt`/`githubCommitSha`
+  de cada deploy pra achar o commit sem deploy correspondente).
+- `node -e "require('sharp')..."` (rasterizacao do icone).
+- `npx tsc --noEmit`, `npm run lint` -> verde.
+
+### Pendencias / proximos passos
+- Teste humano do fluxo de notificacao em producao (repetido da entrada
+  anterior) continua pendente - agora com o icone da marca no toast.
