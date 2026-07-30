@@ -4394,3 +4394,52 @@ arquivos, 417 testes) e `npm run build` verdes.
 4. Um usuario com varios navegadores/dispositivos acumula uma
    `PushSubscription` por endpoint - nao ha tela de gestao/limpeza manual
    disso ainda (so a limpeza automatica de expiradas).
+
+## 2026-07-30 - Deploy manual (auto-deploy da Vercel nao disparou) + VAPID em producao
+
+### Resumo
+Push do commit das notificacoes (`6a787a7`, sessao anterior) nao gerou deploy
+automatico na Vercel: `vercel ls` mostrava o deploy de producao mais recente
+ainda apontando pro commit ANTERIOR (`e486fc3`, de 6 dias antes), sem nada
+depois disso pro commit novo. Motivo da falha do auto-deploy nao investigado
+a fundo (integracao Git-Vercel parece nao estar disparando; fica como
+pendencia). Publicado manualmente via `vercel --prod` (CLI ja autenticado
+nesta maquina). Nessa primeira publicacao manual as 3 variaveis VAPID ainda
+nao estavam no painel da Vercel (so no `.env` local) - confirmado por
+`vercel env ls production` que os segredos existentes (DATABASE_URL,
+OMIE_APP_SECRET, AUTH_SECRET) vem do painel, entao nao houve vazamento do
+`.env` local nessa publicacao, mas o botao de notificacao ficaria no ar sem
+funcionar. Configuradas as 3 variaveis (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) via `vercel env add ... production` e
+publicado de novo.
+
+### Decisoes importantes
+- **Deploy manual so depois de confirmar com o usuario** (acao que afeta
+  producao). Mesmo raciocinio pra configurar as variaveis VAPID direto no
+  painel via CLI - perguntado antes de escrever segredo em producao.
+- **Verificar ausencia de vazamento antes de seguir**: `.env` local esta no
+  `.gitignore` (`.env*`), e o Vercel CLI respeita `.gitignore` na hora de
+  decidir o que sobe num deploy manual - confirmado na pratica pelo
+  `vercel env ls production` batendo com os segredos que ja estavam no
+  painel havia semanas, nao com o conteudo do `.env` local.
+
+### Comandos relevantes
+- `npx vercel whoami`, `npx vercel ls vital-ops --json` (achou o commit mais
+  recente no deploy de producao, confirmando o auto-deploy parado).
+- `npx vercel env ls production` (confirmou que os segredos existentes vem do
+  painel, nao do `.env` local).
+- `npx vercel env add NEXT_PUBLIC_VAPID_PUBLIC_KEY production` /
+  `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (via stdin, ambiente Production).
+- `npx vercel --prod --yes` (duas vezes: antes e depois das variaveis VAPID).
+- Verificado por HTTP: `https://vital-ops.vercel.app/sw.js` -> 200
+  `application/javascript` sem exigir login (confirma o ajuste do
+  `proxy.ts` no ar).
+
+### Pendencias / proximos passos
+1. **Investigar por que o push pro `master` nao disparou deploy automatico**
+   na Vercel (integracao Git, branch de producao configurada, webhook do
+   GitHub) - deploys futuros por `git push` sozinho nao tem garantia de ir
+   pro ar até isso ser resolvido; por ora o caminho confirmado que funciona e
+   `vercel --prod` manual.
+2. Teste humano do fluxo de notificacao em producao (item 2 da entrada
+   anterior) continua pendente.
