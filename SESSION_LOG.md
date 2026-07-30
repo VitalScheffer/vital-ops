@@ -4489,3 +4489,38 @@ puxado pelo Next) e referenciado no service worker.
 ### Pendencias / proximos passos
 - Teste humano do fluxo de notificacao em producao (repetido da entrada
   anterior) continua pendente - agora com o icone da marca no toast.
+
+## 2026-07-30 (continuacao 2) - Bug: toggle do sininho esquecia que ja estava inscrito
+
+### Resumo
+Usuario reportou: toda vez que o dropdown de notificacoes atualiza, o botao
+volta a mostrar "Ativar notificacoes do Windows" mesmo ja estando inscrito -
+parece que desativou sozinho.
+
+Causa: `assinaturaAtual()` (`src/lib/pushClient.ts`) checava a inscricao
+existente com `navigator.serviceWorker.getRegistration("/sw.js")` - esse
+metodo casa a URL passada contra o ESCOPO do registro, e depender disso pra
+achar um registro que ja existe nao e confiavel (comportamento varia por
+navegador/momento do ciclo de vida logo apos o registro). Quando nao achava
+o registro, a funcao devolvia `null` e o componente concluia "nao ta
+inscrito", mesmo com a assinatura real intacta no navegador.
+
+### Arquivos alterados
+- `src/lib/pushClient.ts` - `assinaturaAtual()` passa a usar
+  `navigator.serviceWorker.getRegistrations()` (plural, sem URL) e percorre
+  os registros procurando quem tem uma `PushSubscription` - elimina a
+  dependencia do casamento de escopo.
+- `src/components/NotificacoesBell.tsx` - novo estado `verificado`: o botao
+  fica ESCONDIDO ate a checagem assincrona da assinatura resolver (sucesso ou
+  erro), em vez de nascer mostrando "Ativar" e so depois (as vezes visivel
+  para o usuario) corrigir para "Desativar". Efeito colateral bom: qualquer
+  problema de timing futuro vira "botao demora a aparecer", nunca mais
+  "botao mente sobre o estado".
+
+### Comandos relevantes
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (37/417) -> verde.
+
+### Pendencias / proximos passos
+- Teste humano em producao (repetido, agora incluindo confirmar que o
+  toggle sobrevive a reload/nova aba mostrando "Desativar" corretamente)
+  continua sendo o unico item sem verificacao real de navegador.

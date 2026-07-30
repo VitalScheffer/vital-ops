@@ -38,11 +38,20 @@ function assinaturaParaApi(subscription: PushSubscription) {
 
 // Restaura o estado do toggle SEM pedir permissão nem registrar nada novo —
 // chamado no mount do componente. Devolve null se não houver assinatura ativa.
+//
+// `getRegistrations()` (plural, sem URL) em vez de `getRegistration("/sw.js")`:
+// o segundo depende de casar a URL passada contra o escopo do registro
+// (nem sempre confiável entre navegadores/momentos do ciclo de vida logo após
+// o registro), e era a causa do toggle voltar para "Ativar" mesmo já
+// inscrito — a checagem simplesmente não achava o registro existente.
 export async function assinaturaAtual(): Promise<PushSubscription | null> {
   if (!suportaPushNotifications()) return null;
-  const registration = await navigator.serviceWorker.getRegistration("/sw.js");
-  if (!registration) return null;
-  return registration.pushManager.getSubscription();
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  for (const registration of registrations) {
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) return subscription;
+  }
+  return null;
 }
 
 // SÓ deve ser chamado dentro de um onClick (gesto do usuário) — pedir

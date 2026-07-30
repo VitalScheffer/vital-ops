@@ -25,6 +25,10 @@ export function NotificacoesBell({ notificacoes }: { notificacoes: Notificacao[]
   // APIs do navegador (window/navigator), nunca muda depois disso.
   const [suportado] = useState(() => suportaPushNotifications());
   const [inscrito, setInscrito] = useState(false);
+  // Só true depois que a checagem real (assíncrona) da assinatura resolve —
+  // enquanto isso o botão fica escondido, em vez de piscar "Ativar" antes de
+  // saber se já está inscrito (o que parecia "esqueceu que já tava ligado").
+  const [verificado, setVerificado] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -37,9 +41,10 @@ export function NotificacoesBell({ notificacoes }: { notificacoes: Notificacao[]
     assinaturaAtual()
       .then((sub) => setInscrito(sub !== null))
       .catch(() => {
-        // best-effort: se não der para checar, o botão some do jeito que a
-        // permissão realmente está (fica "Ativar", sem travar a tela).
-      });
+        // best-effort: se não der para checar, o botão assume "Ativar" (mais
+        // seguro que assumir inscrito sem confirmar).
+      })
+      .finally(() => setVerificado(true));
   }, [suportado]);
 
   async function alternarPush() {
@@ -104,7 +109,7 @@ export function NotificacoesBell({ notificacoes }: { notificacoes: Notificacao[]
               ))}
             </ul>
           )}
-          {suportado ? (
+          {suportado && verificado ? (
             <button
               type="button"
               disabled={carregando}
