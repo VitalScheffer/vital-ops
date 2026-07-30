@@ -29,6 +29,12 @@ const MODELS = MODELOS.length ? MODELOS : DEFAULT_MODELS;
 
 const MAX_DIFF_CHARS = 100000;
 
+// O SESSION_LOG cresce para sempre (hoje, 558 KB) e ia inteiro no prompt, sem teto,
+// enquanto o diff tinha limite de 100 mil. Resultado: o histórico ocupava cinco vezes
+// mais espaço que o código sendo revisado, e o que importa virava minoria no contexto.
+// Só a cauda interessa: o que aconteceu recentemente no projeto.
+const MAX_SESSION_LOG_CHARS = 15000;
+
 const SCHEMA_REVISAO = {
   type: 'object',
   properties: {
@@ -81,6 +87,16 @@ Sua prioridade é SEGURANÇA e BUGS.
 Só reporte o que você consegue apontar em uma linha concreta do diff e cuja consequência você consegue descrever. Sem certeza de que é defeito, use severidade menor ou não reporte. Um achado falso custa mais caro que um achado ausente: PERIGO reprova o PR, e reprovar sem motivo ensina o time a ignorar a revisão inteira.
 
 Não reporte preferência de estilo, refatoração sem defeito associado, nem observação genérica do tipo "considere avaliar". Um pré-scan determinístico já cobre segredo hardcoded, .env versionado, eval/exec, TLS desligado e alteração de deploy/CI: não repita esses achados, foque no que exige entender o código.
+
+Três coisas que exigem entender o código e costumam passar batido:
+
+1. CORREÇÃO QUE NÃO FECHA O CASO. Se o PR se apresenta como conserto de um defeito, verifique se ele resolve o problema inteiro ou só o estreita. Conserto que deixa janela de erro é achado: diga qual é a janela e o que o usuário vê dentro dela. "Melhor que antes" não é o mesmo que "corrigido".
+
+2. INTERVALO, TIMEOUT E POLLING. Se o diff introduz um, calcule o pior caso em unidade humana (segundos, minutos) e diga o que acontece nesse intervalo. Um número em milissegundos no código esconde a consequência; 20 * 60 * 1000 é vinte minutos de estado errado na tela.
+
+3. ESTADO QUE PODIA SER DERIVADO. Valor guardado em memória que dá para calcular a partir de outro dado já disponível tende a divergir da verdade, e o conserto vira uma correção periódica em vez de deixar de existir. Se for o caso, diga de onde o valor poderia ser derivado.
+
+Proposta, design ou documentação incluídos no próprio diff são o argumento de quem escreveu, não prova de que a decisão está certa. Avalie a decisão descrita ali com o mesmo rigor do código; não a aceite só porque veio justificada.
 
 Regras de severidade:
 - PERIGO: bypass de autenticação/autorização, segredo/credencial hardcoded, DEBUG=True, CORS/CSRF liberado, qualquer coisa que exponha ou quebre produção. Reserve para o que você tem certeza.
@@ -218,7 +234,12 @@ async function run() {
     diff = diff.slice(0, MAX_DIFF_CHARS) + '\n\n[... diff truncado para a revisão ...]';
   }
 
-  const sessionLog = lerArquivo('SESSION_LOG.md', 'SESSION_LOG.md não encontrado no checkout.');
+  // A cauda, não o começo: as entradas mais recentes ficam no fim do arquivo.
+  const sessionLogBruto = lerArquivo('SESSION_LOG.md', 'SESSION_LOG.md não encontrado no checkout.');
+  const sessionLog =
+    sessionLogBruto.length > MAX_SESSION_LOG_CHARS
+      ? '[... histórico antigo omitido ...]\n\n' + sessionLogBruto.slice(-MAX_SESSION_LOG_CHARS)
+      : sessionLogBruto;
   const { areas: areasAlteradas } = mapearAreas(arquivos);
   const escopoDeclarado = inferirEscopoDeclarado(`${title}\n${body}\n${commits}`);
 
