@@ -1,141 +1,80 @@
 // Pré-scan determinístico do diff. NÃO depende do LLM: pega padrões catastróficos
-// conhecidos (segredo hardcoded, SQL cru, deploy/CI etc.) e força o achado
-// independente do que o Gemini "achar". É a rede de segurança que impede um PERIGO
-// de ser "aprovado com ressalvas".
+// conhecidos e força o achado independente do que o Gemini "achar". É a rede de
+// segurança que impede um PERIGO de ser "aprovado com ressalvas".
 //
-// Adaptado do nextstep (Django/DRF) pro vital-ops (Next.js 16 + Prisma + Auth.js):
-// as regras genéricas (segredo, eval, TLS, .env versionado, dangerouslySetInnerHTML,
-// deploy/CI) foram mantidas; as regras específicas de Django (AllowAny,
-// permission_classes, DEBUG=True, ALLOWED_HOSTS, csrf_exempt, mark_safe, migrations
-// .py) foram trocadas pelos equivalentes desta stack (SQL cru do Prisma, catch vazio
-// em TS, migration/schema do Prisma).
+// As regras são compostas: `rules/core.js` vale para qualquer repositório, e os
+// módulos de stack (django, spring, next, prisma, infra) entram só onde a stack
+// realmente existe. Antes tudo morava num arquivo só, que foi copiado para 13
+// repositórios e já começou a divergir; corrigir uma regex exigia repetir a mesma
+// edição em cada cópia.
 
-// Linhas que leem de ambiente não são segredo hardcoded — não acusar.
-const LE_DE_AMBIENTE = /(process\.env|getenv|settings\.|config\(|env\(|ENV\[|\bvars\.|\bsecrets\.)/i;
+const fs = require('fs');
+const path = require('path');
+const core = require('./rules/core');
 
-// Regras aplicadas a cada LINHA ADICIONADA do diff.
-const REGRAS_LINHA = [
+// Marcador -> módulo. A detecção olha o checkout (o workflow faz checkout completo),
+// então "tem pom.xml" é evidência direta de que as regras de Spring fazem sentido ali.
+const STACKS = [
+  { nome: 'django', modulo: 'django', marcadores: ['manage.py'] },
+  { nome: 'spring', modulo: 'spring', marcadores: ['pom.xml', 'build.gradle', 'build.gradle.kts'] },
   {
-    id: 'segredo-aws-key',
-    severidade: 'PERIGO',
-    categoria: 'Segredo',
-    regex: /AKIA[0-9A-Z]{16}/,
-    problema: 'Possível AWS Access Key ID hardcoded.',
-    recomendacao: 'Remova a credencial e rotacione a chave imediatamente.',
+    nome: 'next',
+    modulo: 'next',
+    marcadores: ['next.config.js', 'next.config.ts', 'next.config.mjs', 'frontend/next.config.js'],
   },
-  {
-    id: 'segredo-private-key',
-    severidade: 'PERIGO',
-    categoria: 'Segredo',
-    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-    problema: 'Chave privada commitada no repositório.',
-    recomendacao: 'Remova do git, rotacione e guarde como secret.',
-  },
-  {
-    id: 'segredo-credencial-literal',
-    severidade: 'PERIGO',
-    categoria: 'Segredo',
-    regex: /\b(api[_-]?key|secret|token|senha|password|passwd|pwd)\b\s*[:=]\s*['"][^'"\s]{6,}['"]/i,
-    guard: LE_DE_AMBIENTE,
-    problema: 'Credencial/segredo aparentemente hardcoded.',
-    recomendacao: 'Use variável de ambiente/secret (Vercel Environment Variables); se for real, rotacione.',
-  },
-  {
-    id: 'config-env-versionado',
-    severidade: 'PERIGO',
-    categoria: 'Segredo',
-    regex: /^\s*[A-Z0-9_]+\s*=\s*.+/,
-    soArquivo: /(^|\/)\.env(\.|$)/,
-    problema: 'Arquivo .env versionado (provável vazamento de segredos).',
-    recomendacao: 'Remova o .env do git e confirme que está no .gitignore (`.env*`).',
-  },
-  {
-    id: 'sec-eval-exec',
-    severidade: 'MODERADO',
-    categoria: 'Segurança',
-    regex: /\beval\s*\(|child_process\.exec\s*\(/,
-    problema: 'Uso de eval/exec — risco de execução arbitrária ou injeção de comando.',
-    recomendacao: 'Evite; se inevitável, valide/escape rigorosamente a entrada (prefira execFile com args separados).',
-  },
-  {
-    id: 'sec-tls-verify-false',
-    severidade: 'MODERADO',
-    categoria: 'Segurança',
-    regex: /rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0/,
-    problema: 'Verificação de certificado TLS desativada.',
-    recomendacao: 'Mantenha a verificação de certificado ligada; resolva o problema real do certificado.',
-  },
-  {
-    id: 'sec-dangerous-html',
-    severidade: 'MODERADO',
-    categoria: 'Segurança',
-    regex: /dangerouslySetInnerHTML/,
-    problema: 'Injeção de HTML sem sanitização (risco de XSS).',
-    recomendacao: 'Sanitize o conteúdo antes de renderizar, ou evite dangerouslySetInnerHTML.',
-  },
-  {
-    id: 'sec-raw-sql',
-    severidade: 'PERIGO',
-    categoria: 'Segurança',
-    regex: /\$queryRawUnsafe\s*\(|\$executeRawUnsafe\s*\(/,
-    problema: 'SQL cru sem parametrização segura (Prisma $queryRawUnsafe/$executeRawUnsafe).',
-    recomendacao: 'Prefira $queryRaw/$executeRaw com template literal (parametrizado) ou o query builder do Prisma.',
-  },
+  { nome: 'prisma', modulo: 'prisma', marcadores: ['prisma/schema.prisma'] },
+  { nome: 'infra', modulo: 'infra', marcadores: ['docker-compose.yml', 'docker-compose.yaml', 'mosquitto.conf'] },
 ];
 
-// Regras aplicadas ao CAMINHO dos arquivos alterados.
-const REGRAS_CAMINHO = [
-  {
-    id: 'deploy-pipeline',
-    severidade: 'PERIGO',
-    categoria: 'Deploy/CI',
-    teste: (p) => p.startsWith('.github/workflows/'),
-    problema: 'Alteração em workflow de deploy/CI (push na branch principal aciona deploy automático no Vercel).',
-    recomendacao: 'Revise com atenção: erro aqui quebra o deploy de produção.',
-  },
-  {
-    id: 'schema-migration',
-    severidade: 'MODERADO',
-    categoria: 'Schema',
-    teste: (p) => p.startsWith('prisma/migrations/'),
-    problema: 'Nova migration / mudança de schema (o build do Vercel roda `prisma migrate deploy`).',
-    recomendacao: 'Confirme reversibilidade e impacto em dados de produção antes de mergear.',
-  },
-  {
-    id: 'schema-prisma-tocado',
-    severidade: 'MODERADO',
-    categoria: 'Schema',
-    teste: (p) => p === 'prisma/schema.prisma',
-    problema: 'Arquivo de schema Prisma alterado.',
-    recomendacao: 'Confira se falta gerar/aplicar uma migration (`npx prisma migrate dev`) e o impacto em dados existentes.',
-  },
-  {
-    id: 'config-central-tocada',
-    severidade: 'MODERADO',
-    categoria: 'Config',
-    teste: (p) =>
-      p === 'src/lib/db.ts' ||
-      p === 'src/lib/auth.ts' ||
-      p === 'src/lib/auth.config.ts' ||
-      p === 'prisma.config.ts' ||
-      p === 'next.config.ts',
-    problema: 'Arquivo de configuração central alterado (banco, autenticação ou build).',
-    recomendacao: 'Revise com atenção — erro aqui afeta login/banco/build da aplicação inteira.',
-  },
-];
+/**
+ * Stacks presentes no repositório.
+ *
+ * REVISOR_STACKS sobrescreve a detecção (lista separada por vírgula). Serve para
+ * teste e para o caso de um repositório cuja stack não é adivinhável pelos arquivos.
+ */
+function detectarStacks(raiz = process.cwd()) {
+  const forcado = (process.env.REVISOR_STACKS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (forcado.length) return forcado;
 
-const FALHA_SILENCIOSA = {
-  id: 'sec-catch-vazio',
-  severidade: 'MODERADO',
-  categoria: 'Robustez',
-  problema: 'catch vazio engole o erro silenciosamente.',
-  recomendacao: 'Logue ou trate o erro; não silencie em caminho crítico (Server Action, auth, envio ao Omie).',
-};
+  return STACKS.filter((s) => s.marcadores.some((m) => fs.existsSync(path.join(raiz, m)))).map((s) => s.nome);
+}
 
-function novoAchado(regra, arquivo, trecho, linha) {
+function carregarModulo(nome) {
+  try {
+    return require(`./rules/${nome}`);
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
+  }
+}
+
+function montarRegras(stacks) {
+  const linha = [...core.REGRAS_LINHA];
+  const caminho = [...core.REGRAS_CAMINHO];
+  const pares = [];
+
+  for (const nome of stacks) {
+    const mod = carregarModulo(nome);
+    if (!mod) continue;
+    linha.push(...(mod.REGRAS_LINHA || []));
+    caminho.push(...(mod.REGRAS_CAMINHO || []));
+    pares.push(...(mod.PARES || []));
+  }
+
+  return { linha, caminho, pares };
+}
+
+function ehTeste(arquivo) {
+  return !!arquivo && (core.ARQUIVO_DE_TESTE.test(arquivo) || core.NOME_DE_TESTE.test(arquivo));
+}
+
+function novoAchado(regra, arquivo, trecho, linha, severidade) {
   return {
     id: regra.id,
-    severidade: regra.severidade,
+    severidade: severidade || regra.severidade,
     categoria: regra.categoria,
     arquivo: arquivo || '(desconhecido)',
     linha: linha || null,
@@ -182,35 +121,49 @@ function* linhasAdicionadas(diff) {
   }
 }
 
-// catch vazio numa linha só: `catch { }` / `catch (e) { }` / `} catch {}`.
-const CATCH_VAZIO_UMA_LINHA = /\bcatch\s*(\([^)]*\))?\s*\{\s*\}/;
-// abre um catch e não fecha na mesma linha: `catch (e) {` ou `catch {`.
-const CATCH_ABRE_BLOCO = /\bcatch\s*(\([^)]*\))?\s*\{\s*$/;
-
-function escanearDiff(diff) {
+function escanearDiff(diff, regras = montarRegras(detectarStacks())) {
   if (!diff) return [];
+  const { linha: regrasLinha, pares } = regras;
   const achados = [];
+
   for (const { arquivo, conteudo, linha, proximaAdicionada } of linhasAdicionadas(diff)) {
-    for (const regra of REGRAS_LINHA) {
+    // Documentação não é código: aplicar regex de código em prosa gera achado a
+    // partir de uma frase. Um README que diz "não existe auto-login neste sistema"
+    // virava PERIGO de bypass de autenticação.
+    if (arquivo && core.ARQUIVO_DE_PROSA.test(arquivo)) continue;
+
+    // Código gerado ou de terceiro não passa por revisão humana, então acusá-lo não
+    // muda decisão nenhuma e só enche o relatório.
+    if (arquivo && (core.CAMINHO_GERADO.test(arquivo) || core.ARQUIVO_GERADO.test(arquivo))) continue;
+
+    const emTeste = ehTeste(arquivo);
+
+    for (const regra of regrasLinha) {
       if (regra.soArquivo && !(arquivo && regra.soArquivo.test(arquivo))) continue;
+      if (regra.naoArquivo && arquivo && regra.naoArquivo.test(arquivo)) continue;
       if (regra.guard && regra.guard.test(conteudo)) continue;
-      if (regra.regex.test(conteudo)) achados.push(novoAchado(regra, arquivo, conteudo, linha));
+      if (!regra.regex.test(conteudo)) continue;
+
+      // Credencial em fixture/seed quase sempre é valor de mentira. Rebaixar em vez
+      // de ignorar mantém o achado visível sem reprovar o PR por causa dele.
+      const severidade = emTeste && regra.rebaixarEmTeste ? 'MODERADO' : regra.severidade;
+      achados.push(novoAchado(regra, arquivo, conteudo, linha, severidade));
     }
 
-    const catchVazioMesmaLinha = CATCH_VAZIO_UMA_LINHA.test(conteudo);
-    const catchAbreEFechaVazio =
-      CATCH_ABRE_BLOCO.test(conteudo) && proximaAdicionada && /^\s*\}\s*$/.test(proximaAdicionada);
-    if (catchVazioMesmaLinha || catchAbreEFechaVazio) {
-      achados.push(novoAchado(FALHA_SILENCIOSA, arquivo, conteudo, linha));
+    for (const par of pares) {
+      if (par.abre.test(conteudo) && proximaAdicionada && par.silencia.test(proximaAdicionada)) {
+        achados.push(novoAchado(par, arquivo, conteudo, linha));
+      }
     }
   }
+
   return achados;
 }
 
-function escanearCaminhos(arquivos) {
+function escanearCaminhos(arquivos, regras = montarRegras(detectarStacks())) {
   const achados = [];
   for (const arq of arquivos) {
-    for (const regra of REGRAS_CAMINHO) {
+    for (const regra of regras.caminho) {
       if (regra.teste(arq)) achados.push(novoAchado(regra, arq, '', null));
     }
   }
@@ -230,8 +183,10 @@ function dedup(achados) {
   return saida;
 }
 
-function escanear(diff, arquivos = []) {
-  return dedup([...escanearDiff(diff), ...escanearCaminhos(arquivos)]);
+function escanear(diff, arquivos = [], opcoes = {}) {
+  const stacks = opcoes.stacks || detectarStacks(opcoes.raiz);
+  const regras = montarRegras(stacks);
+  return dedup([...escanearDiff(diff, regras), ...escanearCaminhos(arquivos, regras)]);
 }
 
-module.exports = { escanear, escanearDiff, escanearCaminhos };
+module.exports = { escanear, escanearDiff, escanearCaminhos, detectarStacks, montarRegras };

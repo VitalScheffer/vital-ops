@@ -1,32 +1,14 @@
 // Classifica arquivos em áreas e infere o escopo pretendido da tarefa a partir do
 // título/descrição/commits, pra acusar quando o PR mexe fora do que a tarefa pedia
-// (ex.: tarefa "só UI" que altera Server Action/RBAC — perigoso com deploy automático
-// no push). Adaptado do nextstep (Django + frontend/ separados) pro vital-ops
-// (Next.js 16 App Router + Prisma num único app — sem pasta frontend/ própria).
+// (ex.: tarefa "só front" que altera o backend — perigoso com deploy automático).
 
-// Ordem importa: a primeira que casar vence (migration antes de schema, server antes
-// de ui — senão tudo debaixo de src/app/ cairia em "ui").
+// Ordem importa: a primeira que casar vence (migration antes de backend, pois ambas .py).
 const AREAS = [
-  { area: 'migration', teste: (p) => p.startsWith('prisma/migrations/') },
-  { area: 'schema', teste: (p) => p === 'prisma/schema.prisma' },
-  {
-    area: 'ci/infra',
-    teste: (p) =>
-      p.startsWith('.github/') ||
-      /(^|\/)Dockerfile/.test(p) ||
-      p === 'vercel.json' ||
-      p === 'next.config.ts' ||
-      p === 'package.json',
-  },
-  { area: 'specs', teste: (p) => p.startsWith('docs/') || p === 'AGENTS.md' || /\.md$/.test(p) },
-  {
-    area: 'server',
-    teste: (p) =>
-      p.startsWith('src/app/api/') ||
-      /\/actions\.ts$/.test(p) ||
-      p.startsWith('src/lib/'),
-  },
-  { area: 'ui', teste: (p) => p.startsWith('src/components/') || p.startsWith('src/app/') },
+  { area: 'frontend', teste: (p) => p.startsWith('frontend/') },
+  { area: 'migration', teste: (p) => /\/migrations\/\d{3,}.*\.py$/.test(p) },
+  { area: 'ci/infra', teste: (p) => p.startsWith('.github/') || /(^|\/)Dockerfile/.test(p) || p.startsWith('docker') || p.startsWith('deploy') },
+  { area: 'specs', teste: (p) => p.startsWith('openspec/') || p.startsWith('docs/') || /\.md$/.test(p) },
+  { area: 'backend', teste: (p) => p.startsWith('apps/') || p.startsWith('config/') || p === 'manage.py' || p.endsWith('.py') || p === 'pyproject.toml' },
 ];
 
 function classificarArquivo(caminho) {
@@ -48,9 +30,9 @@ function mapearAreas(arquivos) {
 
 // Normaliza um termo de escopo (de conventional commit ou palavra-chave) numa área.
 const SINONIMOS = [
-  { area: 'ui', termos: /\b(ui|frontend|front|tela|css|estilo|componente|design|layout)\b/i },
-  { area: 'server', termos: /\b(server|backend|back|api|action|prisma|banco|db|rbac|permiss(a|ã)o|auth)\b/i },
-  { area: 'ci/infra', termos: /\b(ci|deploy|infra|workflow|pipeline|docker|vercel)\b/i },
+  { area: 'frontend', termos: /\b(frontend|front|ui|tela|css|estilo|next|react|componente)\b/i },
+  { area: 'backend', termos: /\b(backend|back|api|django|drf|model|serializer|endpoint|migration)\b/i },
+  { area: 'ci/infra', termos: /\b(ci|deploy|infra|workflow|pipeline|docker)\b/i },
 ];
 
 function normalizarTermo(termo) {
@@ -60,7 +42,7 @@ function normalizarTermo(termo) {
   return null;
 }
 
-// Lê escopo de conventional commit: feat(server): ... -> server (explícito).
+// Lê escopo de conventional commit: feat(frontend): ... -> frontend (explícito).
 function inferirEscopoDeclarado(texto) {
   const t = texto || '';
   const areas = new Set();

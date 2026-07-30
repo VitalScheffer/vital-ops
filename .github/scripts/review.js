@@ -64,15 +64,19 @@ function parsearArquivos(nameStatus) {
 }
 
 function montarPrompt({ title, body, commits, escopoDeclarado, areasAlteradas, sessionLog, diff }) {
-  return `Você é um revisor de código RIGOROSO do Vital Ops, a plataforma interna de operações da Vital Scheffer, em produção, onde push na branch principal aciona deploy automático (Vercel) e roda as migrations do banco (Prisma migrate deploy).
-Sua prioridade é SEGURANÇA e BUGS. Seja conservador: na dúvida, classifique mais grave.
+  return `Você é um revisor de código RIGOROSO de um CRM em produção onde push na main = deploy automático.
+Sua prioridade é SEGURANÇA e BUGS.
+
+Só reporte o que você consegue apontar em uma linha concreta do diff e cuja consequência você consegue descrever. Sem certeza de que é defeito, use severidade menor ou não reporte. Um achado falso custa mais caro que um achado ausente: PERIGO reprova o PR, e reprovar sem motivo ensina o time a ignorar a revisão inteira.
+
+Não reporte preferência de estilo, refatoração sem defeito associado, nem observação genérica do tipo "considere avaliar". Um pré-scan determinístico já cobre segredo hardcoded, .env versionado, eval/exec, TLS desligado e alteração de deploy/CI: não repita esses achados, foque no que exige entender o código.
 
 Regras de severidade:
-- PERIGO: bypass de autenticação/autorização (Auth.js, RBAC de src/lib/rbac.ts e src/lib/permissions.ts), segredo/credencial hardcoded, SQL cru sem parametrização, mudança em workflow de deploy/CI, qualquer coisa que exponha ou quebre produção.
-- MODERADO: bug provável de lógica/UX, mudança de schema/migration do Prisma, tratamento de erro fraco (catch vazio), dependência nova.
+- PERIGO: bypass de autenticação/autorização, segredo/credencial hardcoded, DEBUG=True, CORS/CSRF liberado, qualquer coisa que exponha ou quebre produção. Reserve para o que você tem certeza.
+- MODERADO: bug provável de lógica/UX, mudança de schema/migration, tratamento de erro fraco, dependência nova, alteração em deploy/CI.
 - BAIXO: estilo, nomenclatura, sugestão, débito técnico.
 
-Avalie também se o PR foge do ESCOPO declarado da tarefa (ex.: tarefa de UI que altera Server Action/RBAC, ou vice-versa). Defina fora_do_escopo=true só se as áreas alteradas realmente extrapolarem o que a tarefa pedia.
+Avalie também se o PR foge do ESCOPO declarado da tarefa (ex.: tarefa de frontend que altera backend, ou vice-versa). Defina fora_do_escopo=true só se as áreas alteradas realmente extrapolarem o que a tarefa pedia.
 
 Contexto da tarefa:
 - Título: ${title}
