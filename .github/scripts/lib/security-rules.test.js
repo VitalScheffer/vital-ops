@@ -219,3 +219,37 @@ test('chave AWS de verdade continua PERIGO', () => {
   const a = escanearDiff(diffAdd('deploy.py', ['aws_key = "AKIA2X7QLMNPQRSTUVWX"']));
   assert.ok(a.some((x) => x.id === 'segredo-aws-key' && x.severidade === 'PERIGO'));
 });
+test('regra recuperada: config central do vital-ops volta a ser vigiada', () => {
+  const r = montarRegras(['next']);
+  for (const arq of ['src/lib/db.ts', 'src/lib/auth.ts', 'src/lib/auth.config.ts', 'prisma.config.ts', 'next.config.ts']) {
+    const a = escanearCaminhos([arq], r);
+    assert.ok(a.some((x) => x.id === 'config-central-tocada'), arq + ' deveria ser vigiado');
+  }
+  assert.equal(escanearCaminhos(['src/lib/texto.ts'], r).length, 0, 'arquivo comum nao pode acusar');
+});
+
+test('regra recuperada: arquivos de RBAC e o proxy do Next 16', () => {
+  const r = montarRegras(['next']);
+  for (const arq of ['src/proxy.ts', 'src/lib/rbac.ts', 'src/lib/permissions.ts', 'middleware.ts']) {
+    assert.ok(
+      escanearCaminhos([arq], r).some((x) => x.id === 'next-arquivo-de-autorizacao'),
+      arq + ' deveria ser vigiado'
+    );
+  }
+});
+
+test('regra recuperada: catch vazio em JS/TS', () => {
+  const r = montarRegras(['next']);
+  for (const linha of ['  } catch {}', '  } catch (e) {}', '} catch (erro) { }']) {
+    assert.ok(
+      escanearDiff(diffAdd('lib/omieConnect.js', [linha]), r).some((x) => x.id === 'sec-catch-vazio'),
+      linha + ' deveria acusar'
+    );
+  }
+});
+
+test('catch que trata o erro nao acusa', () => {
+  const r = montarRegras(['next']);
+  const diff = diffAdd('lib/x.ts', ['  } catch (erro) {', '    console.warn(erro);', '  }']);
+  assert.equal(escanearDiff(diff, r).filter((x) => x.id === 'sec-catch-vazio').length, 0);
+});
