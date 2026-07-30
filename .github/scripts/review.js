@@ -9,7 +9,18 @@ const { atualizarCardDoPR } = require('./lib/trello');
 
 // Modelos em ordem de preferência (fallback em 404/429/5xx). Sobrescrevível por
 // vars.GEMINI_MODEL (lista separada por vírgula).
-const DEFAULT_MODELS = ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+//
+// Esta lista tem que espelhar a variável GEMINI_MODEL configurada nos repositórios.
+// Ela é o que vale se a variável for apagada, e uma lista defasada aqui faria a
+// revisão voltar a um modelo antigo sem ninguém perceber.
+const DEFAULT_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+];
 const MODELOS = (process.env.GEMINI_MODEL || '')
   .split(',')
   .map((m) => m.trim())
