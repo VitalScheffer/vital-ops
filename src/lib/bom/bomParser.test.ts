@@ -85,6 +85,20 @@ describe("parseBom — casos de borda", () => {
     expect(r.duplicados).toHaveLength(1);
   });
 
+  it("aceita a peça com quebra de linha no meio do código (BOM que quebra a célula em várias linhas)", () => {
+    const r = parseBom([linha("MCHUH SM001\nC0PTD R00 - LONGARINA\nRODIZIO DIR. E TOT.")]);
+    expect(r.erros).toEqual([]);
+    expect(r.itens[0].codigo).toBe("MCHUH SM001 C0PTD");
+    expect(r.itens[0].descricaoProduto).toBe("MCHUH SM001 C0PTD - LONGARINA RODIZIO DIR. E TOT.");
+    expect(r.itens[0].familia).toBe("SBM - SUBMONTAGEM");
+  });
+
+  it("aceita tab e espaço duplo entre os blocos do código", () => {
+    const r = parseBom([linha("CREHS\tPC001  CCSLD R00 - BASE INF.")]);
+    expect(r.erros).toEqual([]);
+    expect(r.itens[0].codigo).toBe("CREHS PC001 CCSLD");
+  });
+
   it("família não reconhecida (nem COM, nem SM, nem PC) fica com familia=null mas não é erro", () => {
     const r = parseBom([linha("CREHS XX001 C0PTD R00 - ITEM ESTRANHO")]);
     expect(r.itens[0].status).toBe("novo");

@@ -8,6 +8,15 @@ const CODE_PATTERN = /^(\S{5}) (\S{5}) (\S{5})(?: (R\d{2}))? - (.+)$/;
 
 export const DESCRICAO_MAX = 120;
 
+// A célula da PEÇA pode vir com quebra de linha dentro (algumas BOMs do CAD
+// quebram o texto no meio do código: "MCHUH SM001\nC0PTD R00 - ..."), com tab
+// ou com espaço não separável (U+00A0). Como o padrão exige espaço simples
+// entre os blocos, qualquer um desses fazia a linha inteira virar erro. Aqui
+// todo espaço em branco vira um espaço só antes de conferir o padrão.
+export function normalizarPeca(peca: string): string {
+  return peca.replace(/\s+/g, " ").trim();
+}
+
 // Chave de deduplicação: ignora espaços. Assim um código gerado com espaços
 // ("CREHS SM001 C0PTD") casa com o mesmo código sem espaços de um Omie antigo
 // ("CREHSSM001C0PTD"), evitando recadastrar o item só por causa do formato.
@@ -48,7 +57,7 @@ function extrairCodigo(pecaTrim: string): CodigoInfo | null {
 }
 
 function parseLinha(row: BomRow): ParsedItem {
-  const info = extrairCodigo(row.peca.trim());
+  const info = extrairCodigo(normalizarPeca(row.peca));
 
   if (!info) {
     return {
@@ -125,7 +134,7 @@ export function parseEstrutura(rows: BomRow[]): EstruturaRel[] {
   for (const row of rows) {
     const numero = row.numero.trim();
     if (!numero) continue;
-    const info = extrairCodigo(row.peca.trim());
+    const info = extrairCodigo(normalizarPeca(row.peca));
     if (info) codigoPorNumero.set(numero, info.codigo);
   }
 
@@ -134,7 +143,7 @@ export function parseEstrutura(rows: BomRow[]): EstruturaRel[] {
   for (const row of rows) {
     const numero = row.numero.trim();
     if (!numero.includes(".")) continue; // nível de topo, não é filho
-    const info = extrairCodigo(row.peca.trim());
+    const info = extrairCodigo(normalizarPeca(row.peca));
     if (!info) continue;
     const numeroPai = numero.slice(0, numero.lastIndexOf("."));
     const codigoPai = codigoPorNumero.get(numeroPai);

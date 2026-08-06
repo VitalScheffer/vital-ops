@@ -4524,3 +4524,53 @@ inscrito", mesmo com a assinatura real intacta no navegador.
 - Teste humano em producao (repetido, agora incluindo confirmar que o
   toggle sobrevive a reload/nova aba mostrando "Desativar" corretamente)
   continua sendo o unico item sem verificacao real de navegador.
+
+## 2026-08-06: BOM -> Omie recusando 100% das linhas (BOM MCHUH MT003.xls)
+
+### Resumo
+Relato: na tela Produtos (BOM -> Omie) o arquivo `MCHUH MT003.xls` gerou "0
+selecionados / 146 ignorados", todas as linhas com "Nao bate com o padrao
+esperado". Diagnostico: nao era o Omie nem o envio, era a LEITURA da planilha.
+Esse modelo de BOM do CAD e diferente do que existia:
+
+1. A celula da coluna "Nº DA PEÇA" traz QUEBRA DE LINHA no meio do texto
+   ("MCHUH SM001\nC0PTD R00 - LONGARINA\nRODIZIO DIR. E TOT."). Confirmado na
+   foto: a barra de formulas do LibreOffice mostra so "MCHUH SM001" (primeira
+   linha da celula). O `CODE_PATTERN` exige espaco simples entre os 3 blocos,
+   entao toda linha caia em erro.
+2. O cabecalho da numeracao nesse modelo e "Nº DO ITEM" (o anterior era so
+   "Nº"). A deteccao so aceitava "n"/"no"/"item" exatos ou "numero", entao a
+   coluna nao era achada e a aba de ESTRUTURA (pai/filho) sairia vazia mesmo
+   depois de corrigir o item 1.
+
+### Arquivos alterados/criados
+- `src/lib/bom/bomParser.ts` - novo `normalizarPeca()` (colapsa qualquer
+  espaco em branco: \n, \r, \t, espaco duplo, NBSP) usado em `parseLinha` e nas
+  duas passadas de `parseEstrutura`, no lugar do `.trim()`.
+- `src/lib/bom/bomFile.ts` - `ehColunaNumero()` aceita cabecalho que CONTENHA
+  "item" ou "numero" (pega "Nº DO ITEM"), excluindo o indice da coluna da peca;
+  `normalizarNumero()` converte numeracao hierarquica em texto BR ("1,2" ->
+  "1.2").
+- `src/lib/bom/bomParser.test.ts` - 2 casos novos (quebra de linha no meio do
+  codigo; tab e espaco duplo).
+- `src/lib/bom/bomFile.test.ts` - NOVO: monta .xlsx em memoria com o modelo
+  "Nº DO ITEM / Nº DA PEÇA / QTD" e celula multilinha e verifica leitura,
+  produtos, estrutura, numeracao "1,1" e erro amigavel sem coluna de peca.
+
+### Decisoes importantes
+- Corrigir no CODIGO em vez de pedir para a engenharia arrumar 146 celulas: a
+  quebra de linha e cosmetica na BOM e o conversor tem que tolerar. O codigo
+  gerado (SKU) continua sendo o 5-5-5 com espaco simples.
+- `raw` do item continua com o texto original da celula (identidade do que veio
+  da planilha); so a comparacao com o padrao usa o texto normalizado.
+
+### Comandos relevantes
+- `npx vitest run src/lib/bom` -> 5 arquivos / 54 testes verdes.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (38 arquivos / 423 testes) -> verde.
+
+### Pendencias / proximos passos
+- Publicado por commit + push na `master` (auto-deploy da Vercel).
+- Validar com o arquivo real `MCHUH MT003.xls` na tela (o teste usa um .xlsx
+  equivalente montado em memoria, nao o BIFF antigo do CAD).
+- A numeracao vinda como NUMERO do Excel colapsa "1.10" em "1.1"; se algum
+  conjunto tiver 10+ filhos, revisar a estrutura gerada.

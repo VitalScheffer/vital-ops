@@ -6,6 +6,25 @@ import { lerXlsLegado } from "./xlsLegacy";
 
 const MAX_LINHAS_PROCURA_CABECALHO = 20;
 
+// A coluna da numeração hierárquica aparece com nomes diferentes conforme o
+// modelo de BOM do CAD: "Nº", "ITEM", "Nº DO ITEM"... Casa por nome exato ou por
+// conter "item"/"numero", sem nunca pegar a própria coluna da peça.
+function ehColunaNumero(cabecalho: string): boolean {
+  return (
+    cabecalho === "n" ||
+    cabecalho === "no" ||
+    cabecalho.includes("item") ||
+    cabecalho.includes("numero")
+  );
+}
+
+// Numeração hierárquica gravada como texto no padrão brasileiro ("1,2") vira
+// "1.2": é assim que o parser identifica pai e filho.
+function normalizarNumero(numero: string): string {
+  const limpo = numero.trim();
+  return /^\d+(?:,\d+)+$/.test(limpo) ? limpo.replace(/,/g, ".") : limpo;
+}
+
 /** Lê a planilha de BOM exportada do CAD (.xls/.xlsx) e extrai Nº / Peça / Qtd. */
 export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
   const buf = await file.arrayBuffer();
@@ -48,7 +67,7 @@ export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
 
     headerRowIdx = r;
     colPeca = idxPeca;
-    colNumero = linha.findIndex((c) => c === "n" || c === "no" || c === "item" || c.includes("numero"));
+    colNumero = linha.findIndex((c, i) => i !== colPeca && ehColunaNumero(c));
     colQtd = linha.findIndex((c) => c.includes("qtd") || c.includes("quantidade"));
     break;
   }
@@ -65,7 +84,7 @@ export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
     const peca = String(linha[colPeca] ?? "");
     if (!peca.trim()) continue;
 
-    const numero = colNumero >= 0 ? String(linha[colNumero] ?? "") : "";
+    const numero = colNumero >= 0 ? normalizarNumero(String(linha[colNumero] ?? "")) : "";
     const qtdBruta = colQtd >= 0 ? linha[colQtd] : "";
     const qtdNum = typeof qtdBruta === "number" ? qtdBruta : Number(qtdBruta);
 
