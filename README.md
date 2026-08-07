@@ -66,6 +66,7 @@ em produção.
 | `OMIE_APP_KEY` / `OMIE_APP_SECRET` | credenciais próprias do Omie |
 | `OMIE_BASE_URL` | base da API Omie (default oficial) |
 | `OMIE_TIMEOUT_MS` | opcional, timeout das chamadas (default 20000) |
+| `PCP_BRIDGE_TOKEN` | token de serviço da ponte de leitura do PCP (`GET /api/pcp/configuracoes`); vazia ou com menos de 24 caracteres = ponte desligada (503) |
 
 ### Autenticação e proteção de rotas
 
@@ -76,7 +77,12 @@ em produção.
   `src/lib/auth.config.ts`; instância Node (Credentials + papel/id no JWT) em
   `src/lib/auth.ts`. Helper `auth()` exportado de `src/lib/auth.ts`.
 - No Next.js 16 o `middleware` virou **`proxy`** — `src/proxy.ts` protege tudo
-  exceto `/login` e `/api/auth`. Sessão via JWT (`session.user.id` e `.role`).
+  exceto `/login`, `/api/auth`, `/ver/...` e `/api/pcp/...`. Sessão via JWT
+  (`session.user.id` e `.role`).
+- **`/api/pcp/...` não usa sessão**: é a ponte de leitura que o PCP (Django, na
+  AWS) consome, autenticada por token de serviço (`Authorization: Bearer
+  $PCP_BRIDGE_TOKEN`) conferido em tempo constante dentro do handler. Sem a
+  variável no ambiente a rota responde 503 (a ponte nasce desligada).
 
 ### Contratos, rotas e o client Omie (para o frontend)
 

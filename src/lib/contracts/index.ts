@@ -6,3 +6,4 @@ export * from "./requisicao";
 export * from "./baixa";
 export * from "./configuracao";
 export * from "./push";
+export * from "./pcp";
