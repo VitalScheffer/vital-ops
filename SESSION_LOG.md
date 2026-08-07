@@ -4574,3 +4574,66 @@ Esse modelo de BOM do CAD e diferente do que existia:
   equivalente montado em memoria, nao o BIFF antigo do CAD).
 - A numeracao vinda como NUMERO do Excel colapsa "1.10" em "1.1"; se algum
   conjunto tiver 10+ filhos, revisar a estrutura gerada.
+
+## 2026-08-07 - Ponte de leitura do PCP (GET /api/pcp/configuracoes)
+
+### Resumo
+
+O PCP do nextstep vai puxar daqui as configuracoes do configurador para abrir Ordem de
+Producao. Dois sistemas, dois bancos, duas nuvens: a ponte e HTTP e a direcao e o PCP puxando.
+Somente leitura. Acesso direto de um banco ao outro foi descartado (acoplaria o schema do
+Prisma ao Django e quebraria as migrations dos dois lados).
+
+### O que entrou (PR #1, mergeado)
+
+`GET /api/pcp/configuracoes?status=&desde=&limite=` com `Authorization: Bearer <PCP_BRIDGE_TOKEN>`.
+
+- Token comparado em TEMPO CONSTANTE sobre o sha256 dos dois lados (o digest tem sempre 32
+  bytes, entao o `timingSafeEqual` nunca lanca por diferenca de tamanho e o comprimento do
+  segredo nao vaza pelo tempo de resposta).
+- **Nasce desligada**: sem a variavel, ou com token de menos de 24 caracteres, responde 503 e
+  nem toca no banco. Esquecer de configurar nao pode virar rota aberta.
+- Header ausente e token errado devolvem o MESMO 401, para nao entregar de graca metade do
+  trabalho de quem esta sondando.
+- Nenhum dado pessoal: sai `autorNome`, nao saem ids nem e-mails (garantido no `select` do
+  Prisma, na origem, nao no mapeamento).
+- `/api/pcp/configuracoes` sai do guard de sessao por lista EXATA de rotas (nao por prefixo:
+  prefixo faria qualquer rota futura sob `/api/pcp/` nascer sem guard, em silencio).
+
+### Achados da revisao de seguranca, corrigidos antes do merge
+
+1. A chave da janela de rate limit vinha do `x-forwarded-for` CRU, sem teto de tamanho nem de
+   quantidade: sem token nenhum dava para inflar um Map de modulo por 5 min e fazer a limpeza
+   virar O(n) por request. Chave derivada com tamanho fixo + teto duro de chaves que, na janela
+   de auditoria, falha FECHADO.
+2. O teto global de auditoria (30 recusas / 5 min) permitia APAGAR a trilha: 6 requisicoes por
+   minuto cegavam o registro e so entao o atacante sondava o token. O estouro passa a gravar uma
+   linha de resumo (`pcp.acesso_negado_suprimido`), entao o silencio vira sinal.
+3. `status=TODAS` com `desde` perdia configuracao PARA SEMPRE: o filtro usa
+   `coalesce(respondidoEm, criadoEm)` mas NULL vai pro fim no ASC, entao as ainda nao
+   respondidas nunca entravam na pagina e caiam fora do filtro na chamada seguinte. A
+   combinacao passa a ser recusada com 400 explicando o caminho (sincronizar por status).
+4. Faltava cursor: o consumidor tinha que adivinhar a marca d agua, e as duas deducoes naturais
+   perdem registro (empate no mesmo milissegundo cortado pelo limite, e corrida de ordem de
+   commit). A resposta passa a trazer `proximoDesde` com sobreposicao, e o contrato manda
+   deduplicar por `numero`.
+5. A liberacao do guard era por PREFIXO. Virou `Set` com a rota exata.
+
+### Verificacao
+
+- `npm run lint` e `npx tsc --noEmit` exit 0; `npm test` -> **487 passed em 42 arquivos**.
+- Local (dev server + banco real): sem header 401, token errado 401 identico, `TODAS+desde` 400
+  com o motivo, token certo 200 com `proximoDesde` em ISO 8601.
+- **Producao, depois do merge**: `https://vitalops.vitalscheffer.com.br/api/pcp/configuracoes`
+  -> sem header 401; com o token 200, `Cache-Control: no-store`, devolvendo CFG-0001 (Maca
+  Padiola, projeto MCPSO MT002 I0POL, 7 escolhas fora do padrao).
+  O auto-deploy da Vercel DISPAROU desta vez (ao contrario do episodio de 30/07). O check do
+  Vercel no PR falhou por outro motivo: plano Hobby nao constroi preview de repo de organizacao.
+
+### Pendencias
+
+- `PCP_BRIDGE_TOKEN` ja cadastrada em producao (confirmado: a rota responde 401, e nao 503).
+- O lado do nextstep que CONSOME esta ponte e a Fase 3 do plano do PCP; ainda nao existe.
+- O `.env.example` deste repo NAO e versionado (`.gitignore` linha 34, `.env*`), entao a chave
+  nova so existe em disco. A documentacao ficou no README, que e versionado. Decisao: deixar
+  assim, afrouxar o ignore de `.env*` e o tipo de mudanca que um dia deixa passar um segredo.
