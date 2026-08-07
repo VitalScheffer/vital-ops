@@ -5,6 +5,8 @@ import {
   filtroDeConfiguracoes,
   normalizarSelecoes,
   paraPayloadPcp,
+  PCP_FOLGA_PROXIMO_DESDE_MS,
+  proximoDesdeDaPagina,
   type RegistroConfiguracao,
   SELECAO_CONFIGURACAO,
 } from "@/lib/pcp/configuracoes";
@@ -71,12 +73,85 @@ describe("filtroDeConfiguracoes", () => {
 
   it("filtra por respondidoEm com fallback em criadoEm quando tem desde", () => {
     const desde = "2026-08-01T00:00:00.000Z";
-    const filtro = filtroDeConfiguracoes(consulta({ status: "TODAS", desde }));
+    const filtro = filtroDeConfiguracoes(consulta({ status: "ATENDIDA", desde }));
 
     expect(filtro.OR).toEqual([
       { respondidoEm: { gte: new Date(desde) } },
       { respondidoEm: null, criadoEm: { gte: new Date(desde) } },
     ]);
+  });
+});
+
+// ACHADO 4: sem `proximoDesde` na resposta, o cliente tem que adivinhar a marca
+// d'água, e as duas deduções naturais ("último + 1ms" e "agora") perdem
+// registro.
+describe("proximoDesdeDaPagina", () => {
+  const AGORA = new Date("2026-08-07T15:00:00.000Z");
+
+  function pagina(datas: Array<{ respondidoEm: string | null; criadoEm: string }>) {
+    return datas.map((data, indice) =>
+      paraPayloadPcp({
+        ...REGISTRO,
+        numero: indice + 1,
+        respondidoEm: data.respondidoEm ? new Date(data.respondidoEm) : null,
+        criadoEm: new Date(data.criadoEm),
+      }),
+    );
+  }
+
+  it("volta a folga a partir da maior movimentação da página", () => {
+    const itens = pagina([
+      { respondidoEm: "2026-08-07T14:00:00.000Z", criadoEm: "2026-08-01T09:00:00.000Z" },
+      { respondidoEm: "2026-08-07T14:30:00.000Z", criadoEm: "2026-08-01T09:00:00.000Z" },
+    ]);
+
+    expect(proximoDesdeDaPagina(itens, undefined, AGORA)).toBe(
+      new Date(Date.parse("2026-08-07T14:30:00.000Z") - PCP_FOLGA_PROXIMO_DESDE_MS).toISOString(),
+    );
+  });
+
+  it("usa criadoEm quando a configuração ainda não foi respondida", () => {
+    const itens = pagina([
+      { respondidoEm: null, criadoEm: "2026-08-07T14:45:00.000Z" },
+    ]);
+
+    expect(proximoDesdeDaPagina(itens, undefined, AGORA)).toBe(
+      new Date(Date.parse("2026-08-07T14:45:00.000Z") - PCP_FOLGA_PROXIMO_DESDE_MS).toISOString(),
+    );
+  });
+
+  it("nunca anda para trás do desde que o cliente pediu", () => {
+    const desde = new Date("2026-08-07T14:50:00.000Z");
+    const itens = pagina([
+      { respondidoEm: "2026-08-07T14:51:00.000Z", criadoEm: "2026-08-01T09:00:00.000Z" },
+    ]);
+
+    expect(proximoDesdeDaPagina(itens, desde, AGORA)).toBe(desde.toISOString());
+  });
+
+  it("repete o desde quando a página vem vazia (não desce mais 5 min a cada sync)", () => {
+    const desde = new Date("2026-08-07T10:00:00.000Z");
+    expect(proximoDesdeDaPagina([], desde, AGORA)).toBe(desde.toISOString());
+  });
+
+  it("ancora em agora menos a folga quando não veio desde nem registro", () => {
+    expect(proximoDesdeDaPagina([], undefined, AGORA)).toBe(
+      new Date(AGORA.getTime() - PCP_FOLGA_PROXIMO_DESDE_MS).toISOString(),
+    );
+  });
+
+  it("cobre o empate no mesmo milissegundo cortado pelo limite", () => {
+    // Backfill: um UPDATE só carimba todo mundo com o mesmo instante. Avançar
+    // para "último + 1ms" jogaria fora o resto do empate; a folga traz de volta.
+    const carimbo = "2026-08-07T14:00:00.000Z";
+    const itens = pagina([
+      { respondidoEm: carimbo, criadoEm: "2026-08-01T09:00:00.000Z" },
+      { respondidoEm: carimbo, criadoEm: "2026-08-01T09:00:00.000Z" },
+    ]);
+
+    expect(Date.parse(proximoDesdeDaPagina(itens, undefined, AGORA))).toBeLessThan(
+      Date.parse(carimbo),
+    );
   });
 });
 
@@ -157,5 +232,28 @@ describe("pcpConfiguracoesQuerySchema", () => {
   it("recusa status fora do enum e data que não é ISO", () => {
     expect(pcpConfiguracoesQuerySchema.safeParse({ status: "QUALQUER" }).success).toBe(false);
     expect(pcpConfiguracoesQuerySchema.safeParse({ desde: "ontem" }).success).toBe(false);
+  });
+
+  // ACHADO 3: em TODAS os dois grupos (respondidos e não respondidos) se
+  // misturam, a ordenação deixa de ser monotônica na chave filtrada e a
+  // paginação por marca d'água PULA registro em silêncio.
+  it("recusa status=TODAS junto com desde, dizendo o que fazer", () => {
+    const resultado = pcpConfiguracoesQuerySchema.safeParse({
+      status: "TODAS",
+      desde: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(resultado.success).toBe(false);
+    expect(resultado.error?.issues[0]?.message).toContain("sincronize por status");
+  });
+
+  it("continua aceitando TODAS sem desde e um status fixo com desde", () => {
+    expect(pcpConfiguracoesQuerySchema.safeParse({ status: "TODAS" }).success).toBe(true);
+    expect(
+      pcpConfiguracoesQuerySchema.safeParse({
+        status: "ATENDIDA",
+        desde: "2026-08-01T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
   });
 });

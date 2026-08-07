@@ -51,6 +51,23 @@ export function chaveDoToken(token: string): string {
   return digest(token).toString("hex").slice(0, 32);
 }
 
+// Chave de rate limit derivada da ORIGEM da requisição (o primeiro IP do
+// `x-forwarded-for`, ou o `x-real-ip`). Mesmo tratamento do token, por dois
+// motivos diferentes:
+//   TAMANHO — o valor cru é escolhido por quem chama e não tem limite de
+//   tamanho nenhum; usado direto como chave, cada requisição escreveria no Map
+//   da janela o número de bytes que o atacante quisesse. O digest fixa a chave
+//   em 16 caracteres, aconteça o que acontecer com a entrada.
+//   RUÍDO — o Map fica em memória do processo; guardar o IP em claro ali é
+//   guardar dado de rede além do necessário (o IP que precisa ficar registrado
+//   já vai no AuditLog, pelo `audit()`).
+// 16 hex = 64 bits: colisão é irrelevante aqui porque o efeito de duas origens
+// caírem no mesmo balde é contar JUNTO, ou seja, apertar o limite, nunca
+// afrouxar.
+export function chaveDaOrigem(origem: string): string {
+  return digest(origem).toString("hex").slice(0, 16);
+}
+
 function digest(valor: string): Buffer {
   return createHash("sha256").update(valor, "utf8").digest();
 }

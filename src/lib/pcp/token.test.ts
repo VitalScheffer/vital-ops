@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chaveDaOrigem,
   chaveDoToken,
   PCP_TOKEN_MIN_CARACTERES,
   tokenConfere,
@@ -68,5 +69,24 @@ describe("chaveDoToken", () => {
 
   it("separa tokens diferentes", () => {
     expect(chaveDoToken(TOKEN)).not.toBe(chaveDoToken(`${TOKEN}x`));
+  });
+});
+
+describe("chaveDaOrigem", () => {
+  // ACHADO 1: a origem sai de `x-forwarded-for`, header escolhido por quem
+  // chama. Usada crua, ela decide quantos bytes cada requisição sem token
+  // escreve no Map da janela.
+  it("tem TAMANHO FIXO, não importa o tamanho da entrada", () => {
+    const gigante = "9".repeat(100_000);
+
+    expect(chaveDaOrigem("203.0.113.7")).toMatch(/^[0-9a-f]{16}$/);
+    expect(chaveDaOrigem(gigante)).toMatch(/^[0-9a-f]{16}$/);
+    expect(chaveDaOrigem("")).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("não carrega a origem em claro e separa origens diferentes", () => {
+    expect(chaveDaOrigem("203.0.113.7")).not.toContain("203.0.113.7");
+    expect(chaveDaOrigem("203.0.113.7")).toBe(chaveDaOrigem("203.0.113.7"));
+    expect(chaveDaOrigem("203.0.113.7")).not.toBe(chaveDaOrigem("203.0.113.8"));
   });
 });
