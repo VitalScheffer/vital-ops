@@ -121,7 +121,15 @@ describe("omieFile (edição cirúrgica do template real)", () => {
 });
 
 function rel(codigoPai: string, codigoFilho: string, quantidade: number): EstruturaRel {
-  return { numeroPai: "1", numeroFilho: "1.1", codigoPai, codigoFilho, descricaoFilho: "x", quantidade };
+  return {
+    numeroPai: "1",
+    numeroFilho: "1.1",
+    codigoPai,
+    codigoFilho,
+    descricaoFilho: "x",
+    quantidade,
+    origem: "bom",
+  };
 }
 
 function lerCelulasEstrutura(bytes: Uint8Array): (endereco: string) => unknown {

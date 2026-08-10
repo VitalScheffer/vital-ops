@@ -25,6 +25,28 @@ function normalizarNumero(numero: string): string {
   return /^\d+(?:,\d+)+$/.test(limpo) ? limpo.replace(/,/g, ".") : limpo;
 }
 
+// Coluna da massa UNITÁRIA da peça ("Peso", "MASSA", "PESO (g)"...). Só o nome
+// varia entre modelos de BOM; a unidade nunca vem no arquivo (o usuário escolhe
+// g/kg na tela). Uma coluna de peso TOTAL (peso × quantidade) fica de fora: a
+// estrutura do Omie pede o consumo por unidade do pai, e pegar o total por
+// engano multiplicaria a matéria-prima de toda peça repetida.
+function ehColunaPeso(cabecalho: string): boolean {
+  if (cabecalho.includes("total")) return false;
+  return cabecalho.startsWith("peso") || cabecalho.startsWith("massa");
+}
+
+// Número gravado como texto no padrão brasileiro ("1.053,36" / "1053,36") ou já
+// como número da planilha. Devolve null quando a célula está vazia ou ilegível.
+function lerNumero(bruto: unknown): number | null {
+  if (typeof bruto === "number") return Number.isFinite(bruto) ? bruto : null;
+  const texto = String(bruto ?? "").trim();
+  if (!texto) return null;
+  // "1.053,36" -> "1053.36"; "1053.36" segue igual (só tem vírgula se for decimal).
+  const normalizado = texto.includes(",") ? texto.replace(/\./g, "").replace(",", ".") : texto;
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** Lê a planilha de BOM exportada do CAD (.xls/.xlsx) e extrai Nº / Peça / Qtd. */
 export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
   const buf = await file.arrayBuffer();
@@ -59,6 +81,8 @@ export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
   let colPeca = -1;
   let colNumero = -1;
   let colQtd = -1;
+  let colPeso = -1;
+  let colEspec = -1;
 
   for (let r = 0; r < Math.min(grid.length, MAX_LINHAS_PROCURA_CABECALHO); r++) {
     const linha = (grid[r] ?? []).map((c) => normalizarCabecalho(String(c ?? "")));
@@ -69,6 +93,13 @@ export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
     colPeca = idxPeca;
     colNumero = linha.findIndex((c, i) => i !== colPeca && ehColunaNumero(c));
     colQtd = linha.findIndex((c) => c.includes("qtd") || c.includes("quantidade"));
+    colPeso = linha.findIndex(ehColunaPeso);
+    // A especificação da matéria-prima é a OUTRA coluna de descrição (no modelo
+    // do CAD a peça vem em "PEÇA" e a especificação em "DESCRIÇÃO"). Aceita
+    // também "MATERIA PRIMA"/"MATERIAL", que é como o pedido descreveu a coluna.
+    colEspec = linha.findIndex(
+      (c, i) => i !== colPeca && (c.includes("descric") || c.includes("materia") || c.includes("material")),
+    );
     break;
   }
 
@@ -93,6 +124,8 @@ export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
       numero,
       peca,
       quantidade: Number.isFinite(qtdNum) && qtdBruta !== "" ? qtdNum : null,
+      peso: colPeso >= 0 ? lerNumero(linha[colPeso]) : null,
+      especificacao: colEspec >= 0 ? String(linha[colEspec] ?? "").trim() : "",
     });
   }
 

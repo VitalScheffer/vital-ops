@@ -3,7 +3,9 @@ import type { BomRow } from "../types";
 // Espelha exatamente o conteúdo de BOM_TESTE.xls (aba Sheet1, linhas 2-51),
 // incluindo a numeração hierárquica da coluna Nº (1, 1.1, 1.2 = pai/filho) e a
 // indentação de itens-filho como no arquivo original.
-export const BOM_TESTE_ROWS: BomRow[] = [
+// Este modelo de BOM é anterior às colunas de peso e especificação (que só
+// existem no modelo com matéria-prima), então elas entram vazias abaixo.
+const LINHAS: Omit<BomRow, "peso" | "especificacao">[] = [
   { linha: 2, numero: "1", peca: "CREHS SM001 C0PTD R00 - CONJUNTO BASE INF.", quantidade: 1 },
   { linha: 3, numero: "1.1", peca: "  CREHS PC001 CCSLD R00 - BASE INF.", quantidade: 1 },
   { linha: 4, numero: "1.2", peca: "  CREHS PC002 CTSLD R00 - TUBO ALOJAMENTO RODIZIOS", quantidade: 4 },
@@ -55,3 +57,9 @@ export const BOM_TESTE_ROWS: BomRow[] = [
   { linha: 50, numero: "36", peca: "COMRU TP3CN C015M - REGUA DE TOMADAS PADRÃO 3 CONECTORES E CABO DE 1.5M", quantidade: 1 },
   { linha: 51, numero: "37", peca: "COMVL L0050 C0250 - VELCRO 50x250mm", quantidade: 2 },
 ];
+
+export const BOM_TESTE_ROWS: BomRow[] = LINHAS.map((linha) => ({
+  ...linha,
+  peso: null,
+  especificacao: "",
+}));

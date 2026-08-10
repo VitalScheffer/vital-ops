@@ -233,8 +233,12 @@ async function precarregarExistentes(
   codigos: string[],
   chamar: ChamarFn,
   interromper: (erro: unknown) => void,
-): Promise<Map<string, CadastroExistente>> {
+): Promise<{ mapa: Map<string, CadastroExistente>; completo: boolean }> {
   const mapa = new Map<string, CadastroExistente>();
+  // `completo` = todos os blocos foram lidos. Quando um bloco falha, a ausência
+  // de um código no mapa deixa de significar "não existe no Omie" — só "não deu
+  // pra saber" —, e quem decide a partir disso precisa saber a diferença.
+  let completo = true;
   for (const bloco of emBlocos(codigos, BLOCO_PRECHECK)) {
     try {
       const resp = await chamar("geral/produtos/", "ListarProdutos", {
@@ -255,6 +259,7 @@ async function precarregarExistentes(
         });
       }
     } catch (erro) {
+      completo = false;
       if (erro instanceof OmieBlocked) {
         interromper(erro);
         break;
@@ -262,8 +267,17 @@ async function precarregarExistentes(
       // Qualquer outro erro: só perde a otimização deste bloco.
     }
   }
-  return mapa;
+  return { mapa, completo };
 }
+
+// Um produto SEM estrutura faz o `ConsultarEstrutura` voltar vazio, e vazio no
+// Omie é resposta de ERRO: o client conta fault no breaker (§6). Numa BOM com
+// muitos pais ainda sem malha (é o caso quando a matéria-prima entra: cada PEÇA
+// vira um pai novo), essa sequência de vazios sozinha abriria o breaker soft
+// (6 faults) e o lote inteiro morreria em `OmieBlocked` antes das escritas.
+// Por isso a pré-checagem desiste depois de alguns vazios seguidos: ela é só uma
+// otimização de reenvio, não vale queimar crédito do breaker com ela.
+const LIMITE_VAZIOS_SEGUIDOS = 3;
 
 // Pré-checa (LEITURA) as relações de estrutura que JÁ existem nos produtos-pai
 // conhecidos, pra PULAR a inclusão delas no reenvio (idempotência). Sem isso, o
@@ -280,17 +294,24 @@ async function precarregarExistentes(
 // (IncluirEstrutura), que aí sim vê o `consumo indevido`.
 async function precarregarEstruturas(idsPai: Set<string>, chamar: ChamarFn): Promise<Set<string>> {
   const existentes = new Set<string>();
+  let vaziosSeguidos = 0;
   for (const idPai of idsPai) {
+    if (vaziosSeguidos >= LIMITE_VAZIOS_SEGUIDOS) break;
     try {
       const resp = await chamar("geral/malha/", "ConsultarEstrutura", { idProduto: Number(idPai) });
       const itens = resp?.itens;
-      if (!Array.isArray(itens)) continue;
+      if (!Array.isArray(itens) || itens.length === 0) {
+        vaziosSeguidos += 1;
+        continue;
+      }
+      vaziosSeguidos = 0;
       for (const it of itens as OmiePayload[]) {
         const idFilho = texto(it.idProdMalha);
         if (idFilho) existentes.add(`${idPai}|${idFilho}`);
       }
     } catch {
       // Redundante/bloqueio/erro na leitura: só perde a otimização deste pai.
+      vaziosSeguidos += 1;
     }
   }
   return existentes;
@@ -472,9 +493,10 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     codigosParaChecar.add(rel.codigoPai);
     codigosParaChecar.add(rel.codigoFilho);
   }
-  const existentes = interrupcao.interrompido
-    ? new Map<string, CadastroExistente>()
+  const precheck = interrupcao.interrompido
+    ? { mapa: new Map<string, CadastroExistente>(), completo: false }
     : await precarregarExistentes([...codigosParaChecar], chamar, interromper);
+  const existentes = precheck.mapa;
   for (const [chave, cadastro] of existentes) {
     if (cadastro.idProduto) idOmiePorCodigo.set(chave, cadastro.idProduto);
     if (cadastro.intProduto) integracaoReal.set(chave, cadastro.intProduto);
@@ -596,14 +618,44 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // 2.5. Pré-checagem da estrutura: lê as relações que já existem nos pais
   // conhecidos, pra pular a inclusão delas (reenvio idempotente, sem depender de
   // classificar o duplicado da malha).
+  //
+  // Só vale consultar os pais que JÁ EXISTIAM no Omie antes deste lote: quem foi
+  // criado agora não tem malha nenhuma, e perguntar volta vazio — que o Omie conta
+  // como erro e o breaker soma (ver LIMITE_VAZIOS_SEGUIDOS).
   const idsPaiEstrutura = new Set<string>();
   for (const rel of input.estrutura) {
-    const idPai = idOmiePorCodigo.get(semEspaco(rel.codigoPai));
+    const idPai = existentes.get(semEspaco(rel.codigoPai))?.idProduto;
     if (idPai) idsPaiEstrutura.add(idPai);
   }
   const relacoesExistentes = interrupcao.interrompido
     ? new Set<string>()
     : await precarregarEstruturas(idsPaiEstrutura, chamar);
+
+  // Tudo que o Omie reconhece OU que este lote criou. Comparado em MAIÚSCULAS: o
+  // código da montagem é digitado à mão na tela, e uma diferença só de caixa não
+  // pode virar acusação de "não existe". Inclui `existentes` direto, e não só os
+  // mapas derivados dele: um cadastro achado na pré-checagem sem `codigo_produto`
+  // utilizável existe do mesmo jeito.
+  const codigosDoLote = new Set(novos.map((item) => semEspaco(item.codigo)));
+  const conhecidos = new Set<string>();
+  for (const chave of [
+    ...idOmiePorCodigo.keys(),
+    ...integracaoReal.keys(),
+    ...existentes.keys(),
+    ...codigosDoLote,
+  ]) {
+    conhecidos.add(chave.toUpperCase());
+  }
+
+  // A MONTAGEM de destino é a única referência da estrutura que o usuário digita
+  // à mão, e ela se repete em TODA linha de nível topo: um código errado viraria
+  // dezenas de escritas recusadas em sequência, que é exatamente o que estoura o
+  // limite de bloqueio da app_key. Então, quando dá pra afirmar que ela não está
+  // cadastrada (pré-checagem completa), falhamos essas relações sem chamar o Omie.
+  // Vale só pra origem "raiz": os demais códigos vêm da própria BOM ou do catálogo
+  // MAT, e o caminho antigo (tentar e tratar o erro) segue valendo pra eles.
+  const montagemAusente = (chave: string): boolean =>
+    precheck.completo && !conhecidos.has(chave.toUpperCase());
 
   // 3. Estrutura (IncluirEstrutura não tem Upsert → duplicado = já existe = ok).
   for (const rel of input.estrutura) {
@@ -630,6 +682,20 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       const chaveFilho = semEspaco(rel.codigoFilho);
       const idPai = idOmiePorCodigo.get(chavePai);
       const idFilho = idOmiePorCodigo.get(chaveFilho);
+
+      if (rel.origem === "raiz" && montagemAusente(chavePai)) {
+        estrutura.push({
+          ...chaves,
+          outcome: "falha",
+          motivo: `A montagem ${rel.codigoPai} não está cadastrada no Omie. Confira o código antes de reenviar.`,
+        });
+        // NÃO mexe no freio: essa falha é NOSSA, não veio de resposta do Omie.
+        // Zerar a sequência aqui (que é o que `registrarSequencia` faz quando não
+        // houve chamada) desarmaria o freio justamente no cenário que ele existe
+        // pra pegar — montagem errada intercalada com escritas que falham de
+        // verdade, cada relação de topo limpando o contador da anterior.
+        continue;
+      }
 
       // Relação já existe no pai (pré-check): não reinclui (evita duplicado no
       // reenvio). Sem chamada ao Omie, não conta pro freio.

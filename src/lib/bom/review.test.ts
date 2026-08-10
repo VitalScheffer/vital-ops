@@ -49,6 +49,7 @@ function rel(overrides: Partial<EstruturaRel> = {}): EstruturaRel {
     codigoFilho: "CREHS PC001 CCSLD",
     descricaoFilho: "PEÇA",
     quantidade: 2,
+    origem: "bom",
     ...overrides,
   };
 }
@@ -168,6 +169,7 @@ function estrutura(overrides: Partial<EstruturaReviewItem> = {}): EstruturaRevie
     descricaoFilho: "PEÇA",
     quantidade: 2,
     included: true,
+    origem: "bom",
     ...overrides,
   };
 }

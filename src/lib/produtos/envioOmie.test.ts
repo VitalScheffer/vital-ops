@@ -44,6 +44,7 @@ function rel(codigoPai: string, codigoFilho: string, quantidade: number | null):
     codigoFilho,
     descricaoFilho: "filho",
     quantidade,
+    origem: "bom",
   };
 }
 
@@ -651,6 +652,173 @@ describe("orquestrarEnvio — pré-checagem pula o que já existe (evita conflit
     expect(res.interrompido).toBe(true);
     expect(res.bloqueado).toBe(true);
     expect(res.produtos.every((p) => p.outcome === "nao_enviado")).toBe(true);
+  });
+});
+
+describe("orquestrarEnvio — montagem de destino (origem 'raiz')", () => {
+  function relRaiz(codigoMontagem: string, codigoFilho: string): EstruturaRel {
+    return {
+      numeroPai: "0",
+      numeroFilho: "1",
+      codigoPai: codigoMontagem,
+      codigoFilho,
+      descricaoFilho: "filho",
+      quantidade: 1,
+      origem: "raiz",
+    };
+  }
+
+  it("montagem que não existe no Omie falha SEM gastar escrita (é o que queima o ban)", async () => {
+    // ListarProdutos responde certinho e não acha nada: dá pra afirmar que a
+    // montagem não está cadastrada.
+    const { fn, calls } = mockChamar(() => ({}));
+    const res = await orquestrarEnvio(
+      {
+        novos: [item("AAAAA SM001 CCCCC", "SBM - SUBMONTAGEM")],
+        estrutura: [relRaiz("XXXXX MT999 ZZZZZ", "AAAAA SM001 CCCCC")],
+      },
+      fn,
+    );
+
+    expect(calls.filter((c) => c.call === "IncluirEstrutura")).toHaveLength(0);
+    expect(res.estrutura[0].outcome).toBe("falha");
+    expect(res.estrutura[0].motivo).toMatch(/XXXXX MT999 ZZZZZ.*não está cadastrada/);
+    // Falha local não conta pro freio: ela não gerou resposta ruim do Omie.
+    expect(res.interrompido).toBe(false);
+  });
+
+  it("montagem já cadastrada é usada como pai pelo ID interno do Omie", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "XXXXX MT999 ZZZZZ", codigo_produto: 777 },
+            { codigo: "AAAAA SM001 CCCCC", codigo_produto: 888 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") return { itens: [] };
+      return {};
+    });
+
+    const res = await orquestrarEnvio(
+      {
+        novos: [item("AAAAA SM001 CCCCC", "SBM - SUBMONTAGEM")],
+        estrutura: [relRaiz("XXXXX MT999 ZZZZZ", "AAAAA SM001 CCCCC")],
+      },
+      fn,
+    );
+
+    const inclusao = calls.find((c) => c.call === "IncluirEstrutura");
+    expect(inclusao?.param).toMatchObject({ idProduto: 777 });
+    expect(res.estrutura[0].outcome).toBe("enviado");
+  });
+
+  it("diferença só de caixa no que foi digitado não vira acusação de inexistente", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return { produto_servico_cadastro: [{ codigo: "XXXXX MT999 ZZZZZ", codigo_produto: 777 }] };
+      }
+      if (rec.call === "ConsultarEstrutura") return { itens: [] };
+      return {};
+    });
+
+    const res = await orquestrarEnvio(
+      {
+        novos: [item("AAAAA SM001 CCCCC", "SBM - SUBMONTAGEM")],
+        estrutura: [relRaiz("xxxxx mt999 zzzzz", "AAAAA SM001 CCCCC")],
+      },
+      fn,
+    );
+
+    expect(res.estrutura[0].motivo ?? "").not.toMatch(/não está cadastrada/);
+    expect(calls.filter((c) => c.call === "IncluirEstrutura")).toHaveLength(1);
+  });
+
+  it("a falha local da montagem NÃO desarma o freio das escritas de verdade", async () => {
+    // Montagem errada intercalada com relações que falham no Omie: se a falha
+    // local zerasse a sequência, o freio nunca chegaria ao limite e o lote
+    // seguiria martelando o Omie — que é justamente o risco de bloqueio.
+    const { fn } = mockChamar((rec) => {
+      if (rec.call === "IncluirEstrutura") return new OmieError("recusado", {});
+      return {};
+    });
+
+    const estrutura: EstruturaRel[] = [];
+    for (let i = 0; i < 5; i++) {
+      estrutura.push(relRaiz("XXXXX MT999 ZZZZZ", `FILH${i} PC001 CCSLD`));
+      estrutura.push(rel(`PAI${i}0 SM001 CCCCC`, `FILH${i} PC001 CCSLD`, 1));
+    }
+
+    const res = await orquestrarEnvio({ novos: [], estrutura }, fn);
+
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(false); // freio nosso, não bloqueio do Omie
+  });
+
+  it("pré-checagem falhando NÃO acusa a montagem de não existir", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") return new OmieError("instabilidade", { retryable: true });
+      return {};
+    });
+
+    const res = await orquestrarEnvio(
+      {
+        novos: [item("AAAAA SM001 CCCCC", "SBM - SUBMONTAGEM")],
+        estrutura: [relRaiz("XXXXX MT999 ZZZZZ", "AAAAA SM001 CCCCC")],
+      },
+      fn,
+    );
+
+    // Sem saber, tenta o caminho normal em vez de culpar o código do usuário.
+    expect(calls.filter((c) => c.call === "IncluirEstrutura")).toHaveLength(1);
+    expect(res.estrutura[0].motivo ?? "").not.toMatch(/não está cadastrada/);
+  });
+});
+
+describe("orquestrarEnvio — pré-checagem de estrutura não queima o breaker", () => {
+  it("não consulta a malha de produto que ACABOU de ser criado (só volta vazio)", async () => {
+    const { fn, calls } = mockChamar((rec) =>
+      rec.call === "UpsertProduto" ? { codigo_produto: 42 } : {},
+    );
+
+    await orquestrarEnvio(
+      {
+        novos: [item("AAAAA SM001 CCCCC", "SBM - SUBMONTAGEM"), item("BBBBB PC001 CCSLD", null)],
+        estrutura: [rel("AAAAA SM001 CCCCC", "BBBBB PC001 CCSLD", 1)],
+      },
+      fn,
+    );
+
+    expect(calls.filter((c) => c.call === "ConsultarEstrutura")).toHaveLength(0);
+  });
+
+  it("desiste da pré-checagem depois de alguns pais sem malha nenhuma", async () => {
+    // 10 pais que já existiam no Omie e ainda não têm estrutura: cada consulta
+    // vazia conta fault no breaker, então a pré-checagem para antes de estourar.
+    const pais = Array.from({ length: 10 }, (_, i) => `PAI${i}0 SM001 CCCCC`);
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            ...pais.map((codigo, i) => ({ codigo, codigo_produto: 100 + i })),
+            { codigo: "BBBBB PC001 CCSLD", codigo_produto: 999 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") return null; // sem malha
+      return {};
+    });
+
+    await orquestrarEnvio(
+      {
+        novos: [],
+        estrutura: pais.map((pai) => rel(pai, "BBBBB PC001 CCSLD", 1)),
+      },
+      fn,
+    );
+
+    expect(calls.filter((c) => c.call === "ConsultarEstrutura").length).toBeLessThanOrEqual(3);
   });
 });
 

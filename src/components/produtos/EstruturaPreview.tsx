@@ -13,7 +13,8 @@ interface EstruturaPreviewProps {
 export function EstruturaPreview({ itens, onToggle, onQuantidade }: EstruturaPreviewProps) {
   if (itens.length === 0) return null;
 
-  const incluidas = itens.filter((i) => i.included).length;
+  const incluidas = itens.filter((i) => i.included);
+  const naMontagem = incluidas.filter((i) => i.origem === "raiz").length;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -22,8 +23,8 @@ export function EstruturaPreview({ itens, onToggle, onQuantidade }: EstruturaPre
         <div>
           <h3 className="text-sm font-semibold text-foreground">Estrutura pai/filho</h3>
           <p className="text-xs text-muted-foreground">
-            {incluidas} de {itens.length} relação(ões) incluída(s) — vão para a aba{" "}
-            <span className="font-mono">Omie_Produtos_Estrutura</span>
+            {incluidas.length} de {itens.length} relação(ões) incluída(s)
+            {naMontagem > 0 ? `, sendo ${naMontagem} na montagem de destino` : ""}.
           </p>
         </div>
       </div>
@@ -74,7 +75,12 @@ function EstruturaRow({
       <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs text-muted-foreground">
         {item.numeroFilho}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs text-foreground">{item.codigoPai}</td>
+      <td className="whitespace-nowrap px-3 py-2 align-top">
+        <span className="font-mono text-xs text-foreground">{item.codigoPai}</span>
+        {item.origem === "raiz" && (
+          <span className="mt-0.5 block text-[0.65rem] uppercase tracking-wide text-primary">Montagem de destino</span>
+        )}
+      </td>
       <td className="px-3 py-2 align-top">
         <span className="font-mono text-xs text-foreground">{item.codigoFilho}</span>
         <span className="text-muted-foreground"> — {item.descricaoFilho}</span>

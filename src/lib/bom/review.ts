@@ -1,5 +1,15 @@
-import { DESCRICAO_MAX } from "./bomParser";
-import type { EstruturaRel, Familia, ParsedItem } from "./types";
+import {
+  casarMateriaPrima,
+  lerEspecificacao,
+  pesoParaKg,
+  pistaDoCodigoPeca,
+  ROTULO_LIGA,
+  type Confianca,
+  type ItemMat,
+} from "@/lib/produtos/materiaPrima";
+
+import { DESCRICAO_MAX, ehPeca, extrairCodigoDaPeca } from "./bomParser";
+import type { BomRow, EstruturaRel, Familia, ParsedItem, UnidadePeso } from "./types";
 
 // Estado da TELA DE REVISÃO EDITÁVEL (só cliente). A partir do resultado do
 // parser, o usuário revisa/corrige antes de gerar a planilha ou enviar ao Omie:
@@ -40,6 +50,28 @@ export interface EstruturaReviewItem {
   descricaoFilho: string;
   quantidade: number | null;
   included: boolean;
+  // "raiz" = relação com a MONTAGEM já cadastrada (a tela destaca essas).
+  origem: EstruturaRel["origem"];
+}
+
+// Uma linha da revisão de MATÉRIA-PRIMA: a peça (PC) da BOM de um lado, o item
+// MAT que ela consome do outro, e a quantidade em KG. `codigoMat` vazio = não
+// resolvido (o motivo diz por quê e a linha entra desmarcada).
+export interface MateriaPrimaReviewItem {
+  id: string;
+  linha: number;
+  numeroPeca: string;
+  codigoPeca: string;
+  descricaoPeca: string;
+  especificacao: string;
+  // Valor cru da coluna "Peso", na unidade que o usuário escolheu na tela.
+  pesoBruto: number | null;
+  codigoMat: string;
+  descricaoMat: string;
+  quantidadeKg: number | null;
+  confianca: Confianca | null;
+  motivo?: string;
+  included: boolean;
 }
 
 export interface ResumoProdutos {
@@ -78,6 +110,7 @@ export function buildEstruturaReview(rels: EstruturaRel[]): EstruturaReviewItem[
     descricaoFilho: rel.descricaoFilho,
     quantidade: rel.quantidade,
     included: true,
+    origem: rel.origem,
   }));
 }
 
@@ -159,5 +192,177 @@ export function estruturaParaEnvio(itens: EstruturaReviewItem[]): EstruturaRel[]
       codigoFilho: item.codigoFilho,
       descricaoFilho: item.descricaoFilho,
       quantidade: item.quantidade,
+      origem: item.origem,
     }));
+}
+
+// --- Matéria-prima ----------------------------------------------------------
+
+// Sufixo do `numeroFilho` das relações de matéria-prima. O status do envio é
+// casado por esse número no banco, então ele precisa ser único e não pode colidir
+// com a numeração do CAD (que é só dígitos e pontos).
+const SUFIXO_MP = ".MP";
+
+function motivoSemResolver(especificacao: string, ligaRotulo: string | null): string {
+  const onde = ligaRotulo
+    ? ` em ${ligaRotulo.toLowerCase()}`
+    : " (e o código da peça não diz o material, então não dá pra escolher entre as ligas)";
+  return `Nenhum item MAT cadastrado no Omie bate com "${especificacao}"${onde}. Escolha na mão ou cadastre a matéria-prima.`;
+}
+
+/**
+ * A BOM traz as colunas de matéria-prima? Modelos antigos do CAD não têm peso
+ * nem especificação, e aí a seção de MP inteira não faz sentido: ela renderizaria
+ * uma linha por peça, todas vazias, com um aviso alarmante e sem catálogo
+ * carregado. Mesma condição usada para decidir se vale ler o catálogo no Omie.
+ */
+export function bomTemMateriaPrima(rows: readonly BomRow[]): boolean {
+  return rows.some((row) => row.peso !== null || row.especificacao.trim() !== "");
+}
+
+/**
+ * Monta a revisão de matéria-prima a partir das linhas da BOM. Só as PEÇAS (PC)
+ * consomem MP; submontagens e comprados ficam de fora. O peso da BOM é unitário
+ * (nas linhas de submontagem o CAD grava a soma dos filhos, que não usamos).
+ *
+ * Entra MARCADO só o que casou EXATO: bitola apenas parecida, especificação
+ * ilegível ou item não encontrado entram desmarcados com o motivo, para ninguém
+ * mandar matéria-prima adivinhada pro Omie.
+ */
+export function buildMateriaPrimaReview(
+  rows: BomRow[],
+  catalogo: readonly ItemMat[],
+  unidadePeso: UnidadePeso,
+): MateriaPrimaReviewItem[] {
+  if (!bomTemMateriaPrima(rows)) return [];
+
+  const itens: MateriaPrimaReviewItem[] = [];
+  // A mesma peça pode aparecer em mais de uma submontagem. O consumo de MP é da
+  // PEÇA, não da posição na árvore: repetir a relação só rende um duplicado no
+  // Omie por reenvio, e duplicado conta pro freio de segurança do lote.
+  const jaVistas = new Set<string>();
+
+  for (const row of rows) {
+    const info = extrairCodigoDaPeca(row.peca);
+    if (!info || !ehPeca(info.codigo)) continue;
+
+    const repetida = jaVistas.has(info.codigo);
+    jaVistas.add(info.codigo);
+
+    const base = {
+      id: `mp-${row.linha}`,
+      linha: row.linha,
+      numeroPeca: row.numero.trim(),
+      codigoPeca: info.codigo,
+      descricaoPeca: info.descricao,
+      especificacao: row.especificacao.trim(),
+      pesoBruto: row.peso,
+      codigoMat: "",
+      descricaoMat: "",
+      quantidadeKg: null as number | null,
+      confianca: null as Confianca | null,
+      included: false,
+    };
+
+    if (repetida) {
+      itens.push({
+        ...base,
+        motivo: `${info.codigo} já aparece antes na BOM. A matéria-prima é cadastrada uma vez por peça, então esta linha fica de fora.`,
+      });
+      continue;
+    }
+
+    if (!base.especificacao) {
+      itens.push({ ...base, motivo: "A linha não traz a especificação do material na BOM." });
+      continue;
+    }
+    if (row.peso === null) {
+      itens.push({ ...base, motivo: "A linha não traz o peso da peça na BOM." });
+      continue;
+    }
+
+    const quantidadeKg = pesoParaKg(row.peso, unidadePeso);
+    const espec = lerEspecificacao(base.especificacao);
+    if (!espec) {
+      itens.push({
+        ...base,
+        quantidadeKg,
+        motivo: `Não consegui interpretar "${base.especificacao}". Escolha a matéria-prima na mão.`,
+      });
+      continue;
+    }
+
+    const pista = pistaDoCodigoPeca(info.codigo);
+    const casamento = casarMateriaPrima(espec, pista, catalogo);
+    if (!casamento) {
+      itens.push({
+        ...base,
+        quantidadeKg,
+        motivo: motivoSemResolver(base.especificacao, pista.liga ? ROTULO_LIGA[pista.liga] : null),
+      });
+      continue;
+    }
+
+    const exata = casamento.confianca === "exata";
+    itens.push({
+      ...base,
+      codigoMat: casamento.item.codigo,
+      descricaoMat: casamento.item.descricao,
+      quantidadeKg,
+      confianca: casamento.confianca,
+      included: exata,
+      motivo: exata
+        ? undefined
+        : `Bitola parecida, não idêntica (diferença de ${casamento.diferencaMaxMm.toFixed(2)} mm). Confira antes de marcar.`,
+    });
+  }
+
+  return itens;
+}
+
+/** Motivo pelo qual uma linha de matéria-prima não pode ir (ou `null` se válida). */
+export function motivoMateriaPrima(item: MateriaPrimaReviewItem): string | null {
+  if (!item.codigoMat.trim()) return item.motivo ?? "Escolha a matéria-prima desta peça.";
+  if (item.quantidadeKg === null) return "Informe a quantidade consumida em KG.";
+  if (!Number.isFinite(item.quantidadeKg) || item.quantidadeKg <= 0) {
+    return "Quantidade inválida: use um número maior que zero.";
+  }
+  return null;
+}
+
+export function materiaPrimaValida(item: MateriaPrimaReviewItem): boolean {
+  return motivoMateriaPrima(item) === null;
+}
+
+/**
+ * Converte as linhas INCLUÍDAS e VÁLIDAS em relações de estrutura PEÇA → MAT.
+ * A quantidade vai em KG, que é a unidade de todo cadastro MAT no Omie.
+ */
+export function materiaPrimaParaEnvio(itens: MateriaPrimaReviewItem[]): EstruturaRel[] {
+  return itens
+    .filter((item) => item.included && materiaPrimaValida(item))
+    .map((item) => ({
+      numeroPai: item.numeroPeca,
+      numeroFilho: `${item.numeroPeca || item.linha}${SUFIXO_MP}`,
+      codigoPai: item.codigoPeca,
+      codigoFilho: item.codigoMat,
+      descricaoFilho: item.descricaoMat,
+      quantidade: item.quantidadeKg,
+      origem: "mp" as const,
+    }));
+}
+
+export interface ResumoMateriaPrima {
+  selecionadas: number;
+  pendentes: number; // precisam de conferência ou escolha manual
+}
+
+export function resumoMateriaPrima(itens: MateriaPrimaReviewItem[]): ResumoMateriaPrima {
+  let selecionadas = 0;
+  let pendentes = 0;
+  for (const item of itens) {
+    if (item.included && materiaPrimaValida(item)) selecionadas += 1;
+    else pendentes += 1;
+  }
+  return { selecionadas, pendentes };
 }

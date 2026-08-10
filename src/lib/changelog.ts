@@ -24,6 +24,19 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-08-10",
+    title: "Produtos: montagem de destino e matéria-prima das peças",
+    items: [
+      "A árvore inteira da BOM agora entra dentro de uma montagem que já existe no Omie, em vez de vocês adicionarem item por item na mão. O código da montagem vem preenchido a partir do nome do arquivo da BOM (ex.: \"MSVCH MT001 I0POL.xls\"), e o botão \"Conferir no Omie\" mostra a descrição do cadastro antes de você enviar.",
+      "Nova tabela de matéria-prima: para cada peça (PC), o sistema descobre qual item MAT ela consome, cruzando a especificação da BOM (a coluna DESCRIÇÃO) com o código da peça e o que está cadastrado no Omie.",
+      "A quantidade sai da coluna de peso da BOM, convertida para KG, que é a unidade dos cadastros de matéria-prima. Você escolhe na tela se a planilha veio em gramas ou em quilos, e trocar recalcula tudo na hora.",
+      "Só entra marcado o que bate exato com a especificação. Quando a bitola é só parecida (a BOM pede Ø6,25 e o cadastro só tem Ø6,35, por exemplo), a sugestão aparece desmarcada com o motivo, para você conferir. Material adivinhado nunca vai sozinho para o Omie.",
+      "Dá para trocar a matéria-prima de qualquer peça na mão, escolhendo direto na lista do que está cadastrado no Omie.",
+      "Agora também dá para enviar só a estrutura, sem nenhum produto novo. É o caso de quando os itens já foram cadastrados num envio anterior e falta apenas pendurá-los na montagem.",
+      "Submontagem exportada sem o traço antes da descrição (ex.: \"MSVCH SM004 ITPOL ESTRUTURA SUPERIOR\") deixou de virar erro e de fazer as peças-filhas dela sumirem da estrutura.",
+    ],
+  },
+  {
     date: "2026-07-29",
     title: "Notificações do Windows",
     items: [
