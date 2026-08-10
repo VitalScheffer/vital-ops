@@ -4870,3 +4870,74 @@ pendente de conferencia (o Ø6,25).
   define `maxDuration`, entao vale medir num envio real antes de rodar uma BOM grande; se apertar,
   o caminho e envio em blocos com retomada.
 - Nao houve teste com envio REAL ao Omie (nenhuma escrita foi feita nesta sessao).
+
+## 2026-08-10 (continuacao 2) — Revisao de codigo, changelog e PR #2
+
+### Resumo
+
+Entrada nova no changelog (`/novidades`), `/code-review` do commit da feature, correcao dos 10
+achados e abertura do PR. Branch `feat/produtos-montagem-materia-prima` (o `feat/ponte-pcp` ja
+estava mergeado no master pelo PR #1).
+
+- `59e5325` feat: a implementacao
+- `a8eab87` fix: os achados da revisao
+- PR: https://github.com/VitalScheffer/vital-ops/pull/2
+
+### Achados da revisao (todos corrigidos, com teste discriminante)
+
+**Alto**
+
+1. `montagemDoNomeDoArquivo` caia pro `candidatos[0]` quando nao achava bloco `MT`, entao QUALQUER
+   5-5-5 no nome virava montagem. `MSVCH PC010 ICPOL.xls` pre-preenchia uma PECA, e como o campo ja
+   monta as relacoes e a conferencia no Omie e opcional, a arvore inteira entraria dentro dela em
+   silencio. O prefixo `MT` virou exigencia; sem ele, `null` e o usuario digita.
+2. A falha local da montagem chamava `registrarSequencia(..., false)`, e o `!custoOmie` **zera**
+   `sequenciaRisco`. Como `parseEstrutura` intercala `raiz` e `bom`, uma montagem errada limpava o
+   contador entre falhas REAIS de escrita: o freio anti-ban ficava desarmado exatamente no cenario
+   pra que ele foi criado. Agora a falha local nao toca no contador.
+3. `casarMateriaPrima` PULAVA o filtro de liga quando `pista.liga` era `null`, o oposto do que o
+   comentario do proprio arquivo prometia. Peca `ACSLD` (acrilico) com `# 2,0000` casava "exata" com
+   a chapa de inox, entrava marcada e ia sozinha pro Omie. Agora, sem material conhecido, so resolve
+   se a geometria apontar pra uma liga so; havendo mais de uma, pede escolha na tela.
+
+**Medio**
+
+4. O campo da montagem entrava direto na dependencia do `useMemo` da estrutura, entao cada TECLA
+   reconstruia `estruturaReview` e apagava marcacoes/quantidades ja ajustadas. Separado em
+   `montagem` (o que se digita) e `montagemAplicada` (o que vale), commitado no blur e na conferencia.
+5. O `" - "` opcional tambem engolia bloco a mais: `... ITSLD REV01 - CHAPA` virava descricao
+   `... - REV01 - CHAPA` cadastrada no Omie. Lookahead negativo `(?!\S{5} - )` devolve esse caso
+   pro erro, sem perder a linha sem hifen que motivou a tolerancia.
+6. `verificarMontagem` buscava no mapa pela string DIGITADA, mas `buscarProdutosPorCodigo` chaveia
+   pelo codigo que o OMIE devolveu: `msvch mt001 i0pol` dava falso negativo. Pior, `parseEstrutura`
+   guardava a string crua como `codigoPai`, entao a diferenca de caixa fazia o `montagemAusente`
+   reprovar TODAS as relacoes de topo sem uma chamada sequer. Comparacao sem caixa/espaco, retorno
+   do codigo canonico (a tela adota) e `normalizarCodigoMontagem` no que o usuario digita.
+7. `montagemAusente` olhava so `idOmiePorCodigo`/`integracaoReal`; cadastro achado na pre-checagem
+   sem `codigo_produto` utilizavel era acusado de inexistente. Passa a olhar `existentes` tambem.
+
+**Baixo**
+
+8. A secao de MP abria em BOM antiga (sem peso/especificacao): uma linha por peca, todas vazias, com
+   o aviso "N pecas sem materia-prima confirmada" e o seletor sem catalogo, porque a leitura do
+   catalogo tinha outra condicao. `bomTemMateriaPrima` unificou as duas.
+9. Peca repetida na BOM gerava duas relacoes PECA -> MAT identicas; o duplicado do reenvio conta pro
+   freio. Dedup por codigo, como o `parseBom` ja fazia.
+10. `orfaosDeEstrutura` estava exportado e testado mas nao era chamado em lugar nenhum de `src/`: a
+    perda silenciosa que ele existe pra denunciar seguia silenciosa. Virou aviso na tela.
+
+Notas menores tambem tratadas: `ehColunaPeso` passa a ignorar cabecalho com "total" (peso total x
+quantidade multiplicaria a MP de toda peca repetida) e a contagem "N na montagem de destino" nao
+passa mais do total de incluidas.
+
+### Verificacao
+
+`npx tsc --noEmit`, `npx eslint .` e `npm run build` limpos. `npm test` -> **534 passed em 44
+arquivos** (eram 506 antes da feature).
+
+### Pendencias / proximos passos
+
+- **PR #2 aberto, aguardando revisao e merge.** O merge no master e o que dispara o deploy na Vercel
+  e faz a entrada do changelog aparecer pro pessoal; sem isso, ninguem da fabrica ve nada.
+- Continua valendo: falta um envio REAL de validacao com uma BOM pequena antes de soltar pra
+  producao, e medir o tempo do lote (de ~10 pra ~60 chamadas sequenciais, sem `maxDuration` definido).
