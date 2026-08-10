@@ -22,8 +22,8 @@ export function EstruturaPreview({ itens, onToggle, onQuantidade }: EstruturaPre
         <div>
           <h3 className="text-sm font-semibold text-foreground">Estrutura pai/filho</h3>
           <p className="text-xs text-muted-foreground">
-            {incluidas} de {itens.length} relação(ões) incluída(s) — vão para a aba{" "}
-            <span className="font-mono">Omie_Produtos_Estrutura</span>
+            {incluidas} de {itens.length} relação(ões) incluída(s), incluindo{" "}
+            {itens.filter((i) => i.origem === "raiz").length} na montagem de destino.
           </p>
         </div>
       </div>
@@ -74,7 +74,12 @@ function EstruturaRow({
       <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs text-muted-foreground">
         {item.numeroFilho}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-xs text-foreground">{item.codigoPai}</td>
+      <td className="whitespace-nowrap px-3 py-2 align-top">
+        <span className="font-mono text-xs text-foreground">{item.codigoPai}</span>
+        {item.origem === "raiz" && (
+          <span className="mt-0.5 block text-[0.65rem] uppercase tracking-wide text-primary">Montagem de destino</span>
+        )}
+      </td>
       <td className="px-3 py-2 align-top">
         <span className="font-mono text-xs text-foreground">{item.codigoFilho}</span>
         <span className="text-muted-foreground"> — {item.descricaoFilho}</span>

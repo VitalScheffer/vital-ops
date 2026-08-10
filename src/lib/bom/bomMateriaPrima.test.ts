@@ -1,0 +1,183 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  buildMateriaPrimaReview,
+  materiaPrimaParaEnvio,
+  resumoMateriaPrima,
+} from "@/lib/bom/review";
+import { indexarCatalogo, type ProdutoMatBruto } from "@/lib/produtos/materiaPrima";
+
+import { lerBomDeArquivo } from "./bomFile";
+import { NUMERO_RAIZ, orfaosDeEstrutura, parseBom, parseEstrutura } from "./bomParser";
+import { montagemDoNomeDoArquivo } from "./montagem";
+
+// BOM REAL exportada do CAD (a mesma que veio no pedido do Jhonatan): .xls BIFF
+// antigo, com as colunas Nº / PEÇA / QTD / Peso / DESCRIÇÃO, e o código da
+// montagem só no NOME do arquivo.
+const NOME_ARQUIVO = "MSVCH MT001 I0POL.xls";
+const CAMINHO = fileURLToPath(new URL("./__fixtures__/bom-msvch-mt001.xls", import.meta.url));
+const BYTES = readFileSync(CAMINHO);
+
+function arquivo(): File {
+  return new File([BYTES.slice()], NOME_ARQUIVO);
+}
+
+// Itens MAT reais do Omie usados por essa BOM.
+const CATALOGO = indexarCatalogo([
+  { codigo: "MATTB Q2525 12I43", descricao: "MATTB Q2525 12I43 -  TUBO QUADRADO 25x25x1.2 AÇO INOX POLIDO 430 (6000mm)", unidade: "KG" },
+  { codigo: "MATTB RD190 15I43", descricao: "MATTB RD190 15I43 - TUBO REDONDO Ø19,05x1,5 AÇO INOX 430 (6000mm)", unidade: "KG" },
+  { codigo: "MATTB RD158 12I43", descricao: "MATTB RD158 12I43 - TUBO REDONDO Ø15,88x1,2 AÇO INOX POLIDO 430 (6000mm)", unidade: "KG" },
+  { codigo: "MATCH 00090 IN430", descricao: "MATCH 00090 IN430 - CHAPA 0,9 AÇO INOX 430 (1200x2000)", unidade: "KG" },
+  { codigo: "MATCH 00120 IN430", descricao: "MATCH 00120 IN430 - CHAPA 1,2 AÇO INOX 430 (1200x2000)", unidade: "KG" },
+  { codigo: "MATCH 00150 IN430", descricao: "MATCH 00150 IN430 - CHAPA 1.5 AÇO INOX 430 (1200x2000)", unidade: "KG" },
+  { codigo: "MATCH 00200 IN430", descricao: "MATCH 00200 IN430 - CHAPA 2,0 AÇO INOX 430 (1200x2000)", unidade: "KG" },
+  { codigo: "MATCH 00300 IN430", descricao: "MATCH 00300 IN430 - CHAPA ESP 3,00 AÇO INOX 430 (1200x2000)", unidade: "KG" },
+  { codigo: "MATTF RD635 00I43", descricao: "MATTF RD635 00I43 - TREFILADO REDONDO 6,35 AÇO INOX 430 (6000mm)", unidade: "KG" },
+] satisfies ProdutoMatBruto[]);
+
+describe("montagemDoNomeDoArquivo", () => {
+  it("pega o código da montagem do nome do arquivo da BOM", () => {
+    expect(montagemDoNomeDoArquivo(NOME_ARQUIVO)).toBe("MSVCH MT001 I0POL");
+  });
+
+  it("aceita o código no meio do nome e com separadores", () => {
+    expect(montagemDoNomeDoArquivo("BOM MSVCH MT001 I0POL rev2.xlsx")).toBe("MSVCH MT001 I0POL");
+    expect(montagemDoNomeDoArquivo("MSVCH_MT001_I0POL.xls")).toBe("MSVCH MT001 I0POL");
+  });
+
+  it("nome sem código no padrão não inventa nada", () => {
+    expect(montagemDoNomeDoArquivo("lista de pecas.xlsx")).toBeNull();
+  });
+});
+
+describe("BOM real MSVCH MT001 I0POL: leitura das colunas novas", () => {
+  it("lê Peso e a especificação do material junto com Nº / PEÇA / QTD", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const pc001 = rows.find((r) => r.peca.includes("PC001"))!;
+    expect(pc001.numero).toBe("1.1");
+    expect(pc001.quantidade).toBe(1);
+    expect(pc001.peso).toBe(1014.52);
+    expect(pc001.especificacao).toBe("TUBO QUAD 25,00x25,00x1,20mm");
+
+    // Item comprado não tem peso nem especificação.
+    const comprado = rows.find((r) => r.peca.includes("COMBB"))!;
+    expect(comprado.peso).toBeNull();
+    expect(comprado.especificacao).toBe("");
+  });
+
+  it("a submontagem sem o hífen antes da descrição não vira erro nem perde os filhos", async () => {
+    // "MSVCH SM004 ITPOL ESTRUTURA SUPERIOR" (sem " - ") existe na BOM real.
+    const rows = await lerBomDeArquivo(arquivo());
+    const parsed = parseBom(rows);
+    expect(parsed.erros).toEqual([]);
+
+    const sm004 = parsed.itens.find((i) => i.raw.includes("SM004"))!;
+    expect(sm004.codigo).toBe("MSVCH SM004 ITPOL");
+    expect(sm004.descricaoProduto).toBe("MSVCH SM004 ITPOL - ESTRUTURA SUPERIOR");
+
+    expect(orfaosDeEstrutura(rows)).toEqual([]);
+    const filhos = parseEstrutura(rows).filter((r) => r.codigoPai === "MSVCH SM004 ITPOL");
+    expect(filhos.map((f) => f.numeroFilho)).toEqual(["4.1", "4.2"]);
+  });
+});
+
+describe("BOM real: montagem de destino como pai da árvore", () => {
+  it("sem montagem informada, o nível de topo continua sem pai", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    expect(parseEstrutura(rows).some((r) => r.origem === "raiz")).toBe(false);
+  });
+
+  it("com a montagem, cada linha de nível topo vira filha dela com a QTD da linha", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const rels = parseEstrutura(rows, "MSVCH MT001 I0POL");
+    const raiz = rels.filter((r) => r.origem === "raiz");
+
+    // 35 itens de nível topo na BOM (1 a 35).
+    expect(raiz).toHaveLength(35);
+    expect(raiz.every((r) => r.codigoPai === "MSVCH MT001 I0POL")).toBe(true);
+    expect(raiz.every((r) => r.numeroPai === NUMERO_RAIZ)).toBe(true);
+
+    const sm002 = raiz.find((r) => r.numeroFilho === "2")!;
+    expect(sm002.codigoFilho).toBe("MSVCH SM002 I0POL");
+    expect(sm002.quantidade).toBe(2);
+
+    // As relações internas da BOM continuam iguais.
+    expect(rels.filter((r) => r.origem === "bom")).toHaveLength(9);
+  });
+
+  it("a própria montagem não vira filha de si mesma", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    // A linha 5 da BOM é a peça MSVCH PC010 ICPOL; usamos ela como raiz de
+    // propósito para conferir a proteção contra o auto-relacionamento.
+    const rels = parseEstrutura(rows, "MSVCH PC010 ICPOL");
+    expect(rels.some((r) => r.codigoPai === r.codigoFilho)).toBe(false);
+    expect(rels.filter((r) => r.origem === "raiz")).toHaveLength(34);
+  });
+});
+
+describe("BOM real: matéria-prima das peças", () => {
+  it("resolve a MP das peças em gramas, só marcando o que bate exato", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const mp = buildMateriaPrimaReview(rows, CATALOGO, "g");
+
+    // Só as PEÇAS entram (submontagem e comprado ficam de fora).
+    expect(mp).toHaveLength(18);
+    expect(mp.every((i) => i.codigoPeca.includes(" PC"))).toBe(true);
+
+    const pc001 = mp.find((i) => i.codigoPeca === "MSVCH PC001 ITSLD")!;
+    expect(pc001.codigoMat).toBe("MATTB Q2525 12I43");
+    expect(pc001.quantidadeKg).toBe(1.015); // 1014,52 g
+    expect(pc001.confianca).toBe("exata");
+    expect(pc001.included).toBe(true);
+
+    const pc002 = mp.find((i) => i.codigoPeca === "MSVCH PC002 ICSLD")!;
+    expect(pc002.codigoMat).toBe("MATCH 00300 IN430");
+    expect(pc002.quantidadeKg).toBe(0.019); // 19,42 g
+
+    // Trefilado Ø6,25 na BOM x Ø6,35 no cadastro: sugere, mas não marca sozinho.
+    const pc017 = mp.find((i) => i.codigoPeca === "MSVCH PC017 IAPOL")!;
+    expect(pc017.codigoMat).toBe("MATTF RD635 00I43");
+    expect(pc017.confianca).toBe("aproximada");
+    expect(pc017.included).toBe(false);
+    expect(pc017.motivo).toMatch(/Bitola parecida/);
+
+    expect(resumoMateriaPrima(mp)).toEqual({ selecionadas: 17, pendentes: 1 });
+  });
+
+  it("trocar a unidade para kg recalcula todas as quantidades", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const mp = buildMateriaPrimaReview(rows, CATALOGO, "kg");
+    const pc001 = mp.find((i) => i.codigoPeca === "MSVCH PC001 ITSLD")!;
+    expect(pc001.quantidadeKg).toBe(1014.52);
+  });
+
+  it("sem catálogo, nenhuma peça é marcada e cada uma diz o motivo", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const mp = buildMateriaPrimaReview(rows, [], "g");
+    expect(mp.every((i) => !i.included && i.codigoMat === "")).toBe(true);
+    expect(mp[0].motivo).toMatch(/Nenhum item MAT cadastrado no Omie/);
+  });
+
+  it("as relações de MP viram estrutura da própria peça, com número único", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const rels = materiaPrimaParaEnvio(buildMateriaPrimaReview(rows, CATALOGO, "g"));
+
+    expect(rels).toHaveLength(17);
+    expect(rels.every((r) => r.origem === "mp")).toBe(true);
+
+    const pc001 = rels.find((r) => r.codigoPai === "MSVCH PC001 ITSLD")!;
+    expect(pc001.codigoFilho).toBe("MATTB Q2525 12I43");
+    expect(pc001.quantidade).toBe(1.015);
+    expect(pc001.numeroFilho).toBe("1.1.MP");
+
+    // O número do filho é a chave do resultado no banco: não pode repetir, nem
+    // colidir com a numeração da própria BOM.
+    const numeros = rels.map((r) => r.numeroFilho);
+    expect(new Set(numeros).size).toBe(numeros.length);
+    const daBom = new Set(parseEstrutura(rows, "MSVCH MT001 I0POL").map((r) => r.numeroFilho));
+    expect(numeros.some((n) => daBom.has(n))).toBe(false);
+  });
+});

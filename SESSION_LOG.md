@@ -4637,3 +4637,236 @@ Prisma ao Django e quebraria as migrations dos dois lados).
 - O `.env.example` deste repo NAO e versionado (`.gitignore` linha 34, `.env*`), entao a chave
   nova so existe em disco. A documentacao ficou no README, que e versionado. Decisao: deixar
   assim, afrouxar o ignore de `.env*` e o tipo de mudanca que um dia deixa passar um segredo.
+
+## 2026-08-10 — Plano: montagem existente como pai + materia-prima nas pecas PC (Produtos)
+
+### Resumo
+
+Pedido do Jhonatan (projetos02), encaminhado pelo Vitor, em e-mail de 10/07/2026 ("CADASTRO DE
+PRODUTOS COM M.P"). Sao DUAS demandas em cima do modulo Produtos, que hoje ja cadastra
+submontagens, pecas e componentes a partir da BOM do CAD:
+
+1. **Pendurar a arvore inteira numa MONTAGEM que ja existe no Omie.** Hoje as linhas de nivel
+   topo da BOM (`1`, `2`, `3`) ficam orfas, porque a montagem nao esta na planilha como pai, e o
+   pessoal adiciona item a item na mao dentro da montagem ja cadastrada (ex. `MSVCH MT001 I0POL`).
+2. **Informar a MATERIA-PRIMA que cada peca PC consome.** Duas colunas novas na BOM (massa em
+   gramas e especificacao do material) que, cruzadas com o codigo da peca, resolvem qual item MAT
+   ja cadastrado entra na estrutura daquela peca e em que quantidade (em KG).
+
+Sessao de PLANEJAMENTO apenas: nenhum arquivo de codigo foi alterado. A implementacao ficou
+esperando os anexos (decisao do usuario).
+
+### Levantamento do que ja existe
+
+- `src/lib/bom/bomFile.ts` le a BOM (.xls/.xlsx, com fallback BIFF legado) e localiza as colunas
+  **pelo NOME do cabecalho** (Nº / PEÇA / QTD), nao pela letra. Colunas novas entram por nome, sem
+  quebrar as BOMs antigas.
+- `src/lib/bom/bomParser.ts` extrai o codigo 5-5-5, classifica a familia pelo 2º/3º bloco
+  (COM/SBM/PCF/PCA) e monta a estrutura pai->filho pela numeracao hierarquica (`1.2` filho de `1`).
+  `parseEstrutura` IGNORA numeros sem ponto, entao o nivel de topo nao gera relacao nenhuma.
+- `src/lib/bom/review.ts` + `src/components/produtos/ProdutosClient.tsx`: tela de revisao editavel.
+- `src/lib/produtos/envioOmie.ts`: envio sequencial familias -> produtos -> estrutura, com
+  pre-checagem em lote (`ListarProdutos`/`produtosPorCodigo`), pre-checagem de estrutura por pai
+  (`ConsultarEstrutura`), reaproveitamento de cadastro em conflito e freio proprio anti-ban
+  (`LIMITE_SEQUENCIA_RISCO = 5`).
+- `src/lib/estoque/omieEstoque.ts` ja tem `buscarProdutosPorCodigo` e `buscarProdutosPorDescricao`
+  (leituras cacheadas) reaproveitaveis para verificar a montagem e sincronizar o catalogo MAT.
+
+### Plano
+
+**Fase 1 — montagem raiz (baixo risco, entrega isolada)**
+
+- Campo na tela "Montagem de destino (codigo do produto pai)" + deteccao automatica na planilha
+  (varre as linhas acima do cabecalho e o nome da aba procurando 5-5-5 com `MT` no 2º bloco) que
+  pre-preenche o campo; o campo sempre vence, serve de correcao.
+- Server Action de verificacao: consulta o codigo no Omie antes de enviar e mostra
+  "encontrada: <descricao>". Sem isso cada relacao falharia item a item e queimaria o freio anti-ban.
+- A raiz NUNCA e recadastrada: se o codigo aparecer como linha da planilha, sai da lista de novos.
+- `parseEstrutura` ganha `codigoRaiz` e passa a gerar `raiz -> 1`, `raiz -> 2`, ... com a QTD da
+  propria linha de topo.
+- Arquivos previstos: `src/lib/bom/types.ts`, `bomParser.ts`, `bomFile.ts`, `review.ts`,
+  `ProdutosClient.tsx`, `src/app/(app)/produtos/enviar-actions.ts` (campo novo no zod) e uma
+  Server Action nova de verificacao.
+
+**Fase 2 — catalogo MAT local**
+
+- Tabela `MateriaPrima` no Prisma + migracao, sincronizada do Omie por acao explicita
+  ("Atualizar catalogo de MP") e/ou pela planilha de MAT que o Jhonatan exportar.
+- Motivo de ser local: consultar o Omie por peca durante o envio e exatamente o padrao que arrisca
+  bloquear a app_key (§6 do REQUISITOS).
+
+**Fase 3 — leitura e casamento da materia-prima**
+
+- Duas colunas novas casadas por nome no cabecalho (massa e especificacao). Ausentes = comportamento
+  de hoje, sem MP.
+- Pre-filtro pelos 2 primeiros caracteres do 3º bloco do codigo da peca: `IT` = inox tubo (familia
+  `MATTB`), `IC` = inox chapa (familia `MATCH`). **Falta a tabela completa desses pares.**
+- Parser da especificacao em atributos estruturados (forma, dimensoes, espessura) e casamento contra
+  o catalogo real filtrado pela categoria. Ex.: `TUBO QUAD 25,00x25,00x1,2` + `IT` -> `MATTB Q2525
+  12I43`; `chapa 3,0mm` + `IC` -> `MATCH 00300 IN430`.
+- Na tela: coluna por peca com a MP escolhida, a quantidade em KG e o grau de confianca, com
+  seletor de busca para trocar a mao. MP nao resolvida entra DESMARCADA com o motivo; palpite nao
+  confirmado nao vai pro Omie.
+- Arquivos previstos: `bomFile.ts`, `bomParser.ts`, novo `src/lib/produtos/materiaPrima.ts`
+  (parser + casamento), novo `src/lib/produtos/catalogoMat.ts` (sync/consulta), `review.ts`,
+  `PreviewTable.tsx`, `EstruturaPreview.tsx`.
+
+**Fase 4 — envio**
+
+- Cada par vira relacao de estrutura `PC (pai) -> MAT (filho)`, quantidade em KG, no
+  `IncluirEstrutura` que ja existe. O MAT ja esta cadastrado: nenhum produto novo e criado por isso.
+
+### Decisoes tomadas (usuario, 10/08/2026)
+
+1. **Resolucao do codigo MAT: catalogo real + casamento**, nao formula deduzida da coluna E nem
+   tabela De/Para manual. So se sugere codigo que existe de verdade, e o usuario confirma na tela.
+   Motivo: a formula quebra em cada variacao nova (tubo redondo, retangular, outra liga) e pode
+   mandar codigo inexistente pro Omie, que vira erro contado pro limite de bloqueio da chave.
+2. **Conversao g -> kg com 3 casas decimais** (1053,36 g vira 1,053 kg), igual ao exemplo do e-mail.
+3. **Implementar tudo junto, depois dos anexos** (nao fatiar a Fase 1 antes), para escrever a regra
+   de casamento validada em dados reais.
+
+### Riscos mapeados
+
+- **Volume de chamadas.** Cada PC vira um pai de estrutura. Numa BOM de 100 pecas sao ~100 escritas
+  a mais e ~100 leituras de idempotencia (`ConsultarEstrutura` por pai). O envio hoje e sequencial
+  dentro de uma Server Action e o projeto NAO define `maxDuration`, entao pode estourar o limite da
+  funcao na Vercel. Provavelmente vai precisar de envio em blocos com retomada.
+- **Consumo redundante.** `ConsultarEstrutura` do mesmo idProduto em menos de 60s volta como
+  bloqueio; hoje o codigo engole isso (so perde a otimizacao), mas com muito mais pais vale medir.
+- **Liga do material.** A coluna de especificacao do exemplo nao diz a liga (430 vs 304); o `I43`/
+  `IN430` foi assumido. Se houver 304 no catalogo, o casamento fica ambiguo e precisa de regra
+  explicita ou de escolha na tela.
+- **`aplicarResultadoNoBanco`** (em `enviar-actions.ts`) casa a estrutura por `numeroFilho`. As
+  relacoes novas (raiz e MP) precisam de numeracao sintetica UNICA, senao o status volta trocado.
+
+### Comandos relevantes
+
+Nenhum. Sessao de leitura/planejamento; nada foi executado alem de listagens de arquivo.
+
+### Pendencias / proximos passos
+
+- **Bloqueante: o anexo do e-mail** (planilha modelo com as colunas de massa e especificacao). Sem
+  ele os nomes dos cabecalhos e o formato exato da especificacao sao inferencia. Combinado: salvar
+  em `C:\Users\TREINAMENTO\Downloads`.
+- **Bloqueante para a Fase 2/3: o export dos itens MAT ja cadastrados**, que o proprio Jhonatan
+  ofereceu no e-mail. Serve para validar o casamento antes de escrever a regra.
+- Pedir ao Jhonatan a **tabela completa dos prefixos de material** (so `IT` e `IC` foram citados).
+- Confirmar se a coluna de massa e SEMPRE em gramas: o e-mail diz gramas, mas descreve o exemplo da
+  chapa como "1,014kg (representado na coluna D)". Provavelmente sao 1014 g, mas precisa confirmar.
+- Confirmar se a massa da coluna e POR PECA ou pelo total da linha (a quantidade da estrutura no
+  Omie e sempre por unidade do pai).
+- Medir quantas casas decimais o `quantProdMalha` realmente aceita (a decisao de 3 casas vale
+  independente, mas o teste evita surpresa de arredondamento do lado do Omie).
+
+## 2026-08-10 (continuacao) — Implementacao: montagem de destino + materia-prima nas pecas
+
+### Resumo
+
+Com a planilha real em maos (`MSVCH MT001 I0POL.xls`) e o catalogo MAT lido do Omie, as duas
+demandas do e-mail foram implementadas. `npx tsc --noEmit`, `npx eslint .` e `npm run build` limpos;
+`npm test` -> **523 passed em 44 arquivos** (eram 506 em 43).
+
+### O que os dados reais mudaram no plano
+
+- **O codigo da montagem esta no NOME DO ARQUIVO**, nao dentro da planilha. A deteccao passou a ser
+  em cima do nome (`montagemDoNomeDoArquivo`).
+- Colunas reais: `A:Nº | B:PEÇA | C:QTD | D:Peso | E:DESCRIÇÃO`. A leitura casa por NOME de
+  cabecalho (como o resto do `bomFile`), nao por letra.
+- **O peso da linha PC e UNITARIO**; a linha SM traz a soma dos filhos ponderada pela QTD
+  (`1014,52 + 2x19,42 = 1053,36`, confere nas 4 submontagens). Resolve a duvida "por peca ou total":
+  e por peca, e o peso das submontagens NAO e usado.
+- O e-mail dizia que a chapa consome "1,014kg"; na planilha esse numero e o peso do TUBO da PC001.
+  Ou seja, **a coluna e sempre grama**. Mesmo assim a unidade virou escolha na tela (g/kg), a pedido
+  do usuario, porque nada no arquivo declara a unidade.
+- **A liga vem do CODIGO da peca, nao da coluna E**: no 3º bloco, o 1º char e o MATERIAL (`I` =
+  inox) e o 2º e a FORMA (`T` tubo, `C` chapa, `A` trefilado, `0` = nao se aplica, nas
+  submontagens `I0POL`). Isso desambigua inox x carbono, que a coluna E nao diz.
+- A linha `MSVCH SM004 ITPOL ESTRUTURA SUPERIOR` **nao tem o " - "** antes da descricao. Com o
+  padrao antigo ela virava erro E os filhos `4.1`/`4.2` perdiam o pai em SILENCIO.
+
+### Catalogo MAT no Omie (leitura de 10/08/2026)
+
+80 itens na familia "MAT - MATERIA PRIMA", todos em KG, nos prefixos `MATCH` (chapa), `MATTB`
+(tubo), `MATTF` (trefilado), `MATES`, `MATPF`, `MATRP`, `MATTC`.
+
+**Por que NAO deduzimos o codigo por formula** (confirma a decisao do usuario): os codigos sao
+inconsistentes entre familias. Em `MATTB`, `RD190` e Ø19,05 (divide por 10); em `MATTF`, `RD635` e
+Ø6,35 (divide por 100) e `RD095` e Ø9,52 (por 10). Um codigo inventado que nao existe vira erro de
+escrita no Omie, e erro de escrita e o que conta pro limite de bloqueio da app_key. Entao a
+GEOMETRIA sai da DESCRICAO do cadastro e o codigo so serve pra familia e pra conferir a liga.
+
+**Duas inconsistencias reais pro Jhonatan olhar** (nao sao bug nosso):
+- `MATTB RD127 12C12` tem codigo de aco carbono (`C12`) e descricao "AÇO INOX 430". O sistema marca
+  cadastros assim como `ambiguo` e NUNCA os escolhe sozinho.
+- `MATTF RD095 00C12` e `MATTF RD952 00C12` sao ambos descritos como Ø9,52.
+
+### Arquivos criados
+
+- `src/lib/produtos/materiaPrima.ts` — nucleo da MP: le a geometria dos dois lados (coluna da BOM e
+  descricao do cadastro MAT), normaliza liga, marca cadastro contraditorio e casa peca x catalogo.
+- `src/lib/produtos/catalogoMat.ts` — lista os itens MAT do Omie (paginado, TTL 1h no cache do
+  client). **Sem tabela local**: sao poucas dezenas de itens, e uma tabela so criaria desatualizacao.
+- `src/lib/bom/montagem.ts` — extrai o codigo da montagem do nome do arquivo.
+- `src/app/(app)/produtos/mp-actions.ts` — Server Actions `carregarCatalogoMat` e
+  `verificarMontagem` (as duas sao LEITURA no Omie).
+- `src/components/produtos/MateriaPrimaTable.tsx` — revisao da MP por peca, com seletor do catalogo.
+- `src/components/produtos/MontagemDestino.tsx` — campo da montagem + botao "Conferir no Omie".
+- `scripts/dump-bom.ts` — inspeciona uma BOM real pelo mesmo caminho de leitura da tela.
+- `src/lib/bom/bomMateriaPrima.test.ts` + `src/lib/produtos/materiaPrima.test.ts` — 31 testes novos.
+- `src/lib/bom/__fixtures__/bom-msvch-mt001.xls` — a BOM real como fixture de integracao.
+
+### Arquivos alterados
+
+- `src/lib/bom/types.ts` — `BomRow.peso` e `.especificacao`; `UnidadePeso`; `EstruturaRel.origem`
+  (`"bom" | "raiz" | "mp"`).
+- `src/lib/bom/bomFile.ts` — le as colunas de peso e especificacao por nome de cabecalho; numero no
+  padrao brasileiro ("1.053,36").
+- `src/lib/bom/bomParser.ts` — separador " - " opcional; `parseEstrutura(rows, codigoRaiz)` pendura
+  o nivel de topo na montagem; `orfaosDeEstrutura` denuncia filho que perdeu o pai; helpers
+  `blocosDoCodigo` / `ehPeca` / `extrairCodigoDaPeca`.
+- `src/lib/bom/review.ts` — camada de revisao da MP (`buildMateriaPrimaReview`,
+  `materiaPrimaParaEnvio`, `resumoMateriaPrima`).
+- `src/lib/produtos/envioOmie.ts` — ver "Correcoes de risco" abaixo.
+- `src/app/(app)/produtos/enviar-actions.ts` — `origem` no zod; passou a aceitar envio SO de
+  estrutura (caso real: os itens ja foram cadastrados antes, falta so pendura-los na montagem).
+- `src/components/produtos/ProdutosClient.tsx`, `EstruturaPreview.tsx` — telas.
+
+### Correcoes de risco no envio (encontradas durante a implementacao)
+
+1. **Pre-checagem de estrutura abriria o breaker sozinha.** `ConsultarEstrutura` de produto SEM
+   malha volta vazio, e vazio no Omie e resposta de ERRO: o client conta fault. Com a MP, cada PECA
+   vira um pai novo (~18 nesta BOM), entao a sequencia de vazios estouraria o soft (6 faults) e o
+   lote inteiro morreria em `OmieBlocked` ANTES das escritas. Ja era latente hoje com 6+
+   submontagens. Duas travas: so consultamos pais que JA EXISTIAM antes do lote (quem foi criado
+   agora nao tem malha por definicao), e desistimos apos 3 vazios seguidos.
+2. **Montagem digitada errada multiplicaria escritas recusadas.** O codigo da montagem se repete em
+   TODA linha de topo (35 nesta BOM). Agora, quando a pre-checagem conclui com sucesso que ela nao
+   existe, essas relacoes falham SEM chamar o Omie. Restrito a `origem: "raiz"`: os demais codigos
+   vem da BOM ou do catalogo, e o caminho antigo segue valendo pra eles. Se a pre-checagem falhar,
+   a trava nao vale (nao da pra acusar o usuario sem saber).
+
+### Politica de seguranca da sugestao
+
+So entra MARCADO o que bate EXATO com a especificacao (folga de 0,06mm, que cobre o arredondamento
+da BOM: Ø19,1 x Ø19,05 no cadastro). Bitola so parecida (ate 0,3mm) e sugerida mas entra
+DESMARCADA com o motivo, como no `TREF. Ø6,25` da PC017, que o catalogo so tem em Ø6,35. Polegada,
+sextavado, cadastro ambiguo e especificacao ilegivel nunca entram sozinhos.
+
+### Resultado medido na BOM real
+
+35 relacoes com a montagem + 9 internas da BOM; 18 pecas com materia-prima, 17 casadas exato e 1
+pendente de conferencia (o Ø6,25).
+
+### Pendencias / proximos passos
+
+- **Nada foi commitado nem publicado** (aguardando o "ok" do usuario).
+- Confirmar com o Jhonatan a tabela de prefixos de material. Confirmados nos dados: `I`=inox,
+  `T`=tubo, `C`=chapa, `A`=trefilado. `C`=carbono esta implementado por leitura natural do catalogo,
+  mas ainda nao apareceu numa BOM.
+- Confirmar se `TREF. Ø6,25` da PC017 e engano de projeto (o catalogo so tem Ø6,35).
+- Corrigir no Omie os dois cadastros MAT inconsistentes citados acima.
+- **Tempo de envio**: com a MP, o lote passa de ~10 para ~60 chamadas sequenciais. O projeto nao
+  define `maxDuration`, entao vale medir num envio real antes de rodar uma BOM grande; se apertar,
+  o caminho e envio em blocos com retomada.
+- Nao houve teste com envio REAL ao Omie (nenhuma escrita foi feita nesta sessao).

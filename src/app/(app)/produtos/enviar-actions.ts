@@ -38,6 +38,7 @@ const estruturaRelSchema = z.object({
   codigoFilho: z.string().trim().min(1),
   descricaoFilho: z.string(),
   quantidade: z.number().nullable(),
+  origem: z.enum(["bom", "raiz", "mp"]),
 });
 
 const enviarInputSchema = z.object({
@@ -110,10 +111,13 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
   const { estrutura, localEstoque, arquivoNome } = parsed.data;
   const ncm = normalizarNcm(parsed.data.ncm);
   const novos = parsed.data.novos.filter((i) => i.status === "novo");
-  if (novos.length === 0) {
+  // Estrutura sem produto novo é caso REAL e comum: os itens já foram cadastrados
+  // num envio anterior e agora só falta pendurá-los na montagem de destino (ou
+  // ligar a matéria-prima às peças). Só recusamos quando não há nada a fazer.
+  if (novos.length === 0 && estrutura.length === 0) {
     return {
       ok: false,
-      erro: "Nenhum produto novo para enviar — os duplicados não são reenviados.",
+      erro: "Nada para enviar: nenhum produto novo e nenhuma relação de estrutura selecionada.",
     };
   }
 

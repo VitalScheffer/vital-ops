@@ -46,6 +46,8 @@ describe("xlsLegacy — leitura de .xls BIFF antigo que o SheetJS recusa", () =>
       numero: String(linha[0] ?? "").trim(),
       peca: String(linha[1] ?? ""),
       quantidade: linha[2] === "" ? null : Number(linha[2]),
+      peso: null,
+      especificacao: "",
     }));
     const parsed = parseBom(rows);
     expect(parsed.novos.length).toBeGreaterThan(0);

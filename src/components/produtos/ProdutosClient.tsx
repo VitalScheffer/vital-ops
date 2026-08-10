@@ -14,6 +14,7 @@ import {
   PencilLine,
   Receipt,
   RotateCcw,
+  Scale,
   Send,
   ShieldAlert,
   Warehouse,
@@ -24,15 +25,20 @@ import { useMemo, useRef, useState } from "react";
 
 import { EstruturaPreview } from "@/components/produtos/EstruturaPreview";
 import { FileDropzone } from "@/components/produtos/FileDropzone";
+import { MateriaPrimaTable } from "@/components/produtos/MateriaPrimaTable";
+import { MontagemDestino } from "@/components/produtos/MontagemDestino";
 import { PreviewTable } from "@/components/produtos/PreviewTable";
 import { registrarPlanilhaGerada } from "@/app/(app)/produtos/actions";
 import { enviarAoOmie } from "@/app/(app)/produtos/enviar-actions";
+import { carregarCatalogoMat, verificarMontagem, type MontagemResult } from "@/app/(app)/produtos/mp-actions";
 import { criarReport } from "@/app/(app)/reports-actions";
 import { IDLE_FORM_STATE } from "@/lib/form";
 import type { OutcomeEnvio } from "@/lib/produtos/envioOmie";
+import type { ItemMat } from "@/lib/produtos/materiaPrima";
 import { NCM_PADRAO } from "@/lib/produtos/ncm";
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
 import { parseBom, parseEstrutura } from "@/lib/bom/bomParser";
+import { montagemDoNomeDoArquivo } from "@/lib/bom/montagem";
 import { baixarBlob } from "@/lib/bom/download";
 import {
   bytesParaBlob,
@@ -45,14 +51,18 @@ import {
 } from "@/lib/bom/omieFile";
 import {
   buildEstruturaReview,
+  buildMateriaPrimaReview,
   buildProdutoReview,
   estruturaParaEnvio,
+  materiaPrimaParaEnvio,
   produtosParaEnvio,
+  resumoMateriaPrima,
   resumoProdutos,
   type EstruturaReviewItem,
+  type MateriaPrimaReviewItem,
   type ProdutoReviewItem,
 } from "@/lib/bom/review";
-import type { BomRow, EstruturaRel, ParsedItem } from "@/lib/bom/types";
+import type { BomRow, EstruturaRel, ParsedItem, UnidadePeso } from "@/lib/bom/types";
 
 type Tone = "muted" | "success" | "warning" | "danger";
 
@@ -268,6 +278,18 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   const [localEstoque, setLocalEstoque] = useState("");
   const [ncm, setNcm] = useState(NCM_PADRAO);
 
+  // Montagem já cadastrada no Omie que recebe a árvore inteira.
+  const [montagem, setMontagem] = useState("");
+  const [montagemDetectada, setMontagemDetectada] = useState(false);
+  const [montagemResultado, setMontagemResultado] = useState<MontagemResult | null>(null);
+  const [verificandoMontagem, setVerificandoMontagem] = useState(false);
+
+  // Matéria-prima: unidade da coluna "Peso" da BOM + catálogo MAT do Omie.
+  const [unidadePeso, setUnidadePeso] = useState<UnidadePeso>("g");
+  const [catalogoMat, setCatalogoMat] = useState<ItemMat[]>([]);
+  const [carregandoCatalogo, setCarregandoCatalogo] = useState(false);
+  const [erroCatalogo, setErroCatalogo] = useState<string | null>(null);
+
   const [gerando, setGerando] = useState(false);
   const [erroGeracao, setErroGeracao] = useState<string | null>(null);
   const [resultadoGeracao, setResultadoGeracao] = useState<ResultadoEscrita | null>(null);
@@ -304,8 +326,18 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
       setBomRows(null);
       setErroBom(null);
       setCarregandoBom(false);
+      setMontagem("");
+      setMontagemDetectada(false);
+      setMontagemResultado(null);
       return;
     }
+
+    // O código da montagem vem do NOME do arquivo da BOM ("MSVCH MT001 I0POL.xls");
+    // é só um pré-preenchimento, o usuário confirma (ou troca) no campo.
+    const detectada = montagemDoNomeDoArquivo(file.name);
+    setMontagem(detectada ?? "");
+    setMontagemDetectada(detectada !== null);
+    setMontagemResultado(null);
 
     setCarregandoBom(true);
     setErroBom(null);
@@ -313,6 +345,8 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
       const rows = await lerBomDeArquivo(file);
       if (reqId !== bomReqId.current) return;
       setBomRows(rows);
+      // Catálogo de matéria-prima só faz sentido quando a BOM traz especificação.
+      if (rows.some((r) => r.especificacao.trim())) void carregarCatalogo();
     } catch (e) {
       if (reqId !== bomReqId.current) return;
       setBomRows(null);
@@ -349,11 +383,45 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     }
   }
 
+  async function carregarCatalogo() {
+    setCarregandoCatalogo(true);
+    setErroCatalogo(null);
+    try {
+      const resposta = await carregarCatalogoMat();
+      if (resposta.ok && resposta.itens) setCatalogoMat(resposta.itens);
+      else setErroCatalogo(resposta.erro ?? "Não consegui carregar o catálogo de matéria-prima.");
+    } catch (e) {
+      setErroCatalogo(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCarregandoCatalogo(false);
+    }
+  }
+
+  async function handleVerificarMontagem() {
+    const codigo = montagem.trim();
+    if (!codigo) return;
+    setVerificandoMontagem(true);
+    try {
+      setMontagemResultado(await verificarMontagem(codigo));
+    } catch (e) {
+      setMontagemResultado({ ok: false, erro: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setVerificandoMontagem(false);
+    }
+  }
+
   const parseResult = useMemo(
     () => (bomRows ? parseBom(bomRows, existingCodes) : null),
     [bomRows, existingCodes],
   );
-  const estruturaRels = useMemo(() => (bomRows ? parseEstrutura(bomRows) : []), [bomRows]);
+  const estruturaRels = useMemo(
+    () => (bomRows ? parseEstrutura(bomRows, montagem.trim()) : []),
+    [bomRows, montagem],
+  );
+  const materiaPrimaBase = useMemo(
+    () => (bomRows ? buildMateriaPrimaReview(bomRows, catalogoMat, unidadePeso) : []),
+    [bomRows, catalogoMat, unidadePeso],
+  );
 
   // --- Estado da revisão editável --------------------------------------------
   // Espelha o resultado do parser em estado que o usuário pode editar (incluir/
@@ -362,8 +430,10 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   // padrão do React de ajustar estado durante o render ao detectar a mudança.
   const [produtoReview, setProdutoReview] = useState<ProdutoReviewItem[]>([]);
   const [estruturaReview, setEstruturaReview] = useState<EstruturaReviewItem[]>([]);
+  const [materiaPrimaReview, setMateriaPrimaReview] = useState<MateriaPrimaReviewItem[]>([]);
   const [itensAnteriores, setItensAnteriores] = useState<ParsedItem[] | null>(null);
   const [relsAnteriores, setRelsAnteriores] = useState<EstruturaRel[] | null>(null);
+  const [mpAnterior, setMpAnterior] = useState<MateriaPrimaReviewItem[] | null>(null);
 
   if (parseResult && parseResult.itens !== itensAnteriores) {
     setItensAnteriores(parseResult.itens);
@@ -372,6 +442,12 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   if (estruturaRels !== relsAnteriores) {
     setRelsAnteriores(estruturaRels);
     setEstruturaReview(buildEstruturaReview(estruturaRels));
+  }
+  // Trocar a unidade do peso (ou o catálogo chegar) refaz a sugestão do zero:
+  // as quantidades editadas na mão valiam para a unidade anterior.
+  if (materiaPrimaBase !== mpAnterior) {
+    setMpAnterior(materiaPrimaBase);
+    setMateriaPrimaReview(materiaPrimaBase);
   }
 
   function updateProduto(id: string, patch: Partial<ProdutoReviewItem>) {
@@ -382,12 +458,36 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     setEstruturaReview((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }
 
+  function updateMateriaPrima(id: string, patch: Partial<MateriaPrimaReviewItem>) {
+    setMateriaPrimaReview((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }
+
+  // Escolher a MP na mão substitui a sugestão automática: some o motivo e a
+  // marcação de confiança, que descreviam a sugestão, não a escolha do usuário.
+  function escolherMateriaPrima(id: string, codigoMat: string) {
+    const mat = catalogoMat.find((m) => m.codigo === codigoMat);
+    updateMateriaPrima(id, {
+      codigoMat,
+      descricaoMat: mat?.descricao ?? "",
+      confianca: null,
+      motivo: undefined,
+      included: codigoMat !== "",
+    });
+  }
+
   const resumo = useMemo(() => resumoProdutos(produtoReview), [produtoReview]);
+  const resumoMp = useMemo(() => resumoMateriaPrima(materiaPrimaReview), [materiaPrimaReview]);
   const produtosEnvio = useMemo(() => produtosParaEnvio(produtoReview), [produtoReview]);
-  const estruturaEnvio = useMemo(() => estruturaParaEnvio(estruturaReview), [estruturaReview]);
+  const materiaPrimaEnvio = useMemo(() => materiaPrimaParaEnvio(materiaPrimaReview), [materiaPrimaReview]);
+  // Estrutura da BOM (inclusive as relações com a montagem de destino) mais as
+  // relações peça → matéria-prima: tudo vai no mesmo lote pro Omie.
+  const estruturaEnvio = useMemo(
+    () => [...estruturaParaEnvio(estruturaReview), ...materiaPrimaEnvio],
+    [estruturaReview, materiaPrimaEnvio],
+  );
 
   async function handleGerar() {
-    if (produtosEnvio.length === 0) return;
+    if (!temSelecionados) return;
     setGerando(true);
     setErroGeracao(null);
     try {
@@ -428,7 +528,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   }
 
   async function handleEnviar() {
-    if (produtosEnvio.length === 0) return;
+    if (!temSelecionados) return;
     setEnviando(true);
     setErroEnvio(null);
     setResultadoEnvio(null);
@@ -476,7 +576,9 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   }
 
   const ocupado = gerando || enviando;
-  const temSelecionados = produtosEnvio.length > 0;
+  // Estrutura sozinha também vale enviar: os produtos podem já ter sido
+  // cadastrados antes, faltando só pendurá-los na montagem ou ligar a MP.
+  const temSelecionados = produtosEnvio.length > 0 || estruturaEnvio.length > 0;
   const podeGerar = temSelecionados && !ocupado;
   const podeEnviar = temSelecionados && !ocupado;
 
@@ -541,7 +643,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
             <SummaryCard icon={CheckCircle2} label="Produtos selecionados" value={resumo.selecionados} tone="success" />
             <SummaryCard icon={AlertTriangle} label="Com erro (corrigir)" value={resumo.comErro} tone="danger" />
             <SummaryCard icon={MinusCircle} label="Ignorados" value={resumo.ignorados} tone="muted" />
-            {estruturaReview.length > 0 && (
+            {estruturaEnvio.length > 0 && (
               <SummaryCard icon={Network} label="Estruturas incluídas" value={estruturaEnvio.length} tone="muted" />
             )}
           </section>
@@ -562,6 +664,19 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
               onFamilia={(id, familia) => updateProduto(id, { familia })}
             />
           </section>
+
+          <MontagemDestino
+            codigo={montagem}
+            onCodigoChange={(valor) => {
+              setMontagem(valor);
+              setMontagemDetectada(false);
+              setMontagemResultado(null);
+            }}
+            onVerificar={handleVerificarMontagem}
+            verificando={verificandoMontagem}
+            resultado={montagemResultado}
+            detectadoDoArquivo={montagemDetectada}
+          />
 
           {estruturaReview.length > 0 && (
             <section className="space-y-4">
@@ -590,6 +705,73 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
                   aqui; senão, deixe em branco.
                 </p>
               </div>
+            </section>
+          )}
+
+          {materiaPrimaReview.length > 0 && (
+            <section className="space-y-4">
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Scale className="h-4 w-4 text-primary" />
+                  Unidade da coluna de peso da BOM
+                </span>
+                <div className="mt-2 flex gap-4">
+                  {(["g", "kg"] as const).map((unidade) => (
+                    <label key={unidade} className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="radio"
+                        name="unidade-peso"
+                        value={unidade}
+                        checked={unidadePeso === unidade}
+                        onChange={() => setUnidadePeso(unidade)}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                      {unidade === "g" ? "Gramas (g)" : "Quilos (kg)"}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                  O Omie recebe sempre em KG (é a unidade dos cadastros de matéria-prima). O CAD costuma exportar em
+                  gramas, mas o arquivo não diz a unidade, então confira antes de enviar. Trocar aqui recalcula todas as
+                  quantidades abaixo.
+                </p>
+              </div>
+
+              {carregandoCatalogo && (
+                <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando o catálogo de matéria-prima do Omie...
+                </div>
+              )}
+
+              {erroCatalogo && (
+                <div className="flex items-start gap-2 rounded-2xl bg-danger-dim px-4 py-3 text-sm text-danger ring-1 ring-inset ring-danger/25">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {erroCatalogo} Sem o catálogo não dá pra sugerir a matéria-prima; você ainda pode enviar o resto.
+                  </span>
+                </div>
+              )}
+
+              {resumoMp.pendentes > 0 && (
+                <div className="flex items-start gap-2 rounded-2xl bg-warning-dim px-4 py-3 text-sm text-warning ring-1 ring-inset ring-warning/25">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {resumoMp.pendentes} peça(s) sem matéria-prima confirmada. Só o que bate exato com a especificação da
+                    BOM entra marcado sozinho: o resto precisa da sua conferência, para ninguém mandar material
+                    adivinhado pro Omie.
+                  </span>
+                </div>
+              )}
+
+              <MateriaPrimaTable
+                itens={materiaPrimaReview}
+                catalogo={catalogoMat}
+                onToggle={(id, included) => updateMateriaPrima(id, { included })}
+                onEscolherMat={escolherMateriaPrima}
+                onQuantidade={(id, quantidadeKg) => updateMateriaPrima(id, { quantidadeKg })}
+              />
             </section>
           )}
 

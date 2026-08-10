@@ -5,7 +5,7 @@ import { DESCRICAO_MAX, parseBom, parseEstrutura } from "./bomParser";
 import type { BomRow } from "./types";
 
 function linha(peca: string, overrides: Partial<BomRow> = {}): BomRow {
-  return { linha: 1, numero: "1", peca, quantidade: 1, ...overrides };
+  return { linha: 1, numero: "1", peca, quantidade: 1, peso: null, especificacao: "", ...overrides };
 }
 
 describe("parseBom — BOM real (BOM_TESTE.xls, 37 itens)", () => {
