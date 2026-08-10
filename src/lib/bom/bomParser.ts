@@ -9,7 +9,12 @@ import type { BomRow, EstruturaRel, Familia, ParsedItem, ParseResult } from "./t
 // ("MSVCH SM004 ITPOL ESTRUTURA SUPERIOR", visto na BOM da MSVCH MT001 I0POL).
 // Sem essa tolerância a linha virava erro e, pior, os filhos dela ("4.1", "4.2")
 // perdiam o pai em silêncio na estrutura.
-const CODE_PATTERN = /^(\S{5}) (\S{5}) (\S{5})(?: (R\d{2}))?(?: - | )(.+)$/;
+//
+// A tolerância NÃO vale quando o que vem depois ainda parece um bloco de código
+// seguido do hífen ("... ITSLD REV01 - CHAPA"): aí é revisão fora do padrão R00
+// ou bloco a mais, e engolir isso colocaria "REV01 - " dentro da descrição
+// cadastrada no Omie. Esse caso continua sendo erro para o usuário corrigir.
+const CODE_PATTERN = /^(\S{5}) (\S{5}) (\S{5})(?: (R\d{2}))?(?: - | (?!\S{5} - ))(.+)$/;
 
 export const DESCRICAO_MAX = 120;
 

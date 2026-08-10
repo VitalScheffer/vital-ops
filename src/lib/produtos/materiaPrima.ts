@@ -103,8 +103,9 @@ export function ligaDoTexto(texto: string): Liga | null {
 // 1º caractere do 3º bloco do código da PEÇA = MATERIAL.
 // CONFIRMADO em dados reais: "I" (a BOM da MSVCH só usa inox, e o catálogo MAT
 // só tem inox 430). "C" é a leitura natural dos cadastros MAT em aço carbono
-// 1020, mas ainda NÃO apareceu numa BOM — por isso o casamento nunca envia
-// sozinho o que veio de um prefixo não confirmado; a tela pede confirmação.
+// 1020, mas ainda NÃO apareceu numa BOM. Inicial FORA desta tabela não relaxa o
+// filtro: quem decide é o `casarMateriaPrima`, que recusa quando a geometria
+// serve a mais de uma liga.
 const LIGA_POR_INICIAL: Record<string, Liga> = {
   I: "INOX430",
   C: "CARBONO1020",
@@ -294,13 +295,19 @@ function comparar(a: EspecificacaoMP, b: EspecificacaoMP): number | null {
  * Escolhe o item MAT que a peça consome. Filtra pela forma e pela liga que o
  * código da peça indica e pega o candidato de menor diferença dentro da folga.
  * Devolve `null` quando nada bate — a tela mostra o motivo e deixa escolher na mão.
+ *
+ * Quando o código da peça NÃO diz o material (inicial fora da tabela conhecida),
+ * a geometria sozinha pode servir a mais de uma liga: o catálogo tem chapa de
+ * 2,0 em inox E em acrílico, chapa de 0,9 em inox E em carbono. Nesse caso a
+ * escolha é AMBÍGUA e devolvemos `null` em vez de eleger uma delas — mandar a
+ * matéria-prima errada pro Omie é pior do que pedir a escolha na tela.
  */
 export function casarMateriaPrima(
   espec: EspecificacaoMP,
   pista: PistaDoCodigo,
   catalogo: readonly ItemMat[],
 ): Casamento | null {
-  let melhor: Casamento | null = null;
+  const candidatos: Casamento[] = [];
 
   for (const item of catalogo) {
     if (item.ambiguo || !item.espec) continue;
@@ -310,16 +317,20 @@ export function casarMateriaPrima(
     const diferenca = comparar(espec, item.espec);
     if (diferenca === null || diferenca > TOLERANCIA_APROXIMADA) continue;
 
-    if (!melhor || diferenca < melhor.diferencaMaxMm) {
-      melhor = {
-        item,
-        confianca: diferenca <= TOLERANCIA_EXATA ? "exata" : "aproximada",
-        diferencaMaxMm: diferenca,
-      };
-    }
+    candidatos.push({
+      item,
+      confianca: diferenca <= TOLERANCIA_EXATA ? "exata" : "aproximada",
+      diferencaMaxMm: diferenca,
+    });
   }
 
-  return melhor;
+  if (candidatos.length === 0) return null;
+
+  // Sem material conhecido no código, só dá pra decidir se a geometria aponta
+  // para uma liga só.
+  if (!pista.liga && new Set(candidatos.map((c) => c.item.liga)).size > 1) return null;
+
+  return candidatos.reduce((a, b) => (a.diferencaMaxMm <= b.diferencaMaxMm ? a : b));
 }
 
 // --- Peso -------------------------------------------------------------------

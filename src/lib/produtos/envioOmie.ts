@@ -631,9 +631,21 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     ? new Set<string>()
     : await precarregarEstruturas(idsPaiEstrutura, chamar);
 
-  // Códigos que este lote tentou cadastrar. Junto com o que a pré-checagem achou,
-  // formam tudo que a Estrutura pode referenciar com alguma chance de sucesso.
+  // Tudo que o Omie reconhece OU que este lote criou. Comparado em MAIÚSCULAS: o
+  // código da montagem é digitado à mão na tela, e uma diferença só de caixa não
+  // pode virar acusação de "não existe". Inclui `existentes` direto, e não só os
+  // mapas derivados dele: um cadastro achado na pré-checagem sem `codigo_produto`
+  // utilizável existe do mesmo jeito.
   const codigosDoLote = new Set(novos.map((item) => semEspaco(item.codigo)));
+  const conhecidos = new Set<string>();
+  for (const chave of [
+    ...idOmiePorCodigo.keys(),
+    ...integracaoReal.keys(),
+    ...existentes.keys(),
+    ...codigosDoLote,
+  ]) {
+    conhecidos.add(chave.toUpperCase());
+  }
 
   // A MONTAGEM de destino é a única referência da estrutura que o usuário digita
   // à mão, e ela se repete em TODA linha de nível topo: um código errado viraria
@@ -643,10 +655,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // Vale só pra origem "raiz": os demais códigos vêm da própria BOM ou do catálogo
   // MAT, e o caminho antigo (tentar e tratar o erro) segue valendo pra eles.
   const montagemAusente = (chave: string): boolean =>
-    precheck.completo &&
-    !idOmiePorCodigo.has(chave) &&
-    !integracaoReal.has(chave) &&
-    !codigosDoLote.has(chave);
+    precheck.completo && !conhecidos.has(chave.toUpperCase());
 
   // 3. Estrutura (IncluirEstrutura não tem Upsert → duplicado = já existe = ok).
   for (const rel of input.estrutura) {
@@ -680,7 +689,11 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
           outcome: "falha",
           motivo: `A montagem ${rel.codigoPai} não está cadastrada no Omie. Confira o código antes de reenviar.`,
         });
-        registrarSequencia("falha", false);
+        // NÃO mexe no freio: essa falha é NOSSA, não veio de resposta do Omie.
+        // Zerar a sequência aqui (que é o que `registrarSequencia` faz quando não
+        // houve chamada) desarmaria o freio justamente no cenário que ele existe
+        // pra pegar — montagem errada intercalada com escritas que falham de
+        // verdade, cada relação de topo limpando o contador da anterior.
         continue;
       }
 

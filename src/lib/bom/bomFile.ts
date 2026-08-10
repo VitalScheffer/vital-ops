@@ -25,10 +25,13 @@ function normalizarNumero(numero: string): string {
   return /^\d+(?:,\d+)+$/.test(limpo) ? limpo.replace(/,/g, ".") : limpo;
 }
 
-// Coluna da massa unitária da peça ("Peso", "MASSA", "PESO (g)"...). Só o nome
+// Coluna da massa UNITÁRIA da peça ("Peso", "MASSA", "PESO (g)"...). Só o nome
 // varia entre modelos de BOM; a unidade nunca vem no arquivo (o usuário escolhe
-// g/kg na tela).
+// g/kg na tela). Uma coluna de peso TOTAL (peso × quantidade) fica de fora: a
+// estrutura do Omie pede o consumo por unidade do pai, e pegar o total por
+// engano multiplicaria a matéria-prima de toda peça repetida.
 function ehColunaPeso(cabecalho: string): boolean {
+  if (cabecalho.includes("total")) return false;
   return cabecalho.startsWith("peso") || cabecalho.startsWith("massa");
 }
 

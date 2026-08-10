@@ -204,8 +204,20 @@ export function estruturaParaEnvio(itens: EstruturaReviewItem[]): EstruturaRel[]
 const SUFIXO_MP = ".MP";
 
 function motivoSemResolver(especificacao: string, ligaRotulo: string | null): string {
-  const onde = ligaRotulo ? ` em ${ligaRotulo.toLowerCase()}` : "";
+  const onde = ligaRotulo
+    ? ` em ${ligaRotulo.toLowerCase()}`
+    : " (e o código da peça não diz o material, então não dá pra escolher entre as ligas)";
   return `Nenhum item MAT cadastrado no Omie bate com "${especificacao}"${onde}. Escolha na mão ou cadastre a matéria-prima.`;
+}
+
+/**
+ * A BOM traz as colunas de matéria-prima? Modelos antigos do CAD não têm peso
+ * nem especificação, e aí a seção de MP inteira não faz sentido: ela renderizaria
+ * uma linha por peça, todas vazias, com um aviso alarmante e sem catálogo
+ * carregado. Mesma condição usada para decidir se vale ler o catálogo no Omie.
+ */
+export function bomTemMateriaPrima(rows: readonly BomRow[]): boolean {
+  return rows.some((row) => row.peso !== null || row.especificacao.trim() !== "");
 }
 
 /**
@@ -222,11 +234,20 @@ export function buildMateriaPrimaReview(
   catalogo: readonly ItemMat[],
   unidadePeso: UnidadePeso,
 ): MateriaPrimaReviewItem[] {
+  if (!bomTemMateriaPrima(rows)) return [];
+
   const itens: MateriaPrimaReviewItem[] = [];
+  // A mesma peça pode aparecer em mais de uma submontagem. O consumo de MP é da
+  // PEÇA, não da posição na árvore: repetir a relação só rende um duplicado no
+  // Omie por reenvio, e duplicado conta pro freio de segurança do lote.
+  const jaVistas = new Set<string>();
 
   for (const row of rows) {
     const info = extrairCodigoDaPeca(row.peca);
     if (!info || !ehPeca(info.codigo)) continue;
+
+    const repetida = jaVistas.has(info.codigo);
+    jaVistas.add(info.codigo);
 
     const base = {
       id: `mp-${row.linha}`,
@@ -242,6 +263,14 @@ export function buildMateriaPrimaReview(
       confianca: null as Confianca | null,
       included: false,
     };
+
+    if (repetida) {
+      itens.push({
+        ...base,
+        motivo: `${info.codigo} já aparece antes na BOM. A matéria-prima é cadastrada uma vez por peça, então esta linha fica de fora.`,
+      });
+      continue;
+    }
 
     if (!base.especificacao) {
       itens.push({ ...base, motivo: "A linha não traz a especificação do material na BOM." });

@@ -13,7 +13,8 @@ interface EstruturaPreviewProps {
 export function EstruturaPreview({ itens, onToggle, onQuantidade }: EstruturaPreviewProps) {
   if (itens.length === 0) return null;
 
-  const incluidas = itens.filter((i) => i.included).length;
+  const incluidas = itens.filter((i) => i.included);
+  const naMontagem = incluidas.filter((i) => i.origem === "raiz").length;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -22,8 +23,8 @@ export function EstruturaPreview({ itens, onToggle, onQuantidade }: EstruturaPre
         <div>
           <h3 className="text-sm font-semibold text-foreground">Estrutura pai/filho</h3>
           <p className="text-xs text-muted-foreground">
-            {incluidas} de {itens.length} relação(ões) incluída(s), incluindo{" "}
-            {itens.filter((i) => i.origem === "raiz").length} na montagem de destino.
+            {incluidas.length} de {itens.length} relação(ões) incluída(s)
+            {naMontagem > 0 ? `, sendo ${naMontagem} na montagem de destino` : ""}.
           </p>
         </div>
       </div>

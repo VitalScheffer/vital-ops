@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
+import { normalizarCodigoMontagem } from "@/lib/bom/montagem";
 import { buscarProdutosPorCodigo } from "@/lib/estoque/omieEstoque";
 import { chamar } from "@/lib/omie";
 import { listarCatalogoMat } from "@/lib/produtos/catalogoMat";
@@ -63,11 +64,19 @@ export async function verificarMontagem(codigo: string): Promise<MontagemResult>
     return { ok: false, erro: "Informe o código da montagem." };
   }
 
+  const procurado = normalizarCodigoMontagem(parsed.data);
+
   try {
-    const encontrados = await buscarProdutosPorCodigo([parsed.data], chamar);
-    const produto = encontrados.get(parsed.data);
-    if (!produto) return { ok: true, existe: false, codigo: parsed.data };
-    return { ok: true, existe: true, codigo: parsed.data, descricao: produto.descricao };
+    const encontrados = await buscarProdutosPorCodigo([procurado], chamar);
+    // O mapa vem chaveado pelo código que o OMIE devolveu, não pelo que a pessoa
+    // digitou: procuramos sem diferenciar caixa nem espaço sobrando, senão um
+    // "msvch mt001 i0pol" viraria "não achei" para um cadastro que existe.
+    const achado = [...encontrados].find(([codigo]) => normalizarCodigoMontagem(codigo) === procurado);
+    if (!achado) return { ok: true, existe: false, codigo: parsed.data };
+    const [codigoOmie, produto] = achado;
+    // Devolve o código EXATAMENTE como está no Omie: a tela adota essa forma, e
+    // é ela que vai como pai da estrutura no envio.
+    return { ok: true, existe: true, codigo: codigoOmie, descricao: produto.descricao };
   } catch (erro) {
     const motivo = erro instanceof Error ? erro.message : String(erro);
     return { ok: false, erro: `Não consegui conferir a montagem no Omie: ${motivo}` };

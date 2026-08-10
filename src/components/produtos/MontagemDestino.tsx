@@ -7,6 +7,8 @@ import type { MontagemResult } from "@/app/(app)/produtos/mp-actions";
 interface MontagemDestinoProps {
   codigo: string;
   onCodigoChange: (codigo: string) => void;
+  /** Passa o código digitado a valer na estrutura (ao sair do campo). */
+  onAplicar: () => void;
   onVerificar: () => void;
   verificando: boolean;
   resultado: MontagemResult | null;
@@ -16,6 +18,7 @@ interface MontagemDestinoProps {
 export function MontagemDestino({
   codigo,
   onCodigoChange,
+  onAplicar,
   onVerificar,
   verificando,
   resultado,
@@ -35,6 +38,7 @@ export function MontagemDestino({
           type="text"
           value={codigo}
           onChange={(e) => onCodigoChange(e.target.value)}
+          onBlur={onAplicar}
           placeholder="Ex.: MSVCH MT001 I0POL (deixe vazio para não pendurar em nada)"
           className="w-full rounded-xl border border-border bg-field px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground focus:border-primary"
         />

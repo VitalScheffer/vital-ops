@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  bomTemMateriaPrima,
   buildMateriaPrimaReview,
   materiaPrimaParaEnvio,
   resumoMateriaPrima,
@@ -12,7 +13,7 @@ import { indexarCatalogo, type ProdutoMatBruto } from "@/lib/produtos/materiaPri
 
 import { lerBomDeArquivo } from "./bomFile";
 import { NUMERO_RAIZ, orfaosDeEstrutura, parseBom, parseEstrutura } from "./bomParser";
-import { montagemDoNomeDoArquivo } from "./montagem";
+import { montagemDoNomeDoArquivo, normalizarCodigoMontagem } from "./montagem";
 
 // BOM REAL exportada do CAD (a mesma que veio no pedido do Jhonatan): .xls BIFF
 // antigo, com as colunas Nº / PEÇA / QTD / Peso / DESCRIÇÃO, e o código da
@@ -50,6 +51,18 @@ describe("montagemDoNomeDoArquivo", () => {
 
   it("nome sem código no padrão não inventa nada", () => {
     expect(montagemDoNomeDoArquivo("lista de pecas.xlsx")).toBeNull();
+  });
+
+  it("código que NÃO é de montagem não pré-preenche nada", () => {
+    // Sem essa trava, uma BOM salva com o código de uma PEÇA penduraria a árvore
+    // inteira dentro dela, calada, porque o campo já vem preenchido e a
+    // conferência no Omie é opcional.
+    expect(montagemDoNomeDoArquivo("MSVCH PC010 ICPOL.xls")).toBeNull();
+    expect(montagemDoNomeDoArquivo("PROJETO 12345 67890 ABCDE.xls")).toBeNull();
+  });
+
+  it("normaliza caixa e espaço sobrando do código digitado", () => {
+    expect(normalizarCodigoMontagem("  msvch  mt001   i0pol ")).toBe("MSVCH MT001 I0POL");
   });
 });
 
@@ -159,6 +172,27 @@ describe("BOM real: matéria-prima das peças", () => {
     const mp = buildMateriaPrimaReview(rows, [], "g");
     expect(mp.every((i) => !i.included && i.codigoMat === "")).toBe(true);
     expect(mp[0].motivo).toMatch(/Nenhum item MAT cadastrado no Omie/);
+  });
+
+  it("BOM antiga (sem as colunas de peso/especificação) não abre a seção de MP", async () => {
+    const rows = (await lerBomDeArquivo(arquivo())).map((r) => ({ ...r, peso: null, especificacao: "" }));
+    expect(bomTemMateriaPrima(rows)).toBe(false);
+    // Sem isso a tela mostrava uma linha por peça, todas vazias, com o aviso de
+    // "N peças sem matéria-prima confirmada" e o seletor sem catálogo nenhum.
+    expect(buildMateriaPrimaReview(rows, CATALOGO, "g")).toEqual([]);
+  });
+
+  it("peça repetida na BOM entra uma vez só (duplicado conta pro freio do envio)", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    const pc001 = rows.find((r) => r.peca.includes("PC001"))!;
+    const comRepetida = [...rows, { ...pc001, linha: 999, numero: "9.9" }];
+
+    const mp = buildMateriaPrimaReview(comRepetida, CATALOGO, "g");
+    const doPc001 = mp.filter((i) => i.codigoPeca === "MSVCH PC001 ITSLD");
+    expect(doPc001).toHaveLength(2);
+    expect(doPc001[1].included).toBe(false);
+    expect(doPc001[1].motivo).toMatch(/já aparece antes na BOM/);
+    expect(materiaPrimaParaEnvio(mp).filter((r) => r.codigoPai === "MSVCH PC001 ITSLD")).toHaveLength(1);
   });
 
   it("as relações de MP viram estrutura da própria peça, com número único", async () => {

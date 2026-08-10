@@ -37,8 +37,8 @@ import type { OutcomeEnvio } from "@/lib/produtos/envioOmie";
 import type { ItemMat } from "@/lib/produtos/materiaPrima";
 import { NCM_PADRAO } from "@/lib/produtos/ncm";
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
-import { parseBom, parseEstrutura } from "@/lib/bom/bomParser";
-import { montagemDoNomeDoArquivo } from "@/lib/bom/montagem";
+import { orfaosDeEstrutura, parseBom, parseEstrutura } from "@/lib/bom/bomParser";
+import { montagemDoNomeDoArquivo, normalizarCodigoMontagem } from "@/lib/bom/montagem";
 import { baixarBlob } from "@/lib/bom/download";
 import {
   bytesParaBlob,
@@ -50,6 +50,7 @@ import {
   type ResultadoEscrita,
 } from "@/lib/bom/omieFile";
 import {
+  bomTemMateriaPrima,
   buildEstruturaReview,
   buildMateriaPrimaReview,
   buildProdutoReview,
@@ -278,8 +279,13 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   const [localEstoque, setLocalEstoque] = useState("");
   const [ncm, setNcm] = useState(NCM_PADRAO);
 
-  // Montagem já cadastrada no Omie que recebe a árvore inteira.
+  // Montagem já cadastrada no Omie que recebe a árvore inteira. São DOIS
+  // estados de propósito: `montagem` é o que está sendo digitado, e
+  // `montagemAplicada` é o que a estrutura usa. Reconstruir a estrutura a cada
+  // tecla apagaria as marcações e quantidades que o usuário já ajustou na tabela
+  // só porque ele voltou para corrigir um caractere do código.
   const [montagem, setMontagem] = useState("");
+  const [montagemAplicada, setMontagemAplicada] = useState("");
   const [montagemDetectada, setMontagemDetectada] = useState(false);
   const [montagemResultado, setMontagemResultado] = useState<MontagemResult | null>(null);
   const [verificandoMontagem, setVerificandoMontagem] = useState(false);
@@ -327,6 +333,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
       setErroBom(null);
       setCarregandoBom(false);
       setMontagem("");
+      setMontagemAplicada("");
       setMontagemDetectada(false);
       setMontagemResultado(null);
       return;
@@ -336,6 +343,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     // é só um pré-preenchimento, o usuário confirma (ou troca) no campo.
     const detectada = montagemDoNomeDoArquivo(file.name);
     setMontagem(detectada ?? "");
+    setMontagemAplicada(detectada ?? "");
     setMontagemDetectada(detectada !== null);
     setMontagemResultado(null);
 
@@ -345,8 +353,9 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
       const rows = await lerBomDeArquivo(file);
       if (reqId !== bomReqId.current) return;
       setBomRows(rows);
-      // Catálogo de matéria-prima só faz sentido quando a BOM traz especificação.
-      if (rows.some((r) => r.especificacao.trim())) void carregarCatalogo();
+      // Mesma condição que decide se a seção de MP aparece: modelo de BOM sem as
+      // colunas de peso/especificação não tem matéria-prima nenhuma pra sugerir.
+      if (bomTemMateriaPrima(rows)) void carregarCatalogo();
     } catch (e) {
       if (reqId !== bomReqId.current) return;
       setBomRows(null);
@@ -397,12 +406,25 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     }
   }
 
+  // Passa o que foi digitado a valer na estrutura. Chamado ao sair do campo e
+  // antes de conferir no Omie.
+  function aplicarMontagem(valor: string): string {
+    const codigo = normalizarCodigoMontagem(valor);
+    setMontagem(codigo);
+    setMontagemAplicada(codigo);
+    return codigo;
+  }
+
   async function handleVerificarMontagem() {
-    const codigo = montagem.trim();
+    const codigo = aplicarMontagem(montagem);
     if (!codigo) return;
     setVerificandoMontagem(true);
     try {
-      setMontagemResultado(await verificarMontagem(codigo));
+      const resultado = await verificarMontagem(codigo);
+      setMontagemResultado(resultado);
+      // Achado: adota o código exatamente como está no Omie, que é o que vai
+      // como pai da estrutura no envio.
+      if (resultado.existe && resultado.codigo) aplicarMontagem(resultado.codigo);
     } catch (e) {
       setMontagemResultado({ ok: false, erro: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -415,9 +437,12 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     [bomRows, existingCodes],
   );
   const estruturaRels = useMemo(
-    () => (bomRows ? parseEstrutura(bomRows, montagem.trim()) : []),
-    [bomRows, montagem],
+    () => (bomRows ? parseEstrutura(bomRows, montagemAplicada) : []),
+    [bomRows, montagemAplicada],
   );
+  // Filhos cuja linha-pai não tem código válido: a relação some da estrutura e,
+  // sem este aviso, ninguém percebe que aquele pedaço da árvore não foi.
+  const orfaos = useMemo(() => (bomRows ? orfaosDeEstrutura(bomRows) : []), [bomRows]);
   const materiaPrimaBase = useMemo(
     () => (bomRows ? buildMateriaPrimaReview(bomRows, catalogoMat, unidadePeso) : []),
     [bomRows, catalogoMat, unidadePeso],
@@ -665,6 +690,24 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
             />
           </section>
 
+          {orfaos.length > 0 && (
+            <div className="flex items-start gap-2 rounded-2xl bg-warning-dim px-4 py-3 text-sm text-warning ring-1 ring-inset ring-warning/25">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {orfaos.length} linha(s) da BOM são filhas de um item que não tem código válido, então essas relações
+                não entram na estrutura:{" "}
+                <span className="font-mono text-xs">
+                  {orfaos
+                    .slice(0, 5)
+                    .map((o) => `${o.numero} (pai ${o.numeroPai})`)
+                    .join(", ")}
+                  {orfaos.length > 5 ? ` e mais ${orfaos.length - 5}` : ""}
+                </span>
+                . Corrija a linha do pai na BOM e reenvie o arquivo.
+              </span>
+            </div>
+          )}
+
           <MontagemDestino
             codigo={montagem}
             onCodigoChange={(valor) => {
@@ -672,6 +715,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
               setMontagemDetectada(false);
               setMontagemResultado(null);
             }}
+            onAplicar={() => aplicarMontagem(montagem)}
             onVerificar={handleVerificarMontagem}
             verificando={verificandoMontagem}
             resultado={montagemResultado}

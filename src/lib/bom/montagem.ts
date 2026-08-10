@@ -11,26 +11,35 @@
 // código) e sem exigir que ocupe a string inteira ("BOM MSVCH MT001 I0POL v2").
 const CODIGO_NO_NOME = /(?<![A-Z0-9])([A-Z0-9]{5}) ([A-Z0-9]{5}) ([A-Z0-9]{5})(?![A-Z0-9])/g;
 
-// Prefixo do 2º bloco que identifica uma MONTAGEM ("MT001"). Quando o nome traz
-// mais de um código, o de montagem ganha.
+// Prefixo do 2º bloco que identifica uma MONTAGEM ("MT001"). É EXIGIDO, não
+// preferido: o campo pré-preenchido já monta as relações e o envio não obriga a
+// conferência, então aceitar qualquer 5-5-5 faria uma BOM salva como
+// "MSVCH PC010 ICPOL.xls" pendurar a árvore inteira dentro de uma PEÇA, calada.
+// Sem código de montagem no nome, o usuário digita (é o caminho seguro).
 const PREFIXO_MONTAGEM = "MT";
 
 /**
+ * Deixa o código no formato canônico do Omie: sem espaço sobrando e em
+ * maiúsculas. Sem isso, "msvch mt001 i0pol" digitado na tela não casa com o
+ * "MSVCH MT001 I0POL" do cadastro, e o envio acusaria de não existir uma
+ * montagem que existe.
+ */
+export function normalizarCodigoMontagem(codigo: string): string {
+  return codigo.replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+/**
  * Extrai o código da montagem do nome do arquivo da BOM. Devolve null quando não
- * encontra nada no formato 5-5-5 (aí o usuário digita o código na mão).
+ * encontra um código de MONTAGEM (aí o usuário digita o código na mão).
  */
 export function montagemDoNomeDoArquivo(nomeArquivo: string): string | null {
   const semExtensao = nomeArquivo.replace(/\.[a-z0-9]+$/i, "");
   // Normaliza separadores (underscore/hífen viram espaço) e colapsa espaços, pra
   // pegar também "MSVCH_MT001_I0POL".
-  const normalizado = semExtensao.replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  const normalizado = normalizarCodigoMontagem(semExtensao.replace(/[_\-.]+/g, " "));
 
-  const candidatos: string[] = [];
   for (const match of normalizado.matchAll(CODIGO_NO_NOME)) {
-    candidatos.push(`${match[1]} ${match[2]} ${match[3]}`);
+    if (match[2].startsWith(PREFIXO_MONTAGEM)) return `${match[1]} ${match[2]} ${match[3]}`;
   }
-  if (candidatos.length === 0) return null;
-
-  const montagem = candidatos.find((c) => c.split(" ")[1].startsWith(PREFIXO_MONTAGEM));
-  return montagem ?? candidatos[0];
+  return null;
 }

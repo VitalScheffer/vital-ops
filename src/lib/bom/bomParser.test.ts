@@ -8,6 +8,26 @@ function linha(peca: string, overrides: Partial<BomRow> = {}): BomRow {
   return { linha: 1, numero: "1", peca, quantidade: 1, peso: null, especificacao: "", ...overrides };
 }
 
+describe("parseBom — separador da descrição", () => {
+  it('aceita a linha exportada sem o " - " antes da descrição', () => {
+    const item = parseBom([linha("MSVCH SM004 ITPOL ESTRUTURA SUPERIOR")]).itens[0];
+    expect(item.status).toBe("novo");
+    expect(item.descricaoProduto).toBe("MSVCH SM004 ITPOL - ESTRUTURA SUPERIOR");
+  });
+
+  it("mas NÃO engole um bloco a mais que ainda vem seguido de hífen", () => {
+    // "REV01" é revisão fora do padrão R00. Engolir isso gravaria
+    // "... - REV01 - CHAPA LATERAL" como descrição do produto no Omie.
+    const item = parseBom([linha("MSVCH PC001 ITSLD REV01 - CHAPA LATERAL")]).itens[0];
+    expect(item.status).toBe("erro");
+  });
+
+  it("a revisão no padrão R00 continua sendo removida", () => {
+    const item = parseBom([linha("MSVCH PC001 ITSLD R00 - TUBO CENTRAL")]).itens[0];
+    expect(item.descricaoProduto).toBe("MSVCH PC001 ITSLD - TUBO CENTRAL");
+  });
+});
+
 describe("parseBom — BOM real (BOM_TESTE.xls, 37 itens)", () => {
   const resultado = parseBom(BOM_TESTE_ROWS);
 

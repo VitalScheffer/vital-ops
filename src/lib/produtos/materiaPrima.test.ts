@@ -168,6 +168,19 @@ describe("casarMateriaPrima: peças reais da BOM MSVCH MT001 I0POL", () => {
   it("bitola que não existe no catálogo não inventa item", () => {
     expect(casar("MSVCH PC0XX ITSLD", "TUBO QUAD 60,00x60,00x3,00mm")).toBeNull();
   });
+
+  it("material desconhecido no código não escolhe entre ligas diferentes", () => {
+    // "AC" = material fora da tabela (acrílico) + chapa. A espessura 2,0 existe
+    // em inox E em acrílico: escolher uma delas mandaria a matéria-prima errada.
+    expect(casar("MSVCH PC032 ACSLD", "# 2,0000")).toBeNull();
+    // 0,9 existe em inox E em carbono: mesma ambiguidade.
+    expect(casar("MSVCH PC033 ACSLD", "# 0,9000")).toBeNull();
+  });
+
+  it("material desconhecido ainda resolve quando a geometria só existe numa liga", () => {
+    // 1,2 e 3,0 só estão cadastradas em inox neste recorte: não há o que confundir.
+    expect(casar("MSVCH PC034 ACSLD", "# 3,0000")?.item.codigo).toBe("MATCH 00300 IN430");
+  });
 });
 
 describe("pesoParaKg", () => {

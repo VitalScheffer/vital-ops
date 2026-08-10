@@ -714,6 +714,48 @@ describe("orquestrarEnvio — montagem de destino (origem 'raiz')", () => {
     expect(res.estrutura[0].outcome).toBe("enviado");
   });
 
+  it("diferença só de caixa no que foi digitado não vira acusação de inexistente", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return { produto_servico_cadastro: [{ codigo: "XXXXX MT999 ZZZZZ", codigo_produto: 777 }] };
+      }
+      if (rec.call === "ConsultarEstrutura") return { itens: [] };
+      return {};
+    });
+
+    const res = await orquestrarEnvio(
+      {
+        novos: [item("AAAAA SM001 CCCCC", "SBM - SUBMONTAGEM")],
+        estrutura: [relRaiz("xxxxx mt999 zzzzz", "AAAAA SM001 CCCCC")],
+      },
+      fn,
+    );
+
+    expect(res.estrutura[0].motivo ?? "").not.toMatch(/não está cadastrada/);
+    expect(calls.filter((c) => c.call === "IncluirEstrutura")).toHaveLength(1);
+  });
+
+  it("a falha local da montagem NÃO desarma o freio das escritas de verdade", async () => {
+    // Montagem errada intercalada com relações que falham no Omie: se a falha
+    // local zerasse a sequência, o freio nunca chegaria ao limite e o lote
+    // seguiria martelando o Omie — que é justamente o risco de bloqueio.
+    const { fn } = mockChamar((rec) => {
+      if (rec.call === "IncluirEstrutura") return new OmieError("recusado", {});
+      return {};
+    });
+
+    const estrutura: EstruturaRel[] = [];
+    for (let i = 0; i < 5; i++) {
+      estrutura.push(relRaiz("XXXXX MT999 ZZZZZ", `FILH${i} PC001 CCSLD`));
+      estrutura.push(rel(`PAI${i}0 SM001 CCCCC`, `FILH${i} PC001 CCSLD`, 1));
+    }
+
+    const res = await orquestrarEnvio({ novos: [], estrutura }, fn);
+
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(false); // freio nosso, não bloqueio do Omie
+  });
+
   it("pré-checagem falhando NÃO acusa a montagem de não existir", async () => {
     const { fn, calls } = mockChamar((rec) => {
       if (rec.call === "ListarProdutos") return new OmieError("instabilidade", { retryable: true });
