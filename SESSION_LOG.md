@@ -5031,4 +5031,11 @@ resize, abre para cima quando nao cabe embaixo, e a largura e limitada a viewpor
 - Cadastros com bitola em polegada e sextavado continuam fora do casamento automatico (13 itens sem
   geometria lida); aparecem normalmente na lista para escolha manual.
 - O PR #2 ja estava mergeado no `master` (commit `8c5fd10`), entao estas mudancas foram commitadas
-  **direto no `master`** e publicadas na Vercel a pedido do usuario.
+  **direto no `master`** e publicadas na Vercel a pedido do usuario: commit `39f9438`, push em
+  12/08/2026, auto-deploy disparou sozinho desta vez (nao precisou de `vercel --prod`) e o
+  `dpl_2DofzzdTLkP74c7GKEBqLaga57xV` esta **Ready** servindo `vitalops.vitalscheffer.com.br`.
+  Obs.: o `vercel inspect` desta versao do CLI nao mostra o SHA do commit, entao a ligacao
+  deploy/commit foi conferida pelo horario (deploy criado no minuto do push) e por ser o alvo
+  atual do alias de producao.
+- **Falta o teste humano na tela** (subir a BOM em `/produtos` e olhar o seletor no ar). O que foi
+  verificado antes do deploy: testes, tipo, lint, build e a simulacao do pipeline com o Omie real.
