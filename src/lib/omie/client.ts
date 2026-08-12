@@ -25,7 +25,19 @@ export interface ChamarOptions {
   write?: boolean;
   ttlSeconds?: number;
   timeoutMs?: number;
+  /**
+   * Releitura pedida pelo usuário ("recarregar"): ignora o cache e vai no Omie,
+   * MENOS quando a resposta guardada tem menos de um minuto — ver
+   * `REVALIDACAO_MINIMA_SEGUNDOS`.
+   */
+  revalidar?: boolean;
 }
+
+// Piso da releitura. A Omie trata requisição IDÊNTICA em menos de 60s como erro,
+// e erro conta pro bloqueio da app_key (§6 do REQUISITOS). Dentro dessa janela a
+// resposta guardada é devolvida como está: bater de novo não traria nada novo e
+// ainda gastaria orçamento de ban.
+export const REVALIDACAO_MINIMA_SEGUNDOS = 60;
 
 // Dependências injetáveis (facilita teste; a produção usa defaultDeps).
 export interface OmieClientDeps {
@@ -90,7 +102,8 @@ export async function chamar(
   const key = cacheKey(path, call, param);
   if (!write) {
     const hit = await deps.cache.get(key);
-    if (hit) {
+    const podeRevalidar = options.revalidar === true && hit !== null && hit.idadeSegundos >= REVALIDACAO_MINIMA_SEGUNDOS;
+    if (hit && !podeRevalidar) {
       return EMPTY_VALUES.has(hit.categoria) ? null : (hit.resposta as OmiePayload);
     }
   }

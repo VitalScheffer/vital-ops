@@ -37,7 +37,13 @@ function texto(valor: unknown): string | undefined {
  * decidir — sem catálogo não dá pra sugerir matéria-prima nenhuma, e sugerir
  * errado é pior do que não sugerir.
  */
-export async function listarCatalogoMat(chamar: ChamarFn): Promise<ItemMat[]> {
+export async function listarCatalogoMat(
+  chamar: ChamarFn,
+  // `revalidar`: releitura pedida na tela (botão de recarregar), para pegar um
+  // cadastro feito no Omie agora sem esperar o TTL. O piso de 60s da própria
+  // Omie continua valendo, e quem cuida dele é o client.
+  opcoes: { revalidar?: boolean } = {},
+): Promise<ItemMat[]> {
   const brutos: ProdutoMatBruto[] = [];
   let pagina = 1;
 
@@ -52,7 +58,7 @@ export async function listarCatalogoMat(chamar: ChamarFn): Promise<ItemMat[]> {
         filtrar_apenas_omiepdv: "N",
         filtrar_apenas_descricao: FILTRO_DESCRICAO,
       },
-      { ttlSeconds: TTL_SEGUNDOS },
+      { ttlSeconds: TTL_SEGUNDOS, revalidar: opcoes.revalidar },
     );
     if (!resp) break;
 

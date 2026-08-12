@@ -50,7 +50,11 @@ export class PrismaCacheStore implements CacheStore {
     if (!row) {
       return null;
     }
-    return { categoria: row.categoria as Category, resposta: row.resposta };
+    return {
+      categoria: row.categoria as Category,
+      resposta: row.resposta,
+      idadeSegundos: Math.max(0, (Date.now() - row.criadoEm.getTime()) / 1000),
+    };
   }
 
   async store(input: CacheStoreInput): Promise<void> {
@@ -75,6 +79,10 @@ export class PrismaCacheStore implements CacheStore {
         categoria: input.categoria,
         resposta,
         expiraEm,
+        // `criadoEm` acompanha a RESPOSTA, não a linha: é o instante em que este
+        // conteúdo veio do Omie, e é dele que sai a idade que autoriza (ou não)
+        // uma releitura antes do fim do TTL.
+        criadoEm: new Date(),
       },
     });
   }

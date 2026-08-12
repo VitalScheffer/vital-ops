@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { Check, ChevronsUpDown, RotateCw, Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -55,9 +55,20 @@ interface MateriaPrimaSelectProps {
   onChange: (codigoMat: string) => void;
   ariaLabel: string;
   invalido?: boolean;
+  /** Releitura do catálogo no Omie, para pegar o que foi cadastrado agora. */
+  onRecarregar?: () => void;
+  recarregando?: boolean;
 }
 
-export function MateriaPrimaSelect({ value, catalogo, onChange, ariaLabel, invalido }: MateriaPrimaSelectProps) {
+export function MateriaPrimaSelect({
+  value,
+  catalogo,
+  onChange,
+  ariaLabel,
+  invalido,
+  onRecarregar,
+  recarregando,
+}: MateriaPrimaSelectProps) {
   const [aberto, setAberto] = useState(false);
   const [termo, setTermo] = useState("");
   const [ativo, setAtivo] = useState(0);
@@ -217,6 +228,18 @@ export function MateriaPrimaSelect({ value, catalogo, onChange, ariaLabel, inval
                   autoComplete="off"
                   className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                 />
+                {onRecarregar ? (
+                  <button
+                    type="button"
+                    onClick={onRecarregar}
+                    disabled={recarregando}
+                    title="Recarregar do Omie (para pegar matéria-prima cadastrada agora)"
+                    aria-label="Recarregar o catálogo de matéria-prima do Omie"
+                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RotateCw className={`h-4 w-4 ${recarregando ? "animate-spin" : ""}`} />
+                  </button>
+                ) : null}
               </div>
 
               <ul ref={listaRef} id={idLista} role="listbox" className="flex-1 overflow-y-auto py-1">
@@ -239,8 +262,8 @@ export function MateriaPrimaSelect({ value, catalogo, onChange, ariaLabel, inval
 
                 {opcoes.length === 0 ? (
                   <li className="px-3 py-3 text-xs text-muted-foreground">
-                    Nada encontrado para “{termo.trim()}”. Se a matéria-prima existe no Omie mas não aparece aqui,
-                    confira se o código começa com “MAT”.
+                    Nada encontrado para “{termo.trim()}”. Se você cadastrou agora no Omie, use o botão de recarregar
+                    aí em cima. Se ainda assim não aparecer, confira se o código do cadastro começa com “MAT”.
                   </li>
                 ) : (
                   opcoes.map((mat, i) => {

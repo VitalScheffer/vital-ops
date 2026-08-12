@@ -50,6 +50,7 @@ import {
   type ResultadoEscrita,
 } from "@/lib/bom/omieFile";
 import {
+  aplicarCatalogoNaRevisao,
   bomTemMateriaPrima,
   buildEstruturaReview,
   buildMateriaPrimaReview,
@@ -392,11 +393,13 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     }
   }
 
-  async function carregarCatalogo() {
+  // `revalidar` = o botão de recarregar do seletor: vai no Omie de novo em vez de
+  // usar a leitura guardada, para pegar a matéria-prima cadastrada agora.
+  async function carregarCatalogo(revalidar = false) {
     setCarregandoCatalogo(true);
     setErroCatalogo(null);
     try {
-      const resposta = await carregarCatalogoMat();
+      const resposta = await carregarCatalogoMat(revalidar);
       if (resposta.ok && resposta.itens) setCatalogoMat(resposta.itens);
       else setErroCatalogo(resposta.erro ?? "Não consegui carregar o catálogo de matéria-prima.");
     } catch (e) {
@@ -459,6 +462,10 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
   const [itensAnteriores, setItensAnteriores] = useState<ParsedItem[] | null>(null);
   const [relsAnteriores, setRelsAnteriores] = useState<EstruturaRel[] | null>(null);
   const [mpAnterior, setMpAnterior] = useState<MateriaPrimaReviewItem[] | null>(null);
+  // De onde a revisão de MP foi construída. Serve para separar as duas razões de
+  // ela ser refeita: BOM/unidade mudaram (linhas outras, reconstrói do zero) ou
+  // só o CATÁLOGO chegou/foi recarregado (mantém o que já foi revisado).
+  const [origemMp, setOrigemMp] = useState<{ rows: BomRow[] | null; unidade: UnidadePeso } | null>(null);
 
   if (parseResult && parseResult.itens !== itensAnteriores) {
     setItensAnteriores(parseResult.itens);
@@ -468,11 +475,17 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     setRelsAnteriores(estruturaRels);
     setEstruturaReview(buildEstruturaReview(estruturaRels));
   }
-  // Trocar a unidade do peso (ou o catálogo chegar) refaz a sugestão do zero:
-  // as quantidades editadas na mão valiam para a unidade anterior.
+  // Trocar a BOM ou a unidade do peso refaz a sugestão do zero: as quantidades
+  // editadas na mão valiam para a unidade anterior. Já o catálogo chegar (na
+  // primeira leitura ou no botão de recarregar) só PREENCHE as linhas ainda
+  // pendentes — quem recarrega no meio da revisão não perde o que já ajustou.
   if (materiaPrimaBase !== mpAnterior) {
+    const trocouBase = !origemMp || origemMp.rows !== bomRows || origemMp.unidade !== unidadePeso;
+    setOrigemMp({ rows: bomRows, unidade: unidadePeso });
     setMpAnterior(materiaPrimaBase);
-    setMateriaPrimaReview(materiaPrimaBase);
+    setMateriaPrimaReview((prev) =>
+      trocouBase ? materiaPrimaBase : aplicarCatalogoNaRevisao(prev, materiaPrimaBase),
+    );
   }
 
   function updateProduto(id: string, patch: Partial<ProdutoReviewItem>) {
@@ -815,6 +828,8 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
                 onToggle={(id, included) => updateMateriaPrima(id, { included })}
                 onEscolherMat={escolherMateriaPrima}
                 onQuantidade={(id, quantidadeKg) => updateMateriaPrima(id, { quantidadeKg })}
+                onRecarregarCatalogo={() => void carregarCatalogo(true)}
+                recarregandoCatalogo={carregandoCatalogo}
               />
             </section>
           )}

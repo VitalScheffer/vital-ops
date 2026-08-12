@@ -5039,3 +5039,66 @@ resize, abre para cima quando nao cabe embaixo, e a largura e limitada a viewpor
   atual do alias de producao.
 - **Falta o teste humano na tela** (subir a BOM em `/produtos` e olhar o seletor no ar). O que foi
   verificado antes do deploy: testes, tipo, lint, build e a simulacao do pipeline com o Omie real.
+
+## 2026-08-12 (continuacao) - Botao de recarregar o catalogo de materia-prima
+
+### Resumo
+
+Depois do deploy anterior veio a duvida certa: "ele busca sempre do Omie? e se tiver cadastro novo
+aparece?". Nao aparecia na hora. A leitura do catalogo acontece quando a BOM e carregada, mas a
+resposta fica **cacheada 1 hora numa tabela do banco** (`OmieCache`), compartilhada por todos.
+`Ctrl+Shift+R` nao resolve nada, porque o cache nao e do navegador. Pedido: um botao de refresh do
+lado do seletor.
+
+### O que mudou
+
+**1. Releitura sob demanda, com o piso de 60s do Omie respeitado.** `ChamarOptions.revalidar`: com
+ele, o cache so e honrado se a resposta guardada tiver **menos de 60 segundos**; acima disso vai no
+Omie de novo e a resposta fresca substitui a guardada para todo mundo.
+
+O piso nao e capricho: a §6 do REQUISITOS diz que **requisicao IDENTICA em menos de 60s conta como
+erro**, e 10 erros no mesmo metodo bloqueiam a app_key por ~30 min. Um botao que ignorasse o cache
+sem piso viraria uma maquina de queimar orcamento de ban em dois cliques seguidos. Dentro da janela
+o botao devolve o que ja tem, sem ir na rede.
+
+Para saber a idade da resposta, `CacheEntry` ganhou `idadeSegundos`, e o `store` passou a atualizar
+`criadoEm` tambem no UPDATE do upsert (antes ficava a data da primeira gravacao daquela chave, o que
+tornava a idade mentirosa depois da primeira renovacao). Sem migracao: a coluna ja existia.
+
+**2. Botao de recarregar dentro do painel do seletor**, ao lado do campo de busca (icone que gira
+enquanto carrega). O texto de "nada encontrado" agora aponta para ele.
+
+**3. Recarregar NAO desfaz a revisao em andamento.** Esse era o efeito colateral perigoso: o estado
+da revisao era substituido inteiro sempre que o catalogo mudava, entao um clique no refresh apagaria
+marcacoes, quantidades e escolhas manuais ja feitas. Agora:
+
+- trocar a BOM ou a unidade do peso: reconstroi do zero (as linhas sao outras, nada a preservar);
+- catalogo chegar ou ser recarregado: `aplicarCatalogoNaRevisao` preenche **so as linhas pendentes**
+  (sem item MAT e com motivo). Linha ja escolhida fica intocada, e linha que a pessoa esvaziou de
+  proposito (sem item e sem motivo) tambem, porque isso e decisao, nao pendencia.
+
+### Arquivos alterados
+
+- `src/lib/omie/cache.ts`: `CacheEntry.idadeSegundos`.
+- `src/lib/omie/stores.ts`: idade a partir de `criadoEm`; `criadoEm` renovado no update do upsert.
+- `src/lib/omie/client.ts`: opcao `revalidar` + `REVALIDACAO_MINIMA_SEGUNDOS` (60).
+- `src/lib/produtos/catalogoMat.ts`: repassa `revalidar`.
+- `src/app/(app)/produtos/mp-actions.ts`: `carregarCatalogoMat(revalidar)`.
+- `src/lib/bom/review.ts`: `aplicarCatalogoNaRevisao`.
+- `src/components/produtos/MateriaPrimaSelect.tsx`: botao de recarregar no painel.
+- `src/components/produtos/MateriaPrimaTable.tsx` e `ProdutosClient.tsx`: ligacao e a separacao
+  entre "reconstruir" e "preencher pendentes".
+- Testes: 4 casos do piso de 60s (`client.test.ts`) e 1 do merge da revisao (`bomMateriaPrima.test.ts`).
+
+### Verificacao
+
+`npx vitest run` -> **543 passed em 44 arquivos** (eram 538). `tsc`, `eslint` e `next build` limpos.
+Segue sem conferencia visual no navegador.
+
+### Pendencias / proximos passos
+
+- Teste humano na tela: subir a BOM, abrir o seletor, cadastrar uma MP nova no Omie e clicar no
+  refresh para ver aparecer.
+- Se alguem clicar no refresh duas vezes em menos de 1 minuto, a lista simplesmente nao muda (e o
+  comportamento correto, mas a tela nao explica isso). Se incomodar, cabe um aviso do tipo
+  "li agora ha pouco, tente de novo em X s".

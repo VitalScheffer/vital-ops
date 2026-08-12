@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  aplicarCatalogoNaRevisao,
   bomTemMateriaPrima,
   buildMateriaPrimaReview,
   materiaPrimaParaEnvio,
@@ -172,6 +173,34 @@ describe("BOM real: matéria-prima das peças", () => {
     const mp = buildMateriaPrimaReview(rows, [], "g");
     expect(mp.every((i) => !i.included && i.codigoMat === "")).toBe(true);
     expect(mp[0].motivo).toMatch(/Nenhum item MAT cadastrado no Omie/);
+  });
+
+  it("recarregar o catálogo preenche as pendentes sem desfazer a revisão", async () => {
+    const rows = await lerBomDeArquivo(arquivo());
+    // Estado real de quem está na tela: começou sem catálogo (tudo pendente),
+    // resolveu uma peça na mão, esvaziou outra de propósito e ajustou um peso.
+    const semCatalogo = buildMateriaPrimaReview(rows, [], "g");
+    const emRevisao = semCatalogo.map((item, i) => {
+      if (i === 0) return { ...item, codigoMat: "MATCH 00300 IN430", descricaoMat: "escolhida na mão", included: true };
+      if (i === 1) return { ...item, motivo: undefined }; // esvaziada de propósito
+      if (i === 2) return { ...item, quantidadeKg: 42 };
+      return item;
+    });
+
+    const comCatalogo = buildMateriaPrimaReview(rows, CATALOGO, "g");
+    const depois = aplicarCatalogoNaRevisao(emRevisao, comCatalogo);
+
+    // A escolha manual fica de pé.
+    expect(depois[0].codigoMat).toBe("MATCH 00300 IN430");
+    expect(depois[0].descricaoMat).toBe("escolhida na mão");
+    // A linha esvaziada de propósito continua vazia (é decisão, não pendência).
+    expect(depois[1].codigoMat).toBe("");
+    // A pendente com peso ajustado recebe a sugestão nova (o peso vem da BOM,
+    // então o valor da linha reconstruída é o mesmo).
+    expect(depois[2].codigoMat).toBe(comCatalogo[2].codigoMat);
+    expect(depois[2].codigoMat).not.toBe("");
+    // E o resto pega as sugestões que faltavam.
+    expect(depois.filter((i) => i.included).length).toBeGreaterThan(1);
   });
 
   it("BOM antiga (sem as colunas de peso/especificação) não abre a seção de MP", async () => {

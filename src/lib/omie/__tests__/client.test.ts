@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { BreakerState, BreakerStore } from "../breaker";
 import { Breaker } from "../breaker";
 import type { CacheStore } from "../cache";
-import { chamar, type OmieClientDeps } from "../client";
+import { chamar, REVALIDACAO_MINIMA_SEGUNDOS, type OmieClientDeps } from "../client";
 import { OmieCodeConflict, OmieDescriptionConflict, OmieDuplicate, OmieError } from "../errors";
+import { Category } from "../taxonomy";
 
 function memoryBreaker(): Breaker {
   let state: BreakerState = { estado: "CLOSED", faults: 0, cooldownUntil: null, blockedUntil: null };
@@ -117,5 +118,80 @@ describe("chamar — classificação independe do status HTTP", () => {
     const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ codigo_produto: 42 })));
     const resultado = await chamar("geral/produtos/", "UpsertProduto", {}, { write: true }, deps(fetchImpl));
     expect(resultado).toMatchObject({ codigo_produto: 42 });
+  });
+});
+
+// REQUISITOS §6: "Requisição idêntica < 60s = erro" e erro conta pro bloqueio da
+// app_key. O botão de recarregar o catálogo pede leitura nova; ele NÃO pode
+// virar uma máquina de repetir a mesma chamada dentro dessa janela.
+describe("chamar — releitura (revalidar) respeita o piso de 60s", () => {
+  function cacheCom(idadeSegundos: number, resposta: unknown): CacheStore {
+    return {
+      async get() {
+        return { categoria: Category.OK, resposta, idadeSegundos };
+      },
+      async store() {},
+      async invalidate() {
+        return 0;
+      },
+    };
+  }
+
+  function depsComCache(fetchImpl: typeof fetch, cache: CacheStore): OmieClientDeps {
+    return { ...deps(fetchImpl), cache };
+  }
+
+  it("sem revalidar, cache velho continua sendo devolvido (comportamento normal)", async () => {
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ do_omie: true })));
+    const resultado = await chamar(
+      "geral/produtos/",
+      "ListarProdutos",
+      { pagina: 1 },
+      {},
+      depsComCache(fetchImpl, cacheCom(3599, { do_cache: true })),
+    );
+    expect(resultado).toMatchObject({ do_cache: true });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("revalidar com resposta guardada VELHA vai no Omie de novo", async () => {
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ do_omie: true })));
+    const resultado = await chamar(
+      "geral/produtos/",
+      "ListarProdutos",
+      { pagina: 1 },
+      { revalidar: true },
+      depsComCache(fetchImpl, cacheCom(REVALIDACAO_MINIMA_SEGUNDOS, { do_cache: true })),
+    );
+    expect(resultado).toMatchObject({ do_omie: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("revalidar com resposta guardada de segundos atrás NÃO repete a chamada", async () => {
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ do_omie: true })));
+    const resultado = await chamar(
+      "geral/produtos/",
+      "ListarProdutos",
+      { pagina: 1 },
+      { revalidar: true },
+      depsComCache(fetchImpl, cacheCom(REVALIDACAO_MINIMA_SEGUNDOS - 1, { do_cache: true })),
+    );
+    // Devolve o que tem guardado: repetir agora seria requisição incorreta e
+    // gastaria orçamento de bloqueio sem trazer nada novo.
+    expect(resultado).toMatchObject({ do_cache: true });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("revalidar sem nada guardado simplesmente lê do Omie", async () => {
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ do_omie: true })));
+    const resultado = await chamar(
+      "geral/produtos/",
+      "ListarProdutos",
+      { pagina: 1 },
+      { revalidar: true },
+      deps(fetchImpl),
+    );
+    expect(resultado).toMatchObject({ do_omie: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

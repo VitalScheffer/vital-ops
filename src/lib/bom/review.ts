@@ -320,6 +320,33 @@ export function buildMateriaPrimaReview(
   return itens;
 }
 
+/**
+ * Aplica um catálogo recém-lido sobre uma revisão JÁ EM ANDAMENTO, sem desfazer
+ * o trabalho de quem está na tela. É o que sustenta o botão de recarregar:
+ * cadastrou a matéria-prima que faltava no Omie, recarrega e continua de onde
+ * parou (e também o primeiro carregamento, que chega depois da BOM ser lida).
+ *
+ * Só recebem sugestão nova as linhas AINDA NÃO RESOLVIDAS — as que estão sem
+ * item MAT e com um motivo explicando por quê. Ficam como estão:
+ *   - linha com item escolhido (pela sugestão automática ou na mão);
+ *   - linha que a pessoa esvaziou de propósito (sem item e sem motivo), porque
+ *     isso é uma decisão dela, não uma pendência.
+ *
+ * Trocar a BOM ou a unidade do peso continua sendo reconstrução do zero: ali as
+ * linhas são outras, não há o que preservar.
+ */
+export function aplicarCatalogoNaRevisao(
+  atual: readonly MateriaPrimaReviewItem[],
+  base: readonly MateriaPrimaReviewItem[],
+): MateriaPrimaReviewItem[] {
+  const novaPorId = new Map(base.map((item) => [item.id, item]));
+  return atual.map((item) => {
+    const pendente = item.codigoMat.trim() === "" && item.motivo !== undefined;
+    if (!pendente) return item;
+    return novaPorId.get(item.id) ?? item;
+  });
+}
+
 /** Motivo pelo qual uma linha de matéria-prima não pode ir (ou `null` se válida). */
 export function motivoMateriaPrima(item: MateriaPrimaReviewItem): string | null {
   if (!item.codigoMat.trim()) return item.motivo ?? "Escolha a matéria-prima desta peça.";

@@ -12,6 +12,8 @@ interface MateriaPrimaTableProps {
   onToggle: (id: string, included: boolean) => void;
   onEscolherMat: (id: string, codigoMat: string) => void;
   onQuantidade: (id: string, quantidadeKg: number | null) => void;
+  onRecarregarCatalogo: () => void;
+  recarregandoCatalogo: boolean;
 }
 
 export function MateriaPrimaTable({
@@ -20,6 +22,8 @@ export function MateriaPrimaTable({
   onToggle,
   onEscolherMat,
   onQuantidade,
+  onRecarregarCatalogo,
+  recarregandoCatalogo,
 }: MateriaPrimaTableProps) {
   if (itens.length === 0) return null;
 
@@ -57,6 +61,8 @@ export function MateriaPrimaTable({
                 onToggle={onToggle}
                 onEscolherMat={onEscolherMat}
                 onQuantidade={onQuantidade}
+                onRecarregarCatalogo={onRecarregarCatalogo}
+                recarregandoCatalogo={recarregandoCatalogo}
               />
             ))}
           </tbody>
@@ -72,12 +78,16 @@ function LinhaMateriaPrima({
   onToggle,
   onEscolherMat,
   onQuantidade,
+  onRecarregarCatalogo,
+  recarregandoCatalogo,
 }: {
   item: MateriaPrimaReviewItem;
   catalogo: readonly ItemMat[];
   onToggle: MateriaPrimaTableProps["onToggle"];
   onEscolherMat: MateriaPrimaTableProps["onEscolherMat"];
   onQuantidade: MateriaPrimaTableProps["onQuantidade"];
+  onRecarregarCatalogo: MateriaPrimaTableProps["onRecarregarCatalogo"];
+  recarregandoCatalogo: boolean;
 }) {
   const erro = item.included ? motivoMateriaPrima(item) : null;
   const aviso = !erro && item.motivo ? item.motivo : null;
@@ -107,6 +117,8 @@ function LinhaMateriaPrima({
           onChange={(codigoMat) => onEscolherMat(item.id, codigoMat)}
           ariaLabel={`Matéria-prima de ${item.codigoPeca}`}
           invalido={erro !== null}
+          onRecarregar={onRecarregarCatalogo}
+          recarregando={recarregandoCatalogo}
         />
         <StatusMateriaPrima item={item} erro={erro} aviso={aviso} />
       </td>

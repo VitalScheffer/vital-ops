@@ -19,15 +19,22 @@ export interface CatalogoMatResult {
   itens?: ItemMat[];
 }
 
-/** Catálogo MAT do Omie, já interpretado, para sugerir a MP de cada peça. */
-export async function carregarCatalogoMat(): Promise<CatalogoMatResult> {
+/**
+ * Catálogo MAT do Omie, já interpretado, para sugerir a MP de cada peça.
+ *
+ * `revalidar` é o botão de recarregar da tela: quem acabou de cadastrar a
+ * matéria-prima no Omie não precisa esperar o cache de 1h vencer. Continua
+ * sendo LEITURA (não conta pro bloqueio da app_key quando dá certo), e o piso
+ * de 60s entre chamadas idênticas é garantido pelo client.
+ */
+export async function carregarCatalogoMat(revalidar = false): Promise<CatalogoMatResult> {
   const session = await auth();
   if (!session?.user?.email) {
     return { ok: false, erro: "Sessão expirada. Entre novamente." };
   }
 
   try {
-    return { ok: true, itens: await listarCatalogoMat(chamar) };
+    return { ok: true, itens: await listarCatalogoMat(chamar, { revalidar: revalidar === true }) };
   } catch (erro) {
     const motivo = erro instanceof Error ? erro.message : String(erro);
     return {

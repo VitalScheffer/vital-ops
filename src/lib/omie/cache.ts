@@ -39,6 +39,12 @@ export function cacheKey(path: string, call: string, param: unknown): string {
 export interface CacheEntry {
   categoria: Category;
   resposta: unknown;
+  /**
+   * Há quantos segundos esta resposta foi lida do Omie. Quem pede releitura
+   * ("recarregar o catálogo") usa isto para não repetir uma chamada IDÊNTICA
+   * antes dos 60s, que a Omie conta como requisição incorreta (§6 do REQUISITOS).
+   */
+  idadeSegundos: number;
 }
 
 export interface CacheStoreInput {
