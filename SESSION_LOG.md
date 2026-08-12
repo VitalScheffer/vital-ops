@@ -4941,3 +4941,94 @@ arquivos** (eram 506 antes da feature).
   e faz a entrada do changelog aparecer pro pessoal; sem isso, ninguem da fabrica ve nada.
 - Continua valendo: falta um envio REAL de validacao com uma BOM pequena antes de soltar pra
   producao, e medir o tempo do lote (de ~10 pra ~60 chamadas sequenciais, sem `maxDuration` definido).
+
+## 2026-08-12 - Escolha da materia-prima: busca no seletor, ordem alfabetica e o tubo que nao casava
+
+### Resumo
+
+Pedido: o seletor de materia-prima da tela de Produtos esta ruim de usar, "tubo nao esta puxando do
+Omie" na secao **Matéria-prima das peças**, e o seletor precisa de **busca** e de **ordem
+alfabetica**. Referencia: a BOM `MCPSO MT002 I0POL R00.xls` e os cadastros novos de tubo
+(`MATTB RD...`).
+
+Primeiro o diagnostico, porque a hipotese do enunciado estava errada e valia checar antes de mexer:
+
+- **O catalogo esta vindo inteiro do Omie.** Varri os 8.047 produtos da conta (leitura paginada) e
+  comparei com o que a tela le: **88 cadastros MAT**, e o filtro atual (`filtrar_apenas_descricao`
+  `%MAT%` + prefixo `MAT` no codigo) **nao perde nenhum**. Nenhum MAT inativo/bloqueado tambem.
+  Todos os `MATTB RD...` estao la.
+- **O que nao "puxava" era o CASAMENTO de UM tubo.** Rodando a BOM real no pipeline da tela, 20 das
+  22 pecas resolviam sozinhas; a que ficava para tras era
+  `TUBO RED. 15,8x1,2mm` -> `MATTB RD158 12I43` (Ø15,88). Diferenca de **0,08 mm** contra uma
+  tolerancia de "casou exato" de **0,06 mm**: caia como "aproximada", entrava DESMARCADA, e ai a
+  pessoa tinha que achar o item na mao num `<select>` de 88 opcoes sem busca e fora de ordem. Os
+  dois problemas do pedido eram, na pratica, o mesmo atendimento.
+
+### O que mudou
+
+**1. Tolerancia agora sai da PRECISAO com que a BOM escreveu a medida** (`materiaPrima.ts`).
+
+A tolerancia fixa de 0,06 assumia que o CAD sempre ARREDONDA (Ø19,1 para o cadastro Ø19,05, erro
+maximo 0,05). Mas ele tambem TRUNCA: Ø15,8 para Ø15,88. Entao a folga passou a ser derivada das
+casas decimais do texto: uma casa -> 0,1 mm (cobre arredondamento e truncamento); duas casas -> 0,01
+(quem escreve "TREF. Ø6,25" ja deu a bitola cheia, e Ø6,35 e OUTRA bitola, nao a mesma escrita
+curta). Teto de 0,1 mm.
+
+O teto e seguro porque, dentro da mesma forma e liga, as bitolas cadastradas no Omie estao a pelo
+menos 0,3 mm uma da outra (conferido no catalogo real). `TOLERANCIA_APROXIMADA` (0,3) nao mudou, e a
+regra de ambiguidade de liga continua igual.
+
+**2. Catalogo sai em ordem alfabetica do `indexarCatalogo`.** Como a descricao do cadastro comeca
+pelo proprio codigo, a ordem tambem agrupa as familias (MATCH, MATTB, MATTF...). Ordenar na camada
+de dados (e nao na tela) garante a mesma ordem em qualquer consumidor.
+
+**3. Seletor novo com busca** (`MateriaPrimaSelect.tsx`), no lugar do `<select>` nativo: abre com um
+campo de filtro por codigo ou descricao, teclado completo (setas/Enter/Esc/Tab), item atual
+destacado ao abrir, opcao "Nenhuma", contador "X de Y" no rodape e a unidade (KG) ao lado do codigo.
+A busca ignora acento e separador decimal, entao `15,88`, `15.88` e `1588` acham o mesmo tubo.
+
+O painel vai num **portal com posicao fixa**: a tabela de materia-prima rola na horizontal
+(`overflow-x-auto`), e dentro desse container uma lista absoluta seria recortada nas linhas de
+baixo. Ele se reposiciona no scroll (fase de captura, porque o scroll da tabela nao borbulha) e no
+resize, abre para cima quando nao cabe embaixo, e a largura e limitada a viewport (mobile).
+
+### Arquivos alterados/criados
+
+- `src/lib/produtos/materiaPrima.ts`: `EspecificacaoMP.casasDecimais`; `medidas()` devolve o numero
+  e as casas escritas; `TOLERANCIA_EXATA` fixa virou `toleranciaExata(casasDecimais)`;
+  `indexarCatalogo` ordena; `parteDescritiva` exportada (a tela usa pra nao repetir o codigo).
+- `src/components/produtos/MateriaPrimaSelect.tsx`: **novo**, o seletor com busca.
+- `src/components/produtos/MateriaPrimaTable.tsx`: usa o seletor novo no lugar do `<select>`.
+- `src/lib/produtos/materiaPrima.test.ts`: expectativas de `lerEspecificacao` com `casasDecimais`;
+  casos novos: tubo truncado (15,8 -> Ø15,88) casa **exata**, `TREF. Ø6,25` continua **aproximada**,
+  precisao sai da medida mais curta, e catalogo sai ordenado.
+
+### Verificacao
+
+- `npx vitest run` -> **538 passed em 44 arquivos** (eram 534).
+- `npx tsc --noEmit`, `npx eslint` e `npx next build` limpos.
+- Simulacao com a BOM real `MCPSO MT002 I0POL R00.xls` + catalogo real do Omie: **todas as 8 pecas
+  de tubo casam "exata"**, inclusive o Ø15,8x1,2. As duas linhas que seguem desmarcadas sao as
+  corretas (peca repetida na BOM e peca de borracha sem especificacao).
+- **Nao foi feita conferencia visual no navegador** (exigiria subir o app e logar); a verificacao foi
+  por teste, tipo, lint, build e simulacao do pipeline.
+
+### Decisoes importantes
+
+- **Nao mexi no filtro do `listarCatalogoMat`.** A suspeita natural ("o filtro %MAT% esta perdendo
+  cadastro") foi testada contra a conta inteira e e falsa. Mexer sem necessidade so trocaria um
+  comportamento provado por um nao provado.
+- **Tolerancia derivada em vez de um numero maior.** Subir 0,06 para 0,09 resolveria o tubo, mas por
+  uma margem de 0,01 contra o caso Ø6,25, um limite que ninguem consegue defender depois. A regra
+  por casas decimais e a mesma coisa dita de um jeito que se explica.
+
+### Pendencias / proximos passos
+
+- **Cadastro duplicado no Omie:** `MATTF RD095 00C12` e `MATTF RD952 00C12` sao o MESMO trefilado
+  Ø9,52 em carbono, com dois codigos. Como empatam na comparacao, quem ganha e o primeiro em ordem
+  alfabetica (`RD095`), antes era so a ordem em que o Omie devolvia. Vale inativar um dos dois no
+  Omie para a estrutura nao sair com codigos diferentes para o mesmo material.
+- Cadastros com bitola em polegada e sextavado continuam fora do casamento automatico (13 itens sem
+  geometria lida); aparecem normalmente na lista para escolha manual.
+- O PR #2 ja estava mergeado no `master` (commit `8c5fd10`), entao estas mudancas foram commitadas
+  **direto no `master`** e publicadas na Vercel a pedido do usuario.

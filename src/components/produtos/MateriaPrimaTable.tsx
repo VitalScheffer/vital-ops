@@ -2,6 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, Layers } from "lucide-react";
 
+import { MateriaPrimaSelect } from "@/components/produtos/MateriaPrimaSelect";
 import { motivoMateriaPrima, type MateriaPrimaReviewItem } from "@/lib/bom/review";
 import type { ItemMat } from "@/lib/produtos/materiaPrima";
 
@@ -100,20 +101,13 @@ function LinhaMateriaPrima({
         {item.especificacao || <span className="italic">sem especificação na BOM</span>}
       </td>
       <td className="px-3 py-2 align-top">
-        <select
+        <MateriaPrimaSelect
           value={item.codigoMat}
-          onChange={(e) => onEscolherMat(item.id, e.target.value)}
-          aria-label={`Matéria-prima de ${item.codigoPeca}`}
-          aria-invalid={erro ? true : undefined}
-          className="w-full max-w-[26rem] rounded-lg border border-border bg-field px-2.5 py-1.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
-        >
-          <option value="">Escolher a matéria-prima...</option>
-          {catalogo.map((mat) => (
-            <option key={mat.codigo} value={mat.codigo}>
-              {mat.descricao}
-            </option>
-          ))}
-        </select>
+          catalogo={catalogo}
+          onChange={(codigoMat) => onEscolherMat(item.id, codigoMat)}
+          ariaLabel={`Matéria-prima de ${item.codigoPeca}`}
+          invalido={erro !== null}
+        />
         <StatusMateriaPrima item={item} erro={erro} aviso={aviso} />
       </td>
       <td className="px-3 py-2 align-top">

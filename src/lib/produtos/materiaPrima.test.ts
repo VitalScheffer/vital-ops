@@ -68,14 +68,32 @@ describe("lerEspecificacao", () => {
       ladoA: 25,
       ladoB: 25,
       espessura: 1.2,
+      casasDecimais: 2,
     });
     expect(lerEspecificacao("TUBO RED. 19,1x1,5mm")).toEqual({
       forma: "tubo-redondo",
       diametro: 19.1,
       espessura: 1.5,
+      casasDecimais: 1,
     });
-    expect(lerEspecificacao("# 3,0000")).toEqual({ forma: "chapa", espessura: 3 });
-    expect(lerEspecificacao("TREF. Ø6,25")).toEqual({ forma: "trefilado-redondo", diametro: 6.25 });
+    expect(lerEspecificacao("# 3,0000")).toEqual({ forma: "chapa", espessura: 3, casasDecimais: 4 });
+    expect(lerEspecificacao("TREF. Ø6,25")).toEqual({
+      forma: "trefilado-redondo",
+      diametro: 6.25,
+      casasDecimais: 2,
+    });
+  });
+
+  it("a precisão sai da medida escrita mais curta, e ignora o que sobra do texto", () => {
+    // "1,5" (1 casa) manda no conjunto, não o "19,05" nem o "430" da liga.
+    expect(lerEspecificacao("TUBO REDONDO Ø19,05x1,5 AÇO INOX 430 (6000mm)")).toEqual({
+      forma: "tubo-redondo",
+      diametro: 19.05,
+      espessura: 1.5,
+      casasDecimais: 1,
+    });
+    // Medida inteira: nenhuma casa decimal.
+    expect(lerEspecificacao("TUBO QUADRADO 25x25x1.2 AÇO INOX 430")?.casasDecimais).toBe(0);
   });
 
   it("ignora o que está entre parênteses na descrição do cadastro MAT", () => {
@@ -83,6 +101,7 @@ describe("lerEspecificacao", () => {
     expect(lerEspecificacao("CHAPA ESP 3,00 AÇO INOX 430 (1200x2000)")).toEqual({
       forma: "chapa",
       espessura: 3,
+      casasDecimais: 2,
     });
   });
 
@@ -97,6 +116,7 @@ describe("lerEspecificacao", () => {
       ladoA: 25,
       ladoB: 25,
       espessura: 1.2,
+      casasDecimais: 0,
     });
   });
 
@@ -115,6 +135,18 @@ describe("indexarCatalogo", () => {
   it("cadastro coerente não fica ambíguo", () => {
     expect(CATALOGO.find((i) => i.codigo === "MATTB Q2525 12I43")?.ambiguo).toBe(false);
     expect(CATALOGO.find((i) => i.codigo === "MATCH 00300 IN430")?.liga).toBe("INOX430");
+  });
+
+  it("devolve em ordem alfabética (é a ordem da lista de escolha na tela)", () => {
+    const descricoes = CATALOGO.map((i) => i.descricao);
+    const ordenadas = [...descricoes].sort((a, b) =>
+      a.localeCompare(b, "pt-BR", { numeric: true, sensitivity: "base" }),
+    );
+    expect(descricoes).toEqual(ordenadas);
+    // A entrada vem embaralhada do Omie (chapa de acrílico depois das de inox,
+    // tubo de carbono no meio dos de inox): a ordenação é de verdade.
+    expect(descricoes).not.toEqual(CATALOGO_BRUTO.map((i) => i.descricao));
+    expect(CATALOGO[0].codigo).toBe("MATCH 00090 AC012");
   });
 });
 
@@ -146,6 +178,20 @@ describe("casarMateriaPrima: peças reais da BOM MSVCH MT001 I0POL", () => {
     expect(r?.confianca).toBe("exata");
     // BOM: Ø15,9 / cadastro: Ø15,88.
     expect(casar("MSVCH PC018 ITPOL", "TUBO RED. 15,9x1,2mm")?.item.codigo).toBe("MATTB RD158 12I43");
+  });
+
+  it("tubo casa exato mesmo quando a BOM TRUNCA a bitola em vez de arredondar", () => {
+    // Caso real da BOM "MCPSO MT002 I0POL R00": o CAD escreve Ø15,8 para o
+    // cadastro Ø15,88 (0,08 de diferença, mais do que um arredondamento).
+    const r = casar("SPS4P PC001 ITPOL", "TUBO RED. 15,8x1,2mm");
+    expect(r?.item.codigo).toBe("MATTB RD158 12I43");
+    expect(r?.confianca).toBe("exata");
+  });
+
+  it("com DUAS casas a BOM já deu a bitola cheia, e a folga encolhe", () => {
+    // Ø6,25 continua sendo outra bitola que Ø6,35, e não vira "exata" só porque
+    // o tubo escrito com uma casa passou a aceitar um décimo de folga.
+    expect(casar("MSVCH PC017 IAPOL", "TREF. Ø6,25")?.confianca).toBe("aproximada");
   });
 
   it("a parede do tubo separa cadastros do mesmo diâmetro", () => {

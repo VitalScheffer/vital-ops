@@ -45,6 +45,10 @@ export interface EspecificacaoMP {
   diametro?: number; // formas redondas
   ladoA?: number; // quadrado/retangular
   ladoB?: number;
+  // Menor número de casas decimais entre as medidas lidas ("Ø15,8x1,2" = 1,
+  // "Ø6,25" = 2). É a PRECISÃO com que o texto foi escrito, e é ela que define
+  // quanta folga a comparação aceita (veja `toleranciaExata`).
+  casasDecimais: number;
 }
 
 // --- Ligas / materiais ------------------------------------------------------
@@ -162,12 +166,14 @@ function detectarForma(t: string): FormaMP | null {
   return null;
 }
 
-// Números decimais em ordem de aparição, aceitando vírgula ou ponto.
-function medidas(t: string): number[] {
-  const achados: number[] = [];
-  for (const m of t.matchAll(/\d+(?:[.,]\d+)?/g)) {
-    const n = Number(m[0].replace(",", "."));
-    if (Number.isFinite(n)) achados.push(n);
+// Números decimais em ordem de aparição, aceitando vírgula ou ponto. Junto do
+// valor vai quantas casas decimais o texto escreveu: "15,8" e "15,80" valem o
+// mesmo número, mas não dizem a bitola com a mesma precisão.
+function medidas(t: string): { valor: number; casas: number }[] {
+  const achados: { valor: number; casas: number }[] = [];
+  for (const m of t.matchAll(/\d+(?:[.,](\d+))?/g)) {
+    const valor = Number(m[0].replace(",", "."));
+    if (Number.isFinite(valor)) achados.push({ valor, casas: m[1]?.length ?? 0 });
   }
   return achados;
 }
@@ -196,18 +202,22 @@ export function lerEspecificacao(texto: string): EspecificacaoMP | null {
   const nums = medidas(t);
   const precisa = MEDIDAS_POR_FORMA[forma];
   if (nums.length < precisa) return null;
-  const [a, b, c] = nums;
+  const usadas = nums.slice(0, precisa);
+  // A medida escrita mais curta manda na precisão do conjunto (é ela que deixa
+  // mais margem de dúvida sobre a bitola real).
+  const casasDecimais = Math.min(...usadas.map((m) => m.casas));
+  const [a, b, c] = usadas.map((m) => m.valor);
 
   switch (forma) {
     case "chapa":
-      return { forma, espessura: a };
+      return { forma, espessura: a, casasDecimais };
     case "trefilado-redondo":
-      return { forma, diametro: a };
+      return { forma, diametro: a, casasDecimais };
     case "tubo-redondo":
-      return { forma, diametro: a, espessura: b };
+      return { forma, diametro: a, espessura: b, casasDecimais };
     case "tubo-quadrado":
     case "tubo-retangular":
-      return { forma, ladoA: a, ladoB: b, espessura: c };
+      return { forma, ladoA: a, ladoB: b, espessura: c, casasDecimais };
   }
 }
 
@@ -227,8 +237,9 @@ export interface ItemMat {
 }
 
 // A descrição do cadastro repete o código na frente ("MATCH 00300 IN430 - CHAPA
-// ESP 3,00 ..."); a geometria está depois do primeiro " - ".
-function parteDescritiva(codigo: string, descricao: string): string {
+// ESP 3,00 ..."); a geometria está depois do primeiro " - ". A tela também usa
+// isto para não repetir o código na linha de baixo da lista de escolha.
+export function parteDescritiva(codigo: string, descricao: string): string {
   const semCodigo = descricao.replace(/\s+/g, " ").trim();
   const prefixo = codigo.replace(/\s+/g, " ").trim();
   const resto = semCodigo.startsWith(prefixo) ? semCodigo.slice(prefixo.length) : semCodigo;
@@ -241,9 +252,16 @@ export interface ProdutoMatBruto {
   unidade?: string;
 }
 
-/** Interpreta a lista crua vinda do Omie, resolvendo geometria, liga e conflitos. */
+/**
+ * Interpreta a lista crua vinda do Omie, resolvendo geometria, liga e conflitos.
+ *
+ * Sai em ORDEM ALFABÉTICA da descrição, que começa pelo próprio código, então a
+ * ordem também agrupa as famílias (MATCH, MATTB, MATTF...). O Omie devolve na
+ * ordem dele, e é esta lista que a tela mostra na escolha da matéria-prima:
+ * ordenar aqui é o que garante que a lista chegue igual em qualquer consumidor.
+ */
 export function indexarCatalogo(itens: readonly ProdutoMatBruto[]): ItemMat[] {
-  return itens.map((item) => {
+  const indexados = itens.map((item) => {
     const texto = parteDescritiva(item.codigo, item.descricao);
     const blocos = blocosDoCodigo(item.codigo);
     const ligaCodigo = blocos ? ligaDoBlocoMat(blocos[2]) : null;
@@ -257,14 +275,30 @@ export function indexarCatalogo(itens: readonly ProdutoMatBruto[]): ItemMat[] {
       ambiguo: ligaCodigo !== null && ligaTexto !== null && ligaCodigo !== ligaTexto,
     };
   });
+
+  return indexados.sort((a, b) =>
+    a.descricao.localeCompare(b.descricao, "pt-BR", { numeric: true, sensitivity: "base" }),
+  );
 }
 
 // --- Casamento --------------------------------------------------------------
 
-// Folga aceita entre a medida da BOM e a do cadastro, em milímetros. A BOM
-// arredonda o que o cadastro traz cheio (Ø19,1 na BOM vs Ø19,05 no Omie;
-// Ø15,9 vs Ø15,88), então uma folga pequena ainda é "a mesma bitola".
-const TOLERANCIA_EXATA = 0.06;
+// Folga aceita entre a medida da BOM e a do cadastro para valer como "a mesma
+// bitola", em milímetros. Ela sai da PRECISÃO com que a BOM escreveu a medida:
+// o CAD encurta o que o cadastro traz cheio, e encurta dos dois jeitos:
+// arredondando (Ø19,1 na BOM para o Ø19,05 do Omie) e truncando (Ø15,8 para
+// Ø15,88, 0,08 de diferença). Com UMA casa decimal, portanto, a bitola real
+// pode estar até um décimo adiante; com DUAS ("TREF. Ø6,25") a BOM já disse a
+// bitola cheia, e aí Ø6,35 é outra bitola, não a mesma escrita curta.
+//
+// O teto de 0,1 mm é seguro porque as bitolas cadastradas no Omie, dentro da
+// mesma forma e liga, estão a pelo menos 0,3 mm uma da outra.
+const TOLERANCIA_MAXIMA = 0.1;
+
+function toleranciaExata(casasDecimais: number): number {
+  return Math.min(10 ** -casasDecimais, TOLERANCIA_MAXIMA);
+}
+
 // Acima disso a escolha deixa de ser óbvia (a BOM tem "TREF. Ø6,25" e o
 // catálogo só tem Ø6,35): ainda sugerimos, mas pedindo confirmação na tela.
 const TOLERANCIA_APROXIMADA = 0.3;
@@ -308,6 +342,7 @@ export function casarMateriaPrima(
   catalogo: readonly ItemMat[],
 ): Casamento | null {
   const candidatos: Casamento[] = [];
+  const folgaExata = toleranciaExata(espec.casasDecimais);
 
   for (const item of catalogo) {
     if (item.ambiguo || !item.espec) continue;
@@ -319,7 +354,7 @@ export function casarMateriaPrima(
 
     candidatos.push({
       item,
-      confianca: diferenca <= TOLERANCIA_EXATA ? "exata" : "aproximada",
+      confianca: diferenca <= folgaExata ? "exata" : "aproximada",
       diferencaMaxMm: diferenca,
     });
   }
