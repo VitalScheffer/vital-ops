@@ -1,5 +1,6 @@
 import {
   casarMateriaPrima,
+  ehPorPeso,
   lerEspecificacao,
   pesoParaKg,
   pistaDoCodigoPeca,
@@ -55,8 +56,9 @@ export interface EstruturaReviewItem {
 }
 
 // Uma linha da revisão de MATÉRIA-PRIMA: a peça (PC) da BOM de um lado, o item
-// MAT que ela consome do outro, e a quantidade em KG. `codigoMat` vazio = não
-// resolvido (o motivo diz por quê e a linha entra desmarcada).
+// MAT que ela consome do outro, e a quantidade consumida por peça.
+// `codigoMat` vazio = não resolvido (o motivo diz por quê e a linha entra
+// desmarcada).
 export interface MateriaPrimaReviewItem {
   id: string;
   linha: number;
@@ -68,7 +70,15 @@ export interface MateriaPrimaReviewItem {
   pesoBruto: number | null;
   codigoMat: string;
   descricaoMat: string;
-  quantidadeKg: number | null;
+  // Unidade em que `quantidade` está expressa, que é a do cadastro no Omie
+  // ("KG", "M", "M²", "UN"). É preenchida em DOIS momentos: ao escolher o item
+  // MAT e, mesmo sem item escolhido, quando o peso da BOM já entrou no campo
+  // (aí vale "KG"). Guardar isso é o que permite detectar depois que a
+  // quantidade que está na tela ficou na unidade errada.
+  unidadeMat: string;
+  // Consumo de UMA peça, na unidade acima. Só o KG sai do peso da BOM; metro,
+  // metro quadrado e unidade são digitados na tela.
+  quantidade: number | null;
   confianca: Confianca | null;
   motivo?: string;
   included: boolean;
@@ -203,6 +213,19 @@ export function estruturaParaEnvio(itens: EstruturaReviewItem[]): EstruturaRel[]
 // com a numeração do CAD (que é só dígitos e pontos).
 const SUFIXO_MP = ".MP";
 
+// Peça que a BOM entrega sem NADA para trabalhar: nem a geometria nem a massa.
+// É o caso do perfil de borracha ("MCPSO PC006 BPCSR"), que não é comprado por
+// quilo e sim por metro, então o CAD não tem o que exportar nessas colunas.
+// Constatar "falta a especificação" seria um beco sem saída (ela nunca virá):
+// a saída é escolher o item e digitar o consumo na unidade do cadastro.
+const MOTIVO_SEM_ESPEC_NEM_PESO =
+  "A BOM não traz especificação nem peso desta peça (é o caso dos perfis vendidos por metro). " +
+  "Escolha a matéria-prima e informe a quantidade na unidade do cadastro.";
+
+function motivoForaDoPeso(unidade: string): string {
+  return `Cadastro em ${unidade}: o peso da BOM não diz o consumo. Informe a quantidade em ${unidade}.`;
+}
+
 function motivoSemResolver(especificacao: string, ligaRotulo: string | null): string {
   const onde = ligaRotulo
     ? ` em ${ligaRotulo.toLowerCase()}`
@@ -259,7 +282,8 @@ export function buildMateriaPrimaReview(
       pesoBruto: row.peso,
       codigoMat: "",
       descricaoMat: "",
-      quantidadeKg: null as number | null,
+      unidadeMat: "",
+      quantidade: null as number | null,
       confianca: null as Confianca | null,
       included: false,
     };
@@ -273,7 +297,13 @@ export function buildMateriaPrimaReview(
     }
 
     if (!base.especificacao) {
-      itens.push({ ...base, motivo: "A linha não traz a especificação do material na BOM." });
+      itens.push({
+        ...base,
+        motivo:
+          row.peso === null
+            ? MOTIVO_SEM_ESPEC_NEM_PESO
+            : "A linha não traz a especificação do material na BOM.",
+      });
       continue;
     }
     if (row.peso === null) {
@@ -281,12 +311,15 @@ export function buildMateriaPrimaReview(
       continue;
     }
 
-    const quantidadeKg = pesoParaKg(row.peso, unidadePeso);
+    // A partir daqui a linha TEM peso, então o campo já pode nascer preenchido em
+    // KG — e a unidade acompanha, para a tela e a troca de item saberem em que
+    // unidade esse número está.
+    const emKg = { quantidade: pesoParaKg(row.peso, unidadePeso), unidadeMat: "KG" };
     const espec = lerEspecificacao(base.especificacao);
     if (!espec) {
       itens.push({
         ...base,
-        quantidadeKg,
+        ...emKg,
         motivo: `Não consegui interpretar "${base.especificacao}". Escolha a matéria-prima na mão.`,
       });
       continue;
@@ -297,19 +330,32 @@ export function buildMateriaPrimaReview(
     if (!casamento) {
       itens.push({
         ...base,
-        quantidadeKg,
+        ...emKg,
         motivo: motivoSemResolver(base.especificacao, pista.liga ? ROTULO_LIGA[pista.liga] : null),
       });
       continue;
     }
 
-    const exata = casamento.confianca === "exata";
-    itens.push({
+    const escolhido = {
       ...base,
       codigoMat: casamento.item.codigo,
       descricaoMat: casamento.item.descricao,
-      quantidadeKg,
+      unidadeMat: casamento.item.unidade,
       confianca: casamento.confianca,
+    };
+
+    // Item que não é medido por peso: a sugestão continua valendo (poupa achar o
+    // item na lista), mas o peso da BOM NÃO vira a quantidade dele. Converter ali
+    // mandaria as gramas da peça como se fossem metros pro Omie.
+    if (!ehPorPeso(casamento.item.unidade)) {
+      itens.push({ ...escolhido, motivo: motivoForaDoPeso(casamento.item.unidade) });
+      continue;
+    }
+
+    const exata = casamento.confianca === "exata";
+    itens.push({
+      ...escolhido,
+      quantidade: emKg.quantidade,
       included: exata,
       motivo: exata
         ? undefined
@@ -347,11 +393,48 @@ export function aplicarCatalogoNaRevisao(
   });
 }
 
+/**
+ * Aplica a matéria-prima ESCOLHIDA NA MÃO sobre uma linha da revisão. A escolha
+ * substitui a sugestão automática, então some o motivo e a marcação de confiança
+ * (eles descreviam a sugestão, não a decisão de quem está na tela).
+ *
+ * A quantidade é o ponto delicado. Ela pode já estar preenchida em KG, vinda do
+ * peso da BOM, e KG não vira metro: trocar para um item de OUTRA unidade limpa o
+ * campo, para a pessoa informar o consumo na unidade nova. Trocar entre itens da
+ * mesma unidade preserva. E ESVAZIAR o seletor (`mat` nulo) não mexe na
+ * quantidade nem na unidade: quem esvaziou por engano consegue voltar, já que o
+ * KG do peso não é recalculável sem reler a BOM.
+ */
+export function aplicarEscolhaDeMateriaPrima(
+  item: MateriaPrimaReviewItem,
+  mat: ItemMat | null,
+): MateriaPrimaReviewItem {
+  const escolhido = {
+    ...item,
+    confianca: null,
+    motivo: undefined,
+    included: mat !== null,
+  };
+  if (!mat) return { ...escolhido, codigoMat: "", descricaoMat: "" };
+
+  const trocouUnidade = item.unidadeMat !== "" && item.unidadeMat !== mat.unidade;
+  return {
+    ...escolhido,
+    codigoMat: mat.codigo,
+    descricaoMat: mat.descricao,
+    unidadeMat: mat.unidade,
+    quantidade: trocouUnidade ? null : item.quantidade,
+  };
+}
+
 /** Motivo pelo qual uma linha de matéria-prima não pode ir (ou `null` se válida). */
 export function motivoMateriaPrima(item: MateriaPrimaReviewItem): string | null {
   if (!item.codigoMat.trim()) return item.motivo ?? "Escolha a matéria-prima desta peça.";
-  if (item.quantidadeKg === null) return "Informe a quantidade consumida em KG.";
-  if (!Number.isFinite(item.quantidadeKg) || item.quantidadeKg <= 0) {
+  if (item.quantidade === null) {
+    const unidade = item.unidadeMat.trim();
+    return unidade ? `Informe a quantidade consumida em ${unidade}.` : "Informe a quantidade consumida.";
+  }
+  if (!Number.isFinite(item.quantidade) || item.quantidade <= 0) {
     return "Quantidade inválida: use um número maior que zero.";
   }
   return null;
@@ -363,7 +446,8 @@ export function materiaPrimaValida(item: MateriaPrimaReviewItem): boolean {
 
 /**
  * Converte as linhas INCLUÍDAS e VÁLIDAS em relações de estrutura PEÇA → MAT.
- * A quantidade vai em KG, que é a unidade de todo cadastro MAT no Omie.
+ * A quantidade vai CRUA: no Omie ela sempre vale na unidade do item filho, então
+ * o mesmo campo carrega KG do aço, metro do perfil de borracha e m² do courvin.
  */
 export function materiaPrimaParaEnvio(itens: MateriaPrimaReviewItem[]): EstruturaRel[] {
   return itens
@@ -374,7 +458,7 @@ export function materiaPrimaParaEnvio(itens: MateriaPrimaReviewItem[]): Estrutur
       codigoPai: item.codigoPeca,
       codigoFilho: item.codigoMat,
       descricaoFilho: item.descricaoMat,
-      quantidade: item.quantidadeKg,
+      quantidade: item.quantidade,
       origem: "mp" as const,
     }));
 }

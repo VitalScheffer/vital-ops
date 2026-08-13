@@ -11,7 +11,7 @@ interface MateriaPrimaTableProps {
   catalogo: readonly ItemMat[];
   onToggle: (id: string, included: boolean) => void;
   onEscolherMat: (id: string, codigoMat: string) => void;
-  onQuantidade: (id: string, quantidadeKg: number | null) => void;
+  onQuantidade: (id: string, quantidade: number | null) => void;
   onRecarregarCatalogo: () => void;
   recarregandoCatalogo: boolean;
 }
@@ -37,7 +37,8 @@ export function MateriaPrimaTable({
           <h3 className="text-sm font-semibold text-foreground">Matéria-prima das peças</h3>
           <p className="text-xs text-muted-foreground">
             {incluidas} de {itens.length} peça(s) com a matéria-prima confirmada. Cada uma vira uma linha da estrutura
-            da própria peça, com a quantidade em KG.
+            da própria peça, com o consumo de UMA peça na unidade do cadastro no Omie (KG no aço, M no perfil de
+            borracha, M² no tecido).
           </p>
         </div>
       </div>
@@ -49,7 +50,7 @@ export function MateriaPrimaTable({
               <th className="px-3 py-2 font-medium">Peça</th>
               <th className="px-3 py-2 font-medium">Especificação da BOM</th>
               <th className="px-3 py-2 font-medium">Matéria-prima no Omie</th>
-              <th className="px-3 py-2 font-medium">Qtd (KG)</th>
+              <th className="px-3 py-2 font-medium">Qtd por peça</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -123,17 +124,26 @@ function LinhaMateriaPrima({
         <StatusMateriaPrima item={item} erro={erro} aviso={aviso} />
       </td>
       <td className="px-3 py-2 align-top">
-        <input
-          type="number"
-          min={0}
-          step="any"
-          value={item.quantidadeKg ?? ""}
-          onChange={(e) => onQuantidade(item.id, e.target.value === "" ? null : Number(e.target.value))}
-          disabled={!item.included}
-          aria-label={`Quantidade em KG de matéria-prima de ${item.codigoPeca}`}
-          placeholder="0,000"
-          className="w-24 rounded-lg border border-border bg-field px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={item.quantidade ?? ""}
+            onChange={(e) => onQuantidade(item.id, e.target.value === "" ? null : Number(e.target.value))}
+            disabled={!item.included}
+            aria-label={
+              item.unidadeMat
+                ? `Quantidade em ${item.unidadeMat} de matéria-prima de ${item.codigoPeca}`
+                : `Quantidade de matéria-prima de ${item.codigoPeca}`
+            }
+            placeholder="0,000"
+            className="w-24 rounded-lg border border-border bg-field px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          {/* A unidade é a do cadastro no Omie, não uma escolha da tela: sem ela
+              à vista, "0,842" no perfil de borracha se lê como quilo. */}
+          <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">{item.unidadeMat}</span>
+        </div>
       </td>
     </tr>
   );

@@ -5102,3 +5102,72 @@ Segue sem conferencia visual no navegador.
 - Se alguem clicar no refresh duas vezes em menos de 1 minuto, a lista simplesmente nao muda (e o
   comportamento correto, mas a tela nao explica isso). Se incomodar, cabe um aviso do tipo
   "li agora ha pouco, tente de novo em X s".
+
+## 2026-08-13 — Matéria-prima que não é medida por quilo (perfil de borracha em metro)
+
+### Resumo
+Pedido do Jhonatan: na BOM de exemplo `MCPSO MT002 I0POL R00.xls`, a linha
+`MCPSO PC006 BPCSR R00 - PERFIL DE BORRACHA TIPO U P. TUBO Ø19` consome um perfil
+que a empresa compra em ROLO e usa por METRO, então não dá para tirar o consumo do
+peso da BOM como se faz com o aço.
+
+Consulta ao catálogo MAT do Omie (leitura filtrada, 13/08/2026) mostrou que o
+problema é maior do que a borracha: dos 88 itens MAT ativos, **81 estão em KG, 2 em
+M (MATPF, perfil de borracha), 3 em M² (MATTC, courvin) e 2 em UN (MATES,
+estofado)**. O KG estava chumbado no código e já estava errado para 7 itens.
+
+A regra passou a ser: **a unidade do consumo é a do cadastro no Omie, item a item**.
+O campo `unidade` já era lido em `catalogoMat.ts` e exibido no seletor, mas não
+participava de nenhuma decisão.
+
+Duas coisas que já funcionavam e não foram mexidas: cadastrar produto SEM
+matéria-prima (basta deixar as linhas da seção desmarcadas) e o envio da quantidade
+ao Omie, que sempre foi agnóstico de unidade (`envioOmie.ts`: a quantidade da
+estrutura vale na unidade do item filho).
+
+`npm test` (556 testes), `npm run lint` e `npx tsc --noEmit` verdes.
+
+### Arquivos criados/alterados
+- `src/lib/produtos/materiaPrima.ts` — `ehPorPeso(unidade)` (só "KG" é medido pelo
+  peso da BOM; unidade vazia NÃO vira KG por omissão) e normalização da unidade
+  do cadastro dentro do `indexarCatalogo`.
+- `src/lib/bom/review.ts` — `MateriaPrimaReviewItem.quantidadeKg` virou
+  `quantidade`, com o novo campo `unidadeMat` (unidade em que essa quantidade
+  está expressa). Peso da BOM só preenche item em KG. Nova função pura
+  `aplicarEscolhaDeMateriaPrima` (regra da troca de unidade). `motivoMateriaPrima`
+  cita a unidade certa. Linha sem especificação E sem peso ganhou motivo acionável.
+- `src/components/produtos/ProdutosClient.tsx` — `escolherMateriaPrima` passou a
+  delegar para `aplicarEscolhaDeMateriaPrima`.
+- `src/components/produtos/MateriaPrimaTable.tsx` — coluna "Qtd (KG)" virou
+  "Qtd por peça" com a unidade do item ao lado do campo; subtítulo e aria-labels.
+- `src/lib/bom/__fixtures__/bom-mcpso-mt002.xls` — BOM real do MCPSO como fixture.
+- `src/lib/bom/bomMateriaPrima.test.ts`, `src/lib/produtos/materiaPrima.test.ts` —
+  testes novos (TDD, cada um visto falhando antes).
+
+### Decisões importantes
+- **Unidade vazia não vira KG por omissão.** Cadastro sem unidade legível pede a
+  quantidade na tela em vez de converter o peso: no Omie a quantidade da estrutura
+  vale sempre na unidade do filho, então chutar ali manda número na unidade errada.
+- **Trocar o item para OUTRA unidade limpa a quantidade.** É o erro silencioso mais
+  perigoso do conjunto: trocar de aço para borracha deixaria os "0,995" convertidos
+  do peso irem como 0,995 METRO. Trocar entre itens da mesma unidade preserva, e
+  ESVAZIAR o seletor não mexe na quantidade (o KG do peso não é recalculável sem
+  reler a BOM).
+- **Sugestão automática de item fora de KG não preenche a quantidade.** Hoje é
+  inalcançável (a descrição do perfil não lê como geometria conhecida, então ele
+  fica fora do casamento), mas a trava está no código e coberta por teste, para o
+  caso de `lerEspecificacao` aprender formas novas depois.
+- **Não foi feita a sugestão automática da borracha** (fase 2, combinada como
+  opcional e dispensada): seria adivinhação em cima de texto livre, e a quantidade
+  em metro continuaria sendo digitada de qualquer jeito.
+
+### Comandos relevantes
+- `npm test` → 44 arquivos, 556 testes, verdes.
+- `npm run lint`, `npx tsc --noEmit` → sem saída (limpos).
+
+### Pendências / próximos passos
+- **Conferir com quem cadastra:** existe no Omie o `PRD10324 | UN | PERFIL DE
+  BORRACHA TIPO U PARA TUBO DE Ø 19,05 - 842mm`, o mesmo perfil já CORTADO e
+  cadastrado em unidade. Ele não entra no catálogo da tela (o código não começa com
+  "MAT"). Definir se é legado ou se ainda é usado em algum lugar.
+- Nada commitado nem publicado: aguardando o ok.

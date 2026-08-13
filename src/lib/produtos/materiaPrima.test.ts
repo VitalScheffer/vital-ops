@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   casarMateriaPrima,
+  ehPorPeso,
   indexarCatalogo,
   lerEspecificacao,
   pesoParaKg,
@@ -226,6 +227,31 @@ describe("casarMateriaPrima: peças reais da BOM MSVCH MT001 I0POL", () => {
   it("material desconhecido ainda resolve quando a geometria só existe numa liga", () => {
     // 1,2 e 3,0 só estão cadastradas em inox neste recorte: não há o que confundir.
     expect(casar("MSVCH PC034 ACSLD", "# 3,0000")?.item.codigo).toBe("MATCH 00300 IN430");
+  });
+});
+
+describe("unidade do cadastro MAT", () => {
+  it("normaliza a unidade lida do Omie", () => {
+    const catalogo = indexarCatalogo([
+      { codigo: "MATPF RA019 BR40P", descricao: "MATPF RA019 BR40P - PERFIL", unidade: " m " },
+      { codigo: "MATCH 00300 IN430", descricao: "MATCH 00300 IN430 - CHAPA", unidade: "kg" },
+      { codigo: "MATTC CRV10 000LB", descricao: "MATTC CRV10 000LB - TECIDO", unidade: undefined },
+    ]);
+    const unidades = new Map(catalogo.map((i) => [i.codigo, i.unidade]));
+    expect(unidades.get("MATPF RA019 BR40P")).toBe("M");
+    expect(unidades.get("MATCH 00300 IN430")).toBe("KG");
+    expect(unidades.get("MATTC CRV10 000LB")).toBe("");
+  });
+
+  it("só o KG é medido pela coluna Peso da BOM", () => {
+    // O catálogo real tem perfil de borracha em M, courvin em M² e estofado em
+    // UN: para esses, o peso da BOM não diz o consumo, então nada é convertido.
+    expect(ehPorPeso("KG")).toBe(true);
+    expect(ehPorPeso("M")).toBe(false);
+    expect(ehPorPeso("M²")).toBe(false);
+    expect(ehPorPeso("UN")).toBe(false);
+    // Cadastro sem unidade legível não vira KG por omissão: quem decide é a tela.
+    expect(ehPorPeso("")).toBe(false);
   });
 });
 

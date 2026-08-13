@@ -223,10 +223,31 @@ export function lerEspecificacao(texto: string): EspecificacaoMP | null {
 
 // --- Catálogo MAT indexado --------------------------------------------------
 
+// --- Unidade do cadastro ----------------------------------------------------
+
+// A unidade de consumo NÃO é do sistema, é de cada cadastro MAT no Omie. O aço
+// é comprado por peso (KG) e a BOM dá a massa da peça, mas o catálogo real tem
+// outras: perfil de borracha em M (vem em rolo e se corta por metro), courvin em
+// M², estofado em UN. Para essas a coluna "Peso" da BOM não diz o consumo, e é a
+// pessoa quem informa a quantidade na tela.
+//
+// Só o KG é reconhecido como "medido por peso". Unidade vazia (cadastro sem
+// unidade legível) NÃO vira KG por omissão: converter o peso ali seria inventar
+// um número na unidade errada, e no Omie a quantidade da estrutura vale sempre
+// na unidade do item filho.
+export function ehPorPeso(unidade: string): boolean {
+  return normalizarUnidade(unidade) === "KG";
+}
+
+function normalizarUnidade(unidade: string | undefined): string {
+  return (unidade ?? "").trim().toUpperCase();
+}
+
 /** Um item MAT do Omie já interpretado, pronto para o casamento. */
 export interface ItemMat {
   codigo: string;
   descricao: string;
+  /** Unidade do cadastro no Omie, normalizada ("KG", "M", "M²", "UN"). */
   unidade: string;
   espec: EspecificacaoMP | null;
   liga: Liga | null;
@@ -269,7 +290,7 @@ export function indexarCatalogo(itens: readonly ProdutoMatBruto[]): ItemMat[] {
     return {
       codigo: item.codigo,
       descricao: item.descricao,
-      unidade: item.unidade ?? "",
+      unidade: normalizarUnidade(item.unidade),
       espec: lerEspecificacao(texto),
       liga: ligaCodigo ?? ligaTexto,
       ambiguo: ligaCodigo !== null && ligaTexto !== null && ligaCodigo !== ligaTexto,

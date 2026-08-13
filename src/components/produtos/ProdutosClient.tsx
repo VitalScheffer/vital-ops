@@ -51,6 +51,7 @@ import {
 } from "@/lib/bom/omieFile";
 import {
   aplicarCatalogoNaRevisao,
+  aplicarEscolhaDeMateriaPrima,
   bomTemMateriaPrima,
   buildEstruturaReview,
   buildMateriaPrimaReview,
@@ -500,17 +501,11 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
     setMateriaPrimaReview((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }
 
-  // Escolher a MP na mão substitui a sugestão automática: some o motivo e a
-  // marcação de confiança, que descreviam a sugestão, não a escolha do usuário.
   function escolherMateriaPrima(id: string, codigoMat: string) {
-    const mat = catalogoMat.find((m) => m.codigo === codigoMat);
-    updateMateriaPrima(id, {
-      codigoMat,
-      descricaoMat: mat?.descricao ?? "",
-      confianca: null,
-      motivo: undefined,
-      included: codigoMat !== "",
-    });
+    const mat = catalogoMat.find((m) => m.codigo === codigoMat) ?? null;
+    setMateriaPrimaReview((prev) =>
+      prev.map((item) => (item.id === id ? aplicarEscolhaDeMateriaPrima(item, mat) : item)),
+    );
   }
 
   const resumo = useMemo(() => resumoProdutos(produtoReview), [produtoReview]);
@@ -827,7 +822,7 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
                 catalogo={catalogoMat}
                 onToggle={(id, included) => updateMateriaPrima(id, { included })}
                 onEscolherMat={escolherMateriaPrima}
-                onQuantidade={(id, quantidadeKg) => updateMateriaPrima(id, { quantidadeKg })}
+                onQuantidade={(id, quantidade) => updateMateriaPrima(id, { quantidade })}
                 onRecarregarCatalogo={() => void carregarCatalogo(true)}
                 recarregandoCatalogo={carregandoCatalogo}
               />
