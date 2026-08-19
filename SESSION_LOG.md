@@ -5171,3 +5171,178 @@ estrutura vale na unidade do item filho).
   cadastrado em unidade. Ele não entra no catálogo da tela (o código não começa com
   "MAT"). Definir se é legado ou se ainda é usado em algum lugar.
 - Nada commitado nem publicado: aguardando o ok.
+
+## 2026-08-17 — Viabilidade de usar BOM em PDF no cadastro de produtos
+
+### Resumo
+Foi analisado o pedido de padronizar o envio de BOM em PDF nas abas Pranchas e
+Produtos. Confirmado que Pranchas já lê PDF, mas apenas para extrair os códigos
+dos desenhos e localizar as pranchas. O cadastro de Produtos ainda depende de
+planilha XLS/XLSX porque precisa montar a estrutura completa para o Omie.
+
+### Arquivos alterados/criados
+- `SESSION_LOG.md` — registro desta análise; nenhuma mudança funcional foi feita.
+
+### Decisões importantes
+- Não habilitar PDF em Produtos apenas reaproveitando o leitor de Pranchas: ele
+  não recupera com confiança a hierarquia, as quantidades, o peso e a
+  especificação de matéria-prima. Sem esses dados, seria possível cadastrar uma
+  estrutura incorreta no Omie.
+- A padronização é viável se o PDF exportado pelo SolidWorks mantiver um layout
+  textual consistente com as colunas necessárias. Antes da implementação, é
+  necessário validar um ou mais PDFs reais de computadores/versões diferentes.
+
+### Comandos relevantes
+- Inspeção dos leitores atuais em `src/lib/pranchas/bom.ts`,
+  `src/lib/pranchas/pdf.ts`, `src/lib/bom/bomFile.ts` e das telas de Produtos e
+  Pranchas.
+
+### Pendências / próximos passos
+- Receber exemplos de BOM em PDF (preferencialmente um de cada computador/versão
+  do SolidWorks) e comparar o texto extraído com a planilha correspondente.
+- Implementar e testar um parser próprio de BOM em PDF no módulo Produtos caso
+  as colunas estejam presentes de forma estável; manter XLS/XLSX como alternativa
+  para PDFs escaneados, protegidos ou com layout divergente.
+
+## 2026-08-19 - BOM em PDF no cadastro de produtos e prancha que parava de perder folha
+
+### Resumo
+Duas demandas da engenharia (Igor/Victor), uma em cada aba:
+
+1. **Pranchas**: a pasta tinha 25 documentos, a lista mostrava os 25, mas a
+   compilacao saia com 16 paginas e a mensagem "Nao deu para ler 9 PDF(s)".
+   Causa: o `juntarPdfs` engolia o erro do pdf-lib num `catch {}` sem motivo e
+   descartava a folha. O pdf-lib e um ESCRITOR de PDF, bem mais rigoroso que um
+   leitor: recusa PDF com estrutura fora do padrao e nao decifra PDF protegido.
+   Agora, quando o pdf-lib recusa, o pdfjs (que ja era dependencia, e o leitor do
+   Firefox e abre praticamente tudo) rasteriza a folha a 200 DPI e ela entra como
+   imagem. A folha nunca some; so vira falha quando os DOIS leitores desistem, e
+   ai com o motivo escrito na tela.
+
+2. **Produtos**: passou a aceitar a BOM em PDF, alem de .xls/.xlsx. Existe porque
+   o SolidWorks de algumas maquinas nao exporta a planilha, mas o PDF toda
+   maquina gera. A tabela do PDF e remontada por coordenada e entregue ao MESMO
+   leitor de grade que ja atendia a planilha, entao Nº, PECA, QTD, PESO e
+   DESCRICAO saem iguais nos dois formatos. De brinde, o BOM em PDF na aba
+   Pranchas agora tambem traz quantidade, e a lista de "Material de compra"
+   (que antes exigia planilha) funciona com PDF.
+
+### Arquivos alterados/criados
+- `src/lib/pdfjs.ts` (novo) - carregamento do pdfjs, agora compartilhado pelas
+  duas telas (o import segue dinamico, para nao entrar no bundle das outras).
+- `src/lib/pranchas/pdf.ts` - `juntarPdfs` ganhou o resgate por rasterizacao, o
+  motivo por arquivo (`FalhaPdf`), a lista de `resgatados` e o desvio explicito
+  de PDF protegido; `escalaDoResgate` e `motivoDaFalha` exportados para teste.
+- `src/lib/pranchas/pdf.test.ts` (novo) - 10 casos: merge normal, resgate,
+  tamanho original da folha, falha dos dois leitores, escala e motivos.
+- `src/lib/bom/bomPdf.ts` (novo) - remontagem da tabela do PDF por coordenada:
+  agrupa por Y, acha o cabecalho por pontuacao, usa as colunas do cabecalho como
+  regua, junta continuacao de linha e emenda as folhas.
+- `src/lib/bom/bomPdf.test.ts` (novo) - 12 casos sobre layout sintetico.
+- `src/lib/bom/bomFile.ts` - `linhasDaGrade` extraida (leitor unico de grade) e
+  `lerBomDeArquivo` despachando por extensao (.pdf x planilha).
+- `src/lib/pranchas/bom.ts` - o PDF passa pelo leitor de tabela; o texto corrido
+  virou plano B (sem quantidade), so quando a tabela nao e reconhecivel.
+- `src/components/produtos/ProdutosClient.tsx` - dropzone da BOM aceita .pdf.
+- `src/components/pranchas/PranchasClient.tsx` - mensagem do fim da compilacao
+  com resgatados e motivo por arquivo; texto da lista de materiais atualizado.
+
+### Decisoes importantes
+- **Rasterizar em vez de so avisar**: a folha resgatada perde o texto
+  selecionavel, mas imprime igual, que e o que a prancha precisa. Descartar a
+  folha (comportamento antigo) era pior: a pessoa so descobria na hora de levar
+  para a fabrica. 200 DPI com teto de 24 MP por pagina mantem cota legivel sem
+  travar a aba numa folha A0.
+- **PDF protegido nao passa batido**: com `ignoreEncryption: true` o pdf-lib
+  CARREGA o arquivo sem erro, mas nao decifra, e as paginas copiadas sairiam em
+  branco ou embaralhadas, caladas. Agora `isEncrypted` manda direto para o
+  resgate, onde o pdfjs decifra de verdade.
+- **Um leitor de grade so**: a alternativa era um parser proprio de PDF em
+  Produtos. Reaproveitar `linhasDaGrade` garante que a mesma BOM da o mesmo
+  resultado em PDF e em planilha, que e o que evita cadastrar estrutura errada
+  no Omie.
+- **A regua vem do cabecalho, nao do espacamento**: e o que faz uma celula VAZIA
+  (peso em branco) nao empurrar as colunas seguintes para a esquerda, o erro
+  classico de quem remonta tabela de PDF por espacamento.
+- **Continuacao de linha**: quando o CAD quebra a descricao em duas linhas dentro
+  da mesma celula, a segunda linha vem sem PECA. Ela e emendada na anterior; sem
+  isso a especificacao da materia-prima chegaria cortada ao Omie.
+
+### Comandos relevantes
+- `npx vitest run` - 46 arquivos, 578 testes verdes (eram 44 / 556).
+- `npx tsc --noEmit` e `npx eslint src` - limpos.
+- `npm run build` - compilado com sucesso.
+
+### Pendencias / proximos passos
+- **Validar com arquivo real** (nao ha nenhum nesta maquina): subir na aba
+  Produtos uma BOM em PDF e conferir coluna a coluna contra a planilha da mesma
+  BOM. As heuristicas de posicao (vao entre colunas, fim da tabela) foram
+  calibradas em layout sintetico e podem precisar de ajuste fino.
+- **Conferir os 9 PDFs que falhavam**: recompilar aquela pasta e ver a nova
+  mensagem. Se aparecerem como "resgatados", o problema era mesmo o pdf-lib e
+  esta resolvido; se ainda falharem, a mensagem agora diz o motivo exato.
+- Commit e deploy na Vercel nao foram feitos: aguardando o ok.
+
+## 2026-08-19 (continuacao) - Code review dos dois ajustes e o que ele pegou
+
+### Resumo
+Code review da mudanca anterior antes de publicar. Seis achados, cinco viraram
+correcao e um foi aceito pela metade. O mais grave mandava quantidade errada
+para o Omie em silencio.
+
+### Correcoes
+- **Quantidade em pt-BR (grave)** - `linhasDaGrade` usava `Number()` cru na QTD.
+  Serve para planilha (o SheetJS ja entrega numero), mas no PDF TODA celula e
+  texto: `Number("2,00")` e NaN, a quantidade virava null e o `envioOmie`
+  assumia 1 sem avisar. Agora passa pelo `lerNumero`, o mesmo do peso, que ja
+  entendia virgula decimal. As duas colunas estavam se contradizendo no mesmo
+  arquivo.
+- **Fim da tabela cortando no meio** - a referencia era a MEDIANA dos passos
+  entre linhas, entao um separador de submontagem podia encerrar a leitura e
+  sumir com peca em silencio. Passou a ser o MAIOR passo ja visto: a referencia
+  so cresce, e um vao moderado nao corta mais. Escolha consciente: engolir linha
+  do carimbo e melhor que perder peca, porque a linha do carimbo aparece na tela
+  para conferir e a peca que sumiu nao aparece em lugar nenhum.
+- **BOM de item unico sem protecao** - o detector exigia 2 passos de referencia,
+  entao numa BOM de uma peca so ele nunca disparava e o carimbo inteiro entrava
+  como produto. Agora basta 1.
+- **Tabela lida pela metade nao caia no plano B** - o fallback so agia com ZERO
+  linha. Agora a leitura por tabela e sempre conferida contra a varredura do
+  texto corrido: se o texto tiver desenho que a tabela nao trouxe, o plano B
+  assume. Sair com prancha a menos e exatamente o que este compilador existe
+  para evitar. O `catch` tambem engolia a mensagem boa de erro e mostrava o
+  texto interno do pdfjs; agora o erro da tabela e preservado.
+- **Resgate quebrado no meio** - se a 3a folha de uma prancha de 5 falhasse, as
+  2 ja embutidas ficavam no PDF final E o arquivo era anunciado como falha. Meia
+  prancha impressa e pior que nenhuma: agora desfaz o que entrou antes de
+  desistir.
+- **Contagem de paginas** - ao trocar o contador manual pelo `getPageCount()`,
+  o teste pegou que o pdf-lib INSERE uma pagina em branco ao salvar documento
+  vazio (PDF nao pode ter zero pagina). Contando depois do `save()` a tela diria
+  "1 pagina" numa compilacao em que nada entrou. Passou a contar antes.
+- **Resgate anunciado em amarelo** - prancha resgatada virou imagem; anunciar em
+  verde escondia a troca de qualidade.
+
+### Achado nao aceito (metade)
+- O review sugeriu nao desviar todo PDF com `/Encrypt` para a rasterizacao, por
+  causa do custo. Mantido como esta: o pdf-lib NAO decifra em hipotese nenhuma,
+  entao copiar as paginas produziria folha em branco ou embaralhada em silencio.
+  Rasterizar ali e a leitura correta, nao excesso de zelo. A segunda metade do
+  achado (o aviso amarelo) foi aceita.
+
+### Arquivos alterados
+- `src/lib/bom/bomFile.ts` - quantidade pelo `lerNumero`.
+- `src/lib/bom/bomPdf.ts` - fim de tabela pelo maior passo, a partir de 1
+  referencia.
+- `src/lib/pranchas/bom.ts` - confere tabela x texto corrido; preserva o erro.
+- `src/lib/pranchas/pdf.ts` - desfaz resgate parcial; conta paginas antes do save.
+- `src/components/pranchas/PranchasClient.tsx` - resgate em amarelo.
+- `src/lib/bom/bomPdf.test.ts`, `src/lib/pranchas/pdf.test.ts` - 4 casos novos.
+
+### Comandos relevantes
+- `npx vitest run` - 46 arquivos, 582 testes verdes (eram 578).
+- `npx tsc --noEmit`, `npx eslint src`, `npm run build` - limpos.
+
+### Pendencias / proximos passos
+- Segue valendo: validar com BOM em PDF real e recompilar a pasta dos 25
+  documentos para ver a nova mensagem.
