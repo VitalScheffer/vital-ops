@@ -25,7 +25,7 @@ import {
   type Mode,
 } from "@/lib/pranchas/codes";
 import { agruparComerciais, gerarPlanilhaMateriais } from "@/lib/pranchas/materiais";
-import { juntarPdfs, type ParteMerge } from "@/lib/pranchas/pdf";
+import { juntarPdfs, type ParteMerge, type ResultadoMerge } from "@/lib/pranchas/pdf";
 
 interface IndexedFile {
   file: File;
@@ -57,6 +57,29 @@ function nomeDaPasta(files: File[]): string | null {
   const rel = files.find((f) => f.webkitRelativePath)?.webkitRelativePath;
   if (rel) return rel.split("/")[0];
   return files.length > 0 ? `${files.length} arquivo(s)` : null;
+}
+
+// Mensagem do fim da compilação. Prancha resgatada (o pdf-lib recusou e o pdfjs
+// rasterizou) entra na conta das páginas, mas o usuário precisa saber quais são:
+// vieram como imagem, então imprimem igual mas não têm texto selecionável.
+function mensagemDoResultado(r: ResultadoMerge): Toast {
+  const base = `Compilado com ${r.paginas} página(s)`;
+  const partes: string[] = [];
+  if (r.resgatados.length > 0) {
+    partes.push(
+      `${r.resgatados.length} prancha(s) vieram fora do padrão e entraram como imagem (imprimem igual): ${r.resgatados.join(", ")}`,
+    );
+  }
+  if (r.falhas.length > 0) {
+    partes.push(
+      `não deu para ler ${r.falhas.length} PDF(s): ${r.falhas.map((f) => `${f.nome} (${f.motivo})`).join("; ")}`,
+    );
+  }
+  if (partes.length === 0) return { kind: "good", msg: `${base}, pronto para imprimir.` };
+  // Prancha resgatada também sai em amarelo, não em verde: virou imagem, e uma
+  // pasta inteira resgatada significa arquivo maior e sem texto selecionável.
+  // Anunciar isso como sucesso limpo esconderia a troca de qualidade.
+  return { kind: "warn", msg: `${base}. ${partes.join(". ")}.` };
 }
 
 export function PranchasClient() {
@@ -199,14 +222,7 @@ export function PranchasClient() {
 
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     setResultUrl(url);
-    setToast(
-      resultado.falhas.length > 0
-        ? {
-            kind: "warn",
-            msg: `Compilado com ${resultado.paginas} página(s). Não deu para ler ${resultado.falhas.length} PDF(s): ${resultado.falhas.join(", ")}.`,
-          }
-        : { kind: "good", msg: `Compilado: ${resultado.paginas} página(s), pronto para imprimir.` },
-    );
+    setToast(mensagemDoResultado(resultado));
     return { url, name };
   }
 
@@ -459,7 +475,9 @@ export function PranchasClient() {
 
             {!temQuantidades ? (
               <p className="p-6 text-center text-sm text-muted-foreground">
-                O BOM em PDF não traz as quantidades em coluna separada. Suba a{" "}
+                Não consegui separar as colunas da tabela deste PDF (pode ser um PDF
+                digitalizado ou um modelo de BOM diferente), então não dá para somar as
+                quantidades. Suba a{" "}
                 <strong className="font-medium text-foreground">planilha .xls/.xlsx</strong> do
                 conjunto para montar a lista de materiais.
               </p>
