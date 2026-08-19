@@ -639,9 +639,9 @@ export function ProdutosClient({ omiePronto = true }: { omiePronto?: boolean }) 
 
       <section className="grid gap-4 rounded-3xl border border-border bg-card p-5 shadow-sm sm:grid-cols-2 sm:p-6">
         <FileDropzone
-          label="1. BOM do CAD (.xls / .xlsx)"
-          hint="Aba com as colunas Nº, PEÇA e QTD."
-          accept=".xls,.xlsx"
+          label="1. BOM do CAD (.pdf / .xls / .xlsx)"
+          hint="Colunas Nº, PEÇA e QTD. Se o CAD não exportar a planilha, suba o PDF do conjunto."
+          accept=".pdf,.xls,.xlsx"
           file={bomFile}
           onChange={handleBomChange}
           loading={carregandoBom}

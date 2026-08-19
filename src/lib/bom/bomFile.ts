@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 
 import { normalizarCabecalho } from "@/lib/texto";
+import { extrairGradeDoPdf } from "./bomPdf";
 import type { BomRow } from "./types";
 import { lerXlsLegado } from "./xlsLegacy";
 
@@ -47,36 +48,13 @@ function lerNumero(bruto: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Lê a planilha de BOM exportada do CAD (.xls/.xlsx) e extrai Nº / Peça / Qtd. */
-export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-
-  // Caminho normal: SheetJS lê a grande maioria dos .xlsx/.xls.
-  let grid: unknown[][] | null = null;
-  try {
-    const wb = XLSX.read(bytes, { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    if (sheet) {
-      grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
-    }
-  } catch {
-    // SheetJS abortou (ex.: .xls BIFF antigo do CAD → "Slurp error"). Tentamos o
-    // leitor de fallback abaixo antes de desistir.
-  }
-
-  // Fallback: .xls binário antigo (BIFF8 em contêiner OLE) que o SheetJS recusa.
-  if (!grid) {
-    grid = lerXlsLegado(bytes);
-  }
-
-  if (!grid) {
-    throw new Error(
-      "Não consegui ler esta planilha. Confira se é um Excel (.xlsx ou .xls) válido, " +
-        "não protegido por senha e não corrompido — e se é a BOM exportada do CAD.",
-    );
-  }
-
+/**
+ * Acha o cabeçalho na grade e extrai as linhas da BOM. É o passo comum aos dois
+ * formatos de entrada: a planilha do CAD (grade do SheetJS) e o PDF do conjunto
+ * (grade remontada por coordenada em bomPdf.ts). Manter um leitor só é o que
+ * garante que a mesma BOM dá o mesmo resultado nos dois formatos.
+ */
+export function linhasDaGrade(grid: unknown[][]): BomRow[] {
   let headerRowIdx = -1;
   let colPeca = -1;
   let colNumero = -1;
@@ -116,18 +94,70 @@ export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
     if (!peca.trim()) continue;
 
     const numero = colNumero >= 0 ? normalizarNumero(String(linha[colNumero] ?? "")) : "";
-    const qtdBruta = colQtd >= 0 ? linha[colQtd] : "";
-    const qtdNum = typeof qtdBruta === "number" ? qtdBruta : Number(qtdBruta);
 
     rows.push({
       linha: r + 1,
       numero,
       peca,
-      quantidade: Number.isFinite(qtdNum) && qtdBruta !== "" ? qtdNum : null,
+      // Mesmo leitor do peso, e não Number() cru: na planilha a célula já vem
+      // numérica, mas no PDF toda célula é TEXTO, e Number("2,00") é NaN. Sem
+      // isto a quantidade viraria null e o envio ao Omie assumiria 1 calado.
+      quantidade: colQtd >= 0 ? lerNumero(linha[colQtd]) : null,
       peso: colPeso >= 0 ? lerNumero(linha[colPeso]) : null,
       especificacao: colEspec >= 0 ? String(linha[colEspec] ?? "").trim() : "",
     });
   }
 
   return rows;
+}
+
+/** Lê a grade da planilha de BOM exportada do CAD (.xls/.xlsx). */
+function gradeDaPlanilha(bytes: Uint8Array): unknown[][] {
+  // Caminho normal: SheetJS lê a grande maioria dos .xlsx/.xls.
+  let grid: unknown[][] | null = null;
+  try {
+    const wb = XLSX.read(bytes, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (sheet) {
+      grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+    }
+  } catch {
+    // SheetJS abortou (ex.: .xls BIFF antigo do CAD → "Slurp error"). Tentamos o
+    // leitor de fallback abaixo antes de desistir.
+  }
+
+  // Fallback: .xls binário antigo (BIFF8 em contêiner OLE) que o SheetJS recusa.
+  if (!grid) {
+    grid = lerXlsLegado(bytes);
+  }
+
+  if (!grid) {
+    throw new Error(
+      "Não consegui ler esta planilha. Confira se é um Excel (.xlsx ou .xls) válido, " +
+        "não protegido por senha e não corrompido — e se é a BOM exportada do CAD.",
+    );
+  }
+
+  return grid;
+}
+
+/**
+ * Lê a BOM do CAD e extrai Nº / Peça / Qtd / Peso / Especificação. Aceita a
+ * planilha (.xls/.xlsx) e o PDF do conjunto: o SolidWorks de algumas máquinas
+ * não exporta a planilha, mas o PDF toda máquina gera.
+ */
+export async function lerBomDeArquivo(file: File): Promise<BomRow[]> {
+  if (file.name.toLowerCase().endsWith(".pdf")) {
+    const grade = await extrairGradeDoPdf(file);
+    if (grade.length === 0) {
+      throw new Error(
+        "Não encontrei a tabela da BOM neste PDF. Confira se é o PDF do conjunto com a lista " +
+          "de peças (colunas Nº, PEÇA e QTD). Se o PDF for digitalizado ou só imagem, não há " +
+          "texto para ler: nesse caso suba a planilha .xls/.xlsx.",
+      );
+    }
+    return linhasDaGrade(grade);
+  }
+
+  return linhasDaGrade(gradeDaPlanilha(new Uint8Array(await file.arrayBuffer())));
 }

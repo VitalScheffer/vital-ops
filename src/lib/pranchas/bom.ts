@@ -1,4 +1,5 @@
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
+import type { BomRow } from "@/lib/bom/types";
 
 import { extractItems, parseCode, parseCodeFromFileName, type DrawingCode } from "./codes";
 import { extrairTextoPdf } from "./pdf";
@@ -21,9 +22,9 @@ export interface ConteudoBom {
    */
   parentKey: string | null;
   /**
-   * false quando o BOM veio em PDF: o texto extraído não tem colunas, então não
-   * dá para separar quantidade de descrição com confiança. A lista de materiais
-   * depende disso.
+   * false quando não deu para separar as colunas do BOM (PDF sem tabela
+   * reconhecível): sobra só a lista de códigos do texto corrido, sem
+   * quantidade. A lista de materiais depende disso.
    */
   temQuantidades: boolean;
 }
@@ -43,23 +44,8 @@ function calcularEfetiva(numero: string, qtd: number, qtdPorNumero: Map<string, 
   return total;
 }
 
-/**
- * Lê o arquivo principal (BOM) e devolve os códigos de desenho na ordem em que
- * aparecem. Aceita o PDF do conjunto ou a planilha .xls/.xlsx exportada do CAD
- * (mesmo leitor do módulo Produtos).
- */
-export async function lerCodigosDoBom(file: File): Promise<ConteudoBom> {
-  const parentKey = parseCodeFromFileName(file.name)?.key ?? null;
-
-  if (file.name.toLowerCase().endsWith(".pdf")) {
-    const desenhos = extractItems(await extrairTextoPdf(file)).filter((c) => !c.comercial);
-    return { desenhos, itens: [], parentKey, temQuantidades: false };
-  }
-
-  // Planilha: cada linha é lida isoladamente, então a descrição sai limpa
-  // (vem da própria célula) e a quantidade vem da coluna certa.
-  const rows = await lerBomDeArquivo(file);
-
+/** Cada linha da BOM é lida isoladamente, então a quantidade vem da coluna certa. */
+function conteudoDasLinhas(rows: BomRow[], parentKey: string | null): ConteudoBom {
   const qtdPorNumero = new Map<string, number>();
   for (const row of rows) {
     const numero = row.numero.trim();
@@ -88,4 +74,51 @@ export async function lerCodigosDoBom(file: File): Promise<ConteudoBom> {
   }
 
   return { desenhos, itens, parentKey, temQuantidades: true };
+}
+
+/**
+ * Lê o arquivo principal (BOM) e devolve os códigos de desenho na ordem em que
+ * aparecem. Aceita o PDF do conjunto ou a planilha .xls/.xlsx exportada do CAD
+ * (mesmo leitor do módulo Produtos).
+ *
+ * No PDF a tabela é remontada por coordenada, então o normal é sair COM
+ * quantidade (a lista de materiais funciona). A leitura por tabela é sempre
+ * conferida contra a varredura do texto corrido: se o texto tiver um desenho
+ * que a tabela não trouxe, a tabela veio incompleta e o plano B assume. Sair
+ * com prancha a menos é justamente o que este compilador existe para evitar,
+ * então perder a quantidade é o preço aceitável.
+ */
+export async function lerCodigosDoBom(file: File): Promise<ConteudoBom> {
+  const parentKey = parseCodeFromFileName(file.name)?.key ?? null;
+
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    return conteudoDasLinhas(await lerBomDeArquivo(file), parentKey);
+  }
+
+  let porTabela: ConteudoBom | null = null;
+  let erroDaTabela: unknown = null;
+  try {
+    porTabela = conteudoDasLinhas(await lerBomDeArquivo(file), parentKey);
+  } catch (e) {
+    erroDaTabela = e;
+  }
+
+  const doTexto = extractItems(await extrairTextoPdf(file)).filter((c) => !c.comercial);
+
+  if (porTabela) {
+    const naTabela = new Set(porTabela.desenhos.map((d) => d.key));
+    // O próprio conjunto aparece no carimbo da folha e não é linha da BOM, por
+    // isso fica de fora da comparação.
+    const faltando = doTexto.filter((d) => d.key !== parentKey && !naTabela.has(d.key));
+    if (faltando.length === 0) return porTabela;
+  }
+
+  if (doTexto.length > 0) {
+    return { desenhos: doTexto, itens: [], parentKey, temQuantidades: false };
+  }
+
+  // Nem tabela nem texto: se a leitura da tabela falhou, o erro dela é o que
+  // explica o problema para o usuário (o do pdfjs é interno e não ajuda).
+  if (erroDaTabela) throw erroDaTabela;
+  return porTabela ?? { desenhos: [], itens: [], parentKey, temQuantidades: false };
 }
