@@ -1,6 +1,8 @@
 {
-  "_ajuda": "De-para: login do GitHub -> usuario (ou id) do Trello. Usado pra atribuir o card do PR ao autor. Chaves comecando com _ sao ignoradas. Para adicionar alguem, ponha \"loginGithub\": \"usuarioTrello\".",
+  "_ajuda": "De-para: login do GitHub -> usuario, id ou NOME COMPLETO do Trello. Usado pra atribuir o card do PR ao autor. Chaves comecando com _ sao ignoradas. A mesma pessoa pode ter mais de um login: cadastre todos.",
   "joaovitalscheffer2002": "joaovictor297",
   "DevVitalCamillo": "vitorhenriquecamillo1",
-  "Vital-Scheffer": "financeiro73765126"
+  "Vital-Scheffer": "financeiro73765126",
+  "HiroTeratoDevVitalscheffer": "Hiro Terato",
+  "HiroTeratovitalscheffer": "Hiro Terato"
 }

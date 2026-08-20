@@ -207,14 +207,32 @@ function dadosDoPR() {
 }
 
 // De-para login do GitHub -> membro do Trello (.github/trello-members.json).
+// Login do GitHub não diferencia maiúscula de minúscula, então a busca também
+// não pode diferenciar: cadastrar "devvitalcamillo" e receber "DevVitalCamillo"
+// deixava o card sem responsável sem avisar ninguém.
 function membroTrelloDoAutor(autorLogin) {
   if (!autorLogin) return null;
+  const arquivo = path.join(__dirname, '..', 'trello-members.json');
+  let mapa;
   try {
-    const mapa = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'trello-members.json'), 'utf8'));
-    return mapa[autorLogin] || null;
+    mapa = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
   } catch {
+    console.error('Trello: .github/trello-members.json ausente ou inválido; card ficará sem responsável.');
     return null;
   }
+
+  const procurado = String(autorLogin).toLowerCase();
+  for (const [login, membro] of Object.entries(mapa)) {
+    if (login.startsWith('_')) continue;
+    if (login.toLowerCase() === procurado) return membro;
+  }
+
+  console.error(
+    `Trello: o login "${autorLogin}" não está em .github/trello-members.json, ` +
+      'então o card ficará sem responsável. Adicione a linha ' +
+      `"${autorLogin}": "<usuario ou nome no Trello>".`
+  );
+  return null;
 }
 
 async function run() {

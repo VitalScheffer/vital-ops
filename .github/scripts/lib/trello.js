@@ -24,20 +24,61 @@ async function criarCard({ key, token, idList, nome, desc }) {
   return res.json().catch(() => null);
 }
 
-// Aceita id (24 hex) direto ou username do Trello (resolve pra id).
-async function resolverIdMembro({ key, token, alvo }) {
+// Compara nome de pessoa ignorando caixa, acento e espaço sobrando.
+function normalizarNome(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Último recurso: procura a pessoa entre os membros do board pelo nome completo
+// (é o que aparece no Trello) ou pelo username. Serve pra quem foi cadastrado
+// como "Hiro Terato" em vez do username, que ninguém decora.
+async function acharMembroNoBoard({ key, token, shortlink, alvo }) {
+  if (!shortlink) return null;
+  const board = await fetch(`https://api.trello.com/1/cards/${shortlink}/board?fields=id&key=${key}&token=${token}`);
+  if (!board.ok) return null;
+  const { id } = await board.json().catch(() => ({}));
+  if (!id) return null;
+
+  const res = await fetch(`https://api.trello.com/1/boards/${id}/members?fields=id,username,fullName&key=${key}&token=${token}`);
+  if (!res.ok) return null;
+  const membros = await res.json().catch(() => []);
+
+  const procurado = normalizarNome(alvo);
+  const achado = membros.find(
+    (m) => normalizarNome(m.fullName) === procurado || normalizarNome(m.username) === procurado
+  );
+  if (achado) return achado.id;
+
+  console.error(
+    `Trello: "${alvo}" não bate com ninguém do board. Membros: ` +
+      membros.map((m) => `${m.fullName} (@${m.username})`).join(', ')
+  );
+  return null;
+}
+
+// Aceita id (24 hex), username do Trello ou o nome completo como aparece no board.
+async function resolverIdMembro({ key, token, alvo, shortlink }) {
   if (/^[0-9a-f]{24}$/i.test(alvo)) return alvo;
-  const res = await fetch(`https://api.trello.com/1/members/${encodeURIComponent(alvo)}?fields=id&key=${key}&token=${token}`);
-  if (!res.ok) {
-    console.error(`Trello: não achei o membro "${alvo}" (HTTP ${res.status}).`);
-    return null;
+
+  // username não pode ter espaço: nome completo vai direto pro board
+  if (!/\s/.test(alvo)) {
+    const res = await fetch(`https://api.trello.com/1/members/${encodeURIComponent(alvo)}?fields=id&key=${key}&token=${token}`);
+    if (res.ok) {
+      const m = await res.json().catch(() => ({}));
+      if (m.id) return m.id;
+    }
   }
-  const m = await res.json().catch(() => ({}));
-  return m.id || null;
+
+  return acharMembroNoBoard({ key, token, shortlink, alvo });
 }
 
 async function adicionarMembro({ key, token, shortlink, membro }) {
-  const idMembro = await resolverIdMembro({ key, token, alvo: membro });
+  const idMembro = await resolverIdMembro({ key, token, alvo: membro, shortlink });
   if (!idMembro) return false;
   const res = await fetch(`https://api.trello.com/1/cards/${shortlink}/idMembers?value=${idMembro}&key=${key}&token=${token}`, { method: 'POST' });
   if (res.ok) return true;
@@ -139,4 +180,4 @@ async function atualizarCardDoPR({ texto, prevShortlink, veredito, bloco, dadosC
   return { feito: true, shortlink, url, movido, criado, membro };
 }
 
-module.exports = { acharShortlink, atualizarCardDoPR };
+module.exports = { acharShortlink, atualizarCardDoPR, normalizarNome };
