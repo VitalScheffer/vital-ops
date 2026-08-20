@@ -5346,3 +5346,136 @@ para o Omie em silencio.
 ### Pendencias / proximos passos
 - Segue valendo: validar com BOM em PDF real e recompilar a pasta dos 25
   documentos para ver a nova mensagem.
+
+
+## 2026-08-20 - Pranchas: Modo 2 no material de compra (matéria-prima, m² e chapas)
+
+### Resumo
+Pedido do Vitor: no compilador de pranchas, ter um campo para multiplicar o material
+quando for produzir mais de um conjunto, separar a matéria-prima quando a BOM entra e
+converter m² em compra total de chapas. Regra dada por ele: **não mexer no que já
+existe**, colocar um botão de modo em cima ("Modo 2") com tooltip explicando o que faz,
+anunciar no changelog e deixar a pessoa escolher entre o antigo e o novo.
+
+Verificação antes de codar:
+- O **campo de multiplicar já existia** ("Conjuntos a produzir"), e o `materiais.ts` já
+  somava por código com a multiplicação pai x filho. O caso "0,8 x 10 = 8" já funcionava.
+- O que faltava era a **unidade** e a **matéria-prima**: a lista só mostrava itens `COM*`,
+  e chapa é matéria-prima das peças `PC`, que não aparecia em lugar nenhum.
+- A BOM do CAD **não tem coluna de unidade** e não tem m². O que ela dá é espessura
+  ("# 0,6000") na coluna DESCRIÇÃO e massa unitária em grama na coluna PESO.
+
+### Leituras no Omie (20/08/2026, só leitura, nada escrito)
+- **A inicial "V" do 3º bloco é PVC**: `ConsultarEstrutura` de `CREHI PC005 VCCSR` devolve
+  `MATCH 00200 PEB00 - CHAPA ESP 2,00 PVC EXPANDIDO BRANCO (1000x2000)`, KG, quantidade
+  0,10608 (o peso da BOM em kg). A inicial **"A" é acrílico**: `CREHI PC007 ACFRS` consome
+  `MATCH 00600 ARB00`. As duas entraram no `LIGA_POR_INICIAL`, que só tinha I e C.
+- **A medida da chapa não é constante**: aço vem 1200x2000 (2,4 m²), acrílico e PVC vêm
+  1000x2000 (2,0 m²). Ela está entre parênteses na descrição do cadastro, e o
+  `lerEspecificacao` descartava esse trecho de propósito. Compensado e MDF estão
+  cadastrados SEM medida nenhuma.
+- **Os 212 itens `COM*` do Omie estão todos em UN**, sem exceção. Quem tem unidade variada
+  é a matéria-prima: 81 MAT em KG, 2 em M (perfil de borracha), 3 em M² (courvin) e 2 em
+  UN (estofado). Ou seja, o "0,8 m x 10" do pedido é matéria-prima, não item comprado.
+- `filtrar_por_familia` **não existe** no `ListarProdutos` (o Omie devolve fault dizendo que
+  a tag não faz parte do tipo complexo). O filtro continua sendo por descrição.
+
+### O que foi feito
+Um botão de dois estados no cabeçalho da seção "Material de compra":
+- **Clássico** (padrão): byte por byte o que já existia. Nada de Omie, tudo no navegador.
+- **Modo 2**: liga a consulta ao Omie e acrescenta unidade de compra, aviso de código fora
+  do cadastro, e uma seção nova de matéria-prima com kg, m² e chapas inteiras a comprar.
+
+A conta da chapa: `kg = peso x quantidade efetiva x conjuntos`; `m² = kg / (espessura x
+densidade)`; `chapas = teto(m² / (área da chapa x aproveitamento))`. O aproveitamento é um
+campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da CREHI MT003:
+15,672 kg de chapa 0,6 = 3,327 m² = 2 chapas para 1 conjunto, e 14 chapas para 10.
+
+### Arquivos criados/alterados
+- `src/lib/pranchas/chapas.ts` (novo) - tabela de densidades (com a marcação de quais são
+  fechadas), leitura da medida da chapa no cadastro e o agrupamento por item MAT.
+- `src/lib/produtos/catalogoCom.ts` (novo) - catálogo dos comprados no Omie, indexado por
+  código sem espaço, mesmo desenho do `catalogoMat.ts` (TTL de 1h).
+- `src/app/(app)/pranchas/actions.ts` (novo) - server action que lê os dois catálogos.
+- `src/components/pranchas/MateriaPrimaCompra.tsx` (novo) - a tabela do Modo 2.
+- `src/lib/pranchas/bom.ts` - `ItemBom` passou a carregar `peso` e `especificacao`.
+- `src/lib/pranchas/materiais.ts` - `agruparComerciais` aceita o catálogo (opcional) e
+  preenche `unidade`/`noOmie`; a planilha ganhou a aba "Matéria-prima" no Modo 2.
+- `src/lib/produtos/materiaPrima.ts` - `V` (PVC) e `A` (acrílico) no `LIGA_POR_INICIAL`.
+- `src/components/pranchas/PranchasClient.tsx` - o botão de modo, o tooltip, o campo de
+  aproveitamento, o seletor g/kg e a seção nova.
+- `src/lib/changelog.ts` - entrada de 20/08.
+- `src/lib/bom/__fixtures__/bom-crehi-mt003.xls` - a BOM real como fixture.
+- Testes: `chapas.test.ts` (15), `chapasBomReal.test.ts` (7, contra a BOM real),
+  `catalogoCom.test.ts` (6) e 5 casos novos em `materiais.test.ts`.
+
+### Decisões importantes
+- **Modo 2 é opt-in e o clássico não mudou uma linha.** Foi a regra dada, e ela também
+  protege a promessa da tela ("nenhum arquivo é enviado para servidor"): o compilador de
+  PDF segue 100% no navegador, e só o Modo 2 conversa com o Omie.
+- **Densidade é tabela no código, com marcação de confiança.** Aço (7700 e 7850), acrílico
+  (1190) e poliacetal (1410) são propriedades do material. PVC expandido (600), MDF (750) e
+  compensado (600) variam por fornecedor: ficam marcados como estimados e a tela avisa na
+  linha. O Omie não guarda densidade em lugar nenhum.
+- **Linha que não converte aparece com o motivo, nunca some.** Peça sem especificação,
+  cadastro sem a medida da chapa, material de densidade desconhecida: todos entram na lista
+  com o kg e o motivo escrito. Sumir da lista é o que faz comprar material a menos.
+- **Item comprado que não está no Omie é marcado em amarelo.** Foi o efeito colateral útil
+  de ler o catálogo COM: a unidade sempre vai dar "UN", mas o código sem cadastro aparece.
+- **Sem o arredondamento de 3 casas do `pesoParaKg`** no acúmulo: aquele número é o
+  combinado do envio ao Omie, e aqui o mesmo peso é multiplicado por dezenas de peças.
+- **A medida da chapa exige as DUAS dimensões** entre parênteses. Tubo usa os mesmos
+  parênteses para o comprimento da barra ("(6000mm)"), e ler aquilo como chapa daria área
+  que não existe.
+
+### Problemas de cadastro no Omie que apareceram (não corrigidos, são do ERP)
+- Acrílico de 6mm cadastrado **duas vezes**: `MATCH 06000 ARB00` e `MATCH 00600 ARB00`.
+- Duas chapas de carbono com a descrição escrita "AÇO CARBONO **1200**" em vez de 1020
+  (as de 1.2 e 1.5). O código (`AC012`) está certo, então o casamento não quebra.
+- Compensado e MDF sem a medida da chapa na descrição: ficam sem conversão para chapas.
+
+### Comandos relevantes
+- `npx vitest run` - 49 arquivos, 618 testes verdes (eram 615, e 2 deles falhavam por
+  causa da mudança do `LIGA_POR_INICIAL`, ver abaixo).
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` - limpos.
+
+### Dois tropeços do caminho (ficam registrados)
+- **Dois testes do `materiaPrima.test.ts` quebraram de propósito**: eles usavam "ACSLD"
+  como exemplo de "material desconhecido no código", e a inicial `A` deixou de ser
+  desconhecida. Passaram a usar "XCSLD" (inicial fora da tabela mesmo), e entraram dois
+  casos novos cobrindo o V e o A.
+- **O eslint pegou `setState` dentro de `useEffect`** (regra `react-hooks/set-state-in-effect`)
+  na primeira versão, que buscava os catálogos por efeito ao ligar o Modo 2. A busca passou
+  para o próprio `onClick` do botão, que é onde a intenção está.
+
+### Revisão de código (7 achados, todos aceitos e corrigidos)
+1. **(alto) Peso faltando em UMA peça do grupo passava calado.** A trava de peso zero só
+   pegava quando o grupo INTEIRO estava sem peso; com 6 peças com peso e 1 sem, o total
+   saía por baixo com cara de conta fechada. Agora o acumulador guarda `pecasSemPeso` e a
+   linha avisa nominalmente que o total está ABAIXO do consumo real.
+2. **(médio) Peça sem peso E sem especificação sumia sem explicação.** Uma BOM sem as
+   colunas PESO/DESCRIÇÃO rendia painel vazio dizendo "nenhuma peça com matéria-prima".
+   A tela passou a distinguir os dois casos: se a BOM TEM peças e mesmo assim nada
+   resolveu, ela diz que faltam as colunas no arquivo do CAD.
+3. **(médio) O quilo podia ser escrito debaixo de uma unidade que não é peso.** Cadastro em
+   M ou M² cujo texto lê como chapa/tubo mostraria "12,4 M" para 12,4 kg. Entrou o
+   `ehPorPeso` (mesma regra do `review.ts`): fora de KG, a quantidade vira `null` com o
+   motivo, em vez de número na unidade errada.
+4. **(médio) Catálogo COM truncado virava a afirmação "fora do Omie".** Página vazia no meio
+   da varredura (ou o teto de páginas) fazia item cadastrado ser marcado como não
+   cadastrado, mandando alguém recadastrar o que já existe. `listarCatalogoCom` passou a
+   devolver `{ itens, completo }`, `noOmie` ganhou o terceiro estado `undefined` ("não dá
+   para afirmar") e a tela mostra um aviso amarelo quando a leitura veio pela metade.
+5. **(baixo) Duas leituras do Omie podiam se atropelar**: o botão "Tentar de novo" não
+   desabilitava durante o carregamento. Desabilitado.
+6. **(baixo) Aba "Matéria-prima" só de cabeçalho**: array vazio é truthy, então a planilha
+   ganhava uma aba vazia. Agora exige `length > 0`.
+7. **(baixo) Teste que não testava o que o nome dizia**: o mock do `chamar` descartava o 4º
+   argumento, então o caso do cache de 1h passaria mesmo se o TTL sumisse. O mock passou a
+   registrar `options` e o teste confere `{ ttlSeconds: 3600, revalidar: true }`.
+
+### Pendências / próximos passos
+- **Conferir a densidade do PVC expandido, do MDF e do compensado** com o fornecedor (ou
+  pesando uma chapa inteira). São 3 números no `DENSIDADE` do `src/lib/pranchas/chapas.ts`.
+- **Teste humano na tela**: subir a BOM da CREHI MT003, ligar o Modo 2, conferir os números
+  e baixar o Excel.
