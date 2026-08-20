@@ -8,14 +8,21 @@ import {
   Info,
   Loader2,
   Printer,
+  RefreshCw,
+  Sparkles,
   Table2,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
+import { carregarCatalogosDeCompra } from "@/app/(app)/pranchas/actions";
 import { FileDropzone } from "@/components/produtos/FileDropzone";
 import { FolderDropzone } from "@/components/pranchas/FolderDropzone";
+import { MateriaPrimaCompra } from "@/components/pranchas/MateriaPrimaCompra";
 import { baixarBlob } from "@/lib/bom/download";
+import type { UnidadePeso } from "@/lib/bom/types";
 import { lerCodigosDoBom, type ItemBom } from "@/lib/pranchas/bom";
+import { ehPeca } from "@/lib/bom/bomParser";
+import { agruparMateriaPrima } from "@/lib/pranchas/chapas";
 import {
   candidatesFor,
   chooseCandidate,
@@ -26,6 +33,8 @@ import {
 } from "@/lib/pranchas/codes";
 import { agruparComerciais, gerarPlanilhaMateriais } from "@/lib/pranchas/materiais";
 import { juntarPdfs, type ParteMerge, type ResultadoMerge } from "@/lib/pranchas/pdf";
+import { chaveCom, type ItemCom } from "@/lib/produtos/catalogoCom";
+import type { ItemMat } from "@/lib/produtos/materiaPrima";
 
 interface IndexedFile {
   file: File;
@@ -43,6 +52,16 @@ interface Row {
 }
 
 type Toast = { kind: "good" | "warn" | "err"; msg: string } | null;
+
+// O Modo 2 é OPT-IN e não mexe no que já existia: quem abre a tela continua
+// vendo a lista de comprados como sempre viu, offline. Ligar o modo é o que
+// autoriza a consulta ao Omie (unidade de compra e cadastro da matéria-prima).
+type ModoMaterial = "classico" | "modo2";
+
+const EXPLICACAO_MODO2 =
+  "Modo 2: além dos itens comprados, mostra a matéria-prima que as peças consomem. " +
+  "Lê o cadastro do Omie para trazer a unidade de compra, converte o peso da BOM em m² " +
+  "e diz quantas chapas inteiras comprar. O modo Clássico continua igual e sem consultar o Omie.";
 
 const BADGE: Record<MatchStatus, { label: string; cls: string }> = {
   ok: { label: "OK · BOM", cls: "bg-success-dim text-success" },
@@ -105,7 +124,47 @@ export function PranchasClient() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
 
+  const [modoMaterial, setModoMaterial] = useState<ModoMaterial>("classico");
+  const [catalogoMat, setCatalogoMat] = useState<ItemMat[] | null>(null);
+  const [catalogoCom, setCatalogoCom] = useState<Map<string, ItemCom> | null>(null);
+  const [catalogoComCompleto, setCatalogoComCompleto] = useState(true);
+  const [catalogoLoading, setCatalogoLoading] = useState(false);
+  const [catalogoErro, setCatalogoErro] = useState<string | null>(null);
+  const [unidadePeso, setUnidadePeso] = useState<UnidadePeso>("g");
+  // Em porcentagem, como a pessoa pensa. 100 = área teórica, sem perda de corte.
+  const [aproveitamento, setAproveitamento] = useState(100);
+
   const bomReqId = useRef(0);
+
+  const catalogoPronto = catalogoMat !== null && catalogoCom !== null;
+
+  async function buscarCatalogos(revalidar = false) {
+    setCatalogoLoading(true);
+    setCatalogoErro(null);
+    try {
+      const r = await carregarCatalogosDeCompra(revalidar);
+      if (!r.ok || !r.mat || !r.com) {
+        setCatalogoErro(r.erro ?? "Não consegui ler os cadastros no Omie.");
+        return;
+      }
+      setCatalogoMat(r.mat);
+      setCatalogoCom(new Map(r.com.map((item) => [chaveCom(item.codigo), item])));
+      setCatalogoComCompleto(r.comCompleto !== false);
+    } catch (e) {
+      setCatalogoErro(e instanceof Error ? e.message : "Não consegui ler os cadastros no Omie.");
+    } finally {
+      setCatalogoLoading(false);
+    }
+  }
+
+  // Ligar o Modo 2 é o que autoriza a leitura no Omie, e é por isso que a busca
+  // sai daqui e não de um efeito: o clique é o evento, e um efeito que dispara
+  // setState em cascata só existiria para adivinhar essa mesma intenção.
+  function ligarModo2() {
+    setModoMaterial("modo2");
+    // O que já veio continua valendo: alternar entre os modos não relê o Omie.
+    if (!catalogoPronto && !catalogoLoading) void buscarCatalogos();
+  }
 
   const coverPossivel = bomFile != null && bomFile.name.toLowerCase().endsWith(".pdf");
 
@@ -188,12 +247,47 @@ export function PranchasClient() {
 
   const totalDocs = resumo.selecionadas + (cover && coverPossivel ? 1 : 0);
 
-  const materiais = useMemo(() => agruparComerciais(itens, multiplicador), [itens, multiplicador]);
+  const modo2Ativo = modoMaterial === "modo2" && catalogoPronto;
+
+  const materiais = useMemo(
+    () =>
+      agruparComerciais(
+        itens,
+        multiplicador,
+        modo2Ativo ? (catalogoCom ?? undefined) : undefined,
+        catalogoComCompleto,
+      ),
+    [itens, multiplicador, modo2Ativo, catalogoCom, catalogoComCompleto],
+  );
+
+  // BOM que tem PEÇA mas não rendeu nenhuma linha de matéria-prima: quem consome
+  // matéria-prima é a peça, então a lista vazia aqui é sintoma de BOM sem as
+  // colunas de peso/especificação, não de "não tem material".
+  const temPecas = useMemo(
+    () => itens.some((i) => !i.code.comercial && ehPeca(i.code.key)),
+    [itens],
+  );
+
+  const materiaPrima = useMemo(() => {
+    if (!modo2Ativo || !catalogoMat) return [];
+    return agruparMateriaPrima(itens, catalogoMat, {
+      unidadePeso,
+      multiplicador,
+      aproveitamento: aproveitamento / 100,
+    });
+  }, [modo2Ativo, catalogoMat, itens, unidadePeso, multiplicador, aproveitamento]);
 
   function handleBaixarMateriais() {
     const base = bomFile ? bomFile.name.replace(/\.[^.]+$/, "") : "materiais";
     baixarBlob(
-      gerarPlanilhaMateriais(materiais, multiplicador, base),
+      gerarPlanilhaMateriais(
+        materiais,
+        multiplicador,
+        base,
+        modo2Ativo && materiaPrima.length > 0
+          ? { materiaPrima, aproveitamento: aproveitamento / 100 }
+          : {},
+      ),
       `${base} - materiais.xlsx`,
     );
   }
@@ -442,33 +536,150 @@ export function PranchasClient() {
           </section>
 
           <section className="overflow-hidden rounded-xl border border-border bg-card">
-            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
-              <div>
-                <h2 className="text-base font-semibold text-card-foreground">Material de compra</h2>
-                <p className="text-xs text-muted-foreground">
-                  Itens comprados da BOM, somados por código, para conferir estoque e separar.
-                </p>
-              </div>
-              {materiais.length > 0 && (
+            <header className="flex flex-col gap-3 border-b border-border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-card-foreground">Material de compra</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Itens comprados da BOM, somados por código, para conferir estoque e separar.
+                  </p>
+                </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm text-foreground">
-                    Conjuntos a produzir
+                  <div className="inline-flex overflow-hidden rounded-lg border border-border">
+                    <button
+                      type="button"
+                      onClick={() => setModoMaterial("classico")}
+                      title="Como sempre foi: só os itens comprados, tudo no navegador."
+                      className={`px-3 py-1.5 text-sm transition-colors ${
+                        modoMaterial === "classico"
+                          ? "bg-primary font-medium text-primary-foreground"
+                          : "bg-card text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Clássico
+                    </button>
+                    <button
+                      type="button"
+                      onClick={ligarModo2}
+                      title={EXPLICACAO_MODO2}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
+                        modoMaterial === "modo2"
+                          ? "bg-primary font-medium text-primary-foreground"
+                          : "bg-card text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Modo 2
+                    </button>
+                  </div>
+                  {(materiais.length > 0 || materiaPrima.length > 0) && (
+                    <>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        Conjuntos a produzir
+                        <input
+                          type="number"
+                          min={1}
+                          value={multiplicador}
+                          onChange={(e) => setMultiplicador(Math.max(1, Number(e.target.value) || 1))}
+                          className="w-20 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleBaixarMateriais}
+                        className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-muted"
+                      >
+                        <Table2 className="h-4 w-4" />
+                        Baixar Excel
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {modoMaterial === "modo2" && (
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-lg bg-muted/40 p-3">
+                  <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>{EXPLICACAO_MODO2}</span>
+                  </p>
+                  <label
+                    className="flex items-center gap-2 text-sm text-foreground"
+                    title="Quanto da chapa vira peça depois do corte. 100% é a área teórica, sem sobra."
+                  >
+                    Aproveitamento da chapa
                     <input
                       type="number"
                       min={1}
-                      value={multiplicador}
-                      onChange={(e) => setMultiplicador(Math.max(1, Number(e.target.value) || 1))}
+                      max={100}
+                      value={aproveitamento}
+                      onChange={(e) =>
+                        setAproveitamento(Math.min(100, Math.max(1, Number(e.target.value) || 1)))
+                      }
                       className="w-20 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-foreground"
                     />
+                    %
                   </label>
+                  <div
+                    className="flex items-center gap-2 text-sm text-foreground"
+                    title="A BOM não diz em que unidade o CAD exportou a coluna de peso."
+                  >
+                    Peso da BOM em
+                    <div className="inline-flex overflow-hidden rounded-lg border border-border">
+                      {(["g", "kg"] as const).map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => setUnidadePeso(u)}
+                          className={`px-3 py-1.5 text-sm transition-colors ${
+                            unidadePeso === u
+                              ? "bg-primary font-medium text-primary-foreground"
+                              : "bg-card text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    onClick={handleBaixarMateriais}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground transition-colors hover:bg-muted"
+                    onClick={() => void buscarCatalogos(true)}
+                    disabled={catalogoLoading}
+                    title="Recarregar os cadastros do Omie (para pegar item cadastrado agora)"
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm text-card-foreground transition-colors hover:bg-muted disabled:opacity-50"
                   >
-                    <Table2 className="h-4 w-4" />
-                    Baixar Excel
+                    <RefreshCw className={`h-3.5 w-3.5 ${catalogoLoading ? "animate-spin" : ""}`} />
+                    Recarregar do Omie
                   </button>
+                </div>
+              )}
+
+              {modo2Ativo && !catalogoComCompleto && (
+                <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-dim p-3 text-sm text-warning">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    A leitura do cadastro de comprados no Omie veio incompleta, então esta lista
+                    não aponta código fora do cadastro. A unidade dos itens que vieram continua
+                    valendo. Tente recarregar do Omie.
+                  </p>
+                </div>
+              )}
+
+              {modoMaterial === "modo2" && catalogoErro && (
+                <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-dim p-3 text-sm text-danger">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p>{catalogoErro}</p>
+                    <button
+                      type="button"
+                      onClick={() => void buscarCatalogos()}
+                      disabled={catalogoLoading}
+                      className="mt-1 underline underline-offset-2 disabled:opacity-50"
+                    >
+                      Tentar de novo
+                    </button>
+                  </div>
                 </div>
               )}
             </header>
@@ -492,6 +703,7 @@ export function PranchasClient() {
                     <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="px-4 py-2.5 font-medium">Código</th>
                       <th className="px-4 py-2.5 font-medium">Descrição</th>
+                      {modo2Ativo && <th className="w-20 px-4 py-2.5 font-medium">Un.</th>}
                       <th className="w-32 px-4 py-2.5 text-right font-medium">Por conjunto</th>
                       <th className="w-28 px-4 py-2.5 text-right font-medium">Total</th>
                     </tr>
@@ -501,8 +713,19 @@ export function PranchasClient() {
                       <tr key={l.codigo} className="border-b border-border/60 last:border-0">
                         <td className="whitespace-nowrap px-4 py-2.5 font-medium text-card-foreground">
                           {l.codigo}
+                          {l.noOmie === false && (
+                            <span
+                              className="ml-2 rounded bg-warning-dim px-1.5 py-0.5 text-xs font-semibold text-warning"
+                              title="Este código não está cadastrado (ou está inativo) no Omie. Sem cadastro não dá para comprar nem baixar estoque."
+                            >
+                              fora do Omie
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">{l.descricao}</td>
+                        {modo2Ativo && (
+                          <td className="px-4 py-2.5 text-muted-foreground">{l.unidade || "—"}</td>
+                        )}
                         <td className="px-4 py-2.5 text-right text-muted-foreground">{l.unitaria}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-card-foreground">
                           {l.total}
@@ -514,6 +737,51 @@ export function PranchasClient() {
               </div>
             )}
           </section>
+
+          {modoMaterial === "modo2" && (
+            <section className="overflow-hidden rounded-xl border border-border bg-card">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+                <div>
+                  <h2 className="text-base font-semibold text-card-foreground">
+                    Matéria-prima (chapa, tubo e trefilado)
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    O que as peças consomem, somado por cadastro do Omie. O quilo vem do peso da BOM;
+                    o m² sai da espessura e da densidade do material, e as chapas, da medida do
+                    cadastro com o aproveitamento acima.
+                  </p>
+                </div>
+              </header>
+
+              {catalogoLoading && !catalogoPronto ? (
+                <p className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Lendo os cadastros no Omie...
+                </p>
+              ) : !catalogoPronto ? (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  Sem os cadastros do Omie não dá para dizer qual chapa cada peça consome.
+                </p>
+              ) : !temQuantidades ? (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  Este PDF não deixou ler as colunas da tabela, então não há peso nem especificação
+                  para converter. Suba a{" "}
+                  <strong className="font-medium text-foreground">planilha .xls/.xlsx</strong> do
+                  conjunto.
+                </p>
+              ) : materiaPrima.length === 0 && temPecas ? (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  Esta BOM tem peças, mas nenhuma delas trouxe peso ou especificação de
+                  matéria-prima. A planilha exportada do CAD precisa das colunas{" "}
+                  <strong className="font-medium text-foreground">PESO</strong> e{" "}
+                  <strong className="font-medium text-foreground">DESCRIÇÃO</strong> para esta
+                  conta existir.
+                </p>
+              ) : (
+                <MateriaPrimaCompra linhas={materiaPrima} />
+              )}
+            </section>
+          )}
 
           {toast && (
             <div

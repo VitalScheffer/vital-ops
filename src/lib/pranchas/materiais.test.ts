@@ -1,13 +1,18 @@
+import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
+
+import type { ItemCom } from "@/lib/produtos/catalogoCom";
 
 import type { ItemBom } from "./bom";
 import { parseCode } from "./codes";
-import { agruparComerciais } from "./materiais";
+import type { LinhaMateriaPrima } from "./chapas";
+import { agruparComerciais, gerarPlanilhaMateriais } from "./materiais";
 
 function item(peca: string, numero: string, quantidade: number, quantidadeEfetiva = quantidade): ItemBom {
   const code = parseCode(peca);
   if (!code) throw new Error(`código inválido no teste: ${peca}`);
-  return { code, numero, quantidade, quantidadeEfetiva };
+  // Comprado não tem peso nem especificação de matéria-prima na BOM.
+  return { code, numero, quantidade, quantidadeEfetiva, peso: null, especificacao: "" };
 }
 
 // Linhas reais da BOM "CREHI MT005": o mesmo cadeado/corrediça aparece em
@@ -51,5 +56,85 @@ describe("agruparComerciais", () => {
   it("mantém a descrição do item", () => {
     const linhas = agruparComerciais(ITENS);
     expect(linhas[1].descricao).toBe("REBITE POP GALVANIZADO Ø4.8x18");
+  });
+});
+
+// Catálogo do Omie no formato que a leitura devolve (chave sem espaços).
+const CATALOGO_COM = new Map<string, ItemCom>([
+  [
+    "COMDBP0381018AC",
+    { codigo: "COMDB P0381 018AC", descricao: "DOBRADIÇA DE PINO ROCHA 38,1x18", unidade: "UN" },
+  ],
+]);
+
+describe("agruparComerciais com o catálogo do Omie", () => {
+  it("traz a unidade do cadastro", () => {
+    const linhas = agruparComerciais(ITENS, 1, CATALOGO_COM);
+    expect(linhas.find((l) => l.codigo === "COMDB P0381 018AC")?.unidade).toBe("UN");
+  });
+
+  it("marca o que não está cadastrado no Omie, em vez de assumir uma unidade", () => {
+    const rebite = agruparComerciais(ITENS, 1, CATALOGO_COM).find(
+      (l) => l.codigo === "COMRT PO00G 48018",
+    );
+    expect(rebite?.noOmie).toBe(false);
+    expect(rebite?.unidade).toBe("");
+  });
+
+  it("com o catálogo INCOMPLETO não afirma que o código está fora do Omie", () => {
+    const rebite = agruparComerciais(ITENS, 1, CATALOGO_COM, false).find(
+      (l) => l.codigo === "COMRT PO00G 48018",
+    );
+    // Não achado num catálogo truncado é "não sei", não "não existe".
+    expect(rebite?.noOmie).toBeUndefined();
+    // Quem veio na leitura continua confirmado.
+    expect(
+      agruparComerciais(ITENS, 1, CATALOGO_COM, false).find((l) => l.codigo === "COMDB P0381 018AC")
+        ?.noOmie,
+    ).toBe(true);
+  });
+
+  it("sem catálogo, nada muda: é o modo que já existia", () => {
+    const linhas = agruparComerciais(ITENS, 1);
+    expect(linhas.every((l) => l.unidade === undefined && l.noOmie === undefined)).toBe(true);
+  });
+});
+
+const MP_CHAPA: LinhaMateriaPrima = {
+  id: "MATCH 00060 AC012",
+  codigoMat: "MATCH 00060 AC012",
+  descricaoMat: "MATCH 00060 AC012 - CHAPA ESP 0,60 AÇO CARBONO 1020 (1200x2000)",
+  unidade: "KG",
+  quantidade: 15.672,
+  areaM2: 3.327,
+  chapas: 2,
+  medida: { larguraMm: 1200, comprimentoMm: 2000, areaM2: 2.4 },
+  densidade: 7850,
+  densidadeConfirmada: true,
+  pecas: ["CREHI PC012 CCSLD", "CREHI PC008 CCPTD"],
+};
+
+async function abas(blob: Blob): Promise<XLSX.WorkBook> {
+  return XLSX.read(new Uint8Array(await blob.arrayBuffer()), { type: "array" });
+}
+
+describe("gerarPlanilhaMateriais", () => {
+  it("no modo clássico tem uma aba só, como antes", async () => {
+    const wb = await abas(gerarPlanilhaMateriais(agruparComerciais(ITENS, 2), 2, "CREHI MT003"));
+    expect(wb.SheetNames).toEqual(["Materiais"]);
+  });
+
+  it("no Modo 2 leva a matéria-prima numa aba própria, com m² e chapas", async () => {
+    const wb = await abas(
+      gerarPlanilhaMateriais(agruparComerciais(ITENS, 2, CATALOGO_COM), 2, "CREHI MT003", {
+        materiaPrima: [MP_CHAPA],
+        aproveitamento: 0.8,
+      }),
+    );
+    expect(wb.SheetNames).toEqual(["Materiais", "Matéria-prima"]);
+    const linhas = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets["Matéria-prima"], { header: 1 });
+    const chapa = linhas.find((l) => l[0] === "MATCH 00060 AC012");
+    expect(chapa?.slice(2, 6)).toEqual(["KG", 15.672, 3.327, 2]);
+    expect(chapa?.[6]).toBe("1200x2000");
   });
 });

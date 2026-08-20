@@ -107,12 +107,17 @@ export function ligaDoTexto(texto: string): Liga | null {
 // 1º caractere do 3º bloco do código da PEÇA = MATERIAL.
 // CONFIRMADO em dados reais: "I" (a BOM da MSVCH só usa inox, e o catálogo MAT
 // só tem inox 430). "C" é a leitura natural dos cadastros MAT em aço carbono
-// 1020, mas ainda NÃO apareceu numa BOM. Inicial FORA desta tabela não relaxa o
-// filtro: quem decide é o `casarMateriaPrima`, que recusa quando a geometria
-// serve a mais de uma liga.
+// 1020, e a BOM da CREHI MT003 é toda dele. "V" e "A" foram confirmados em
+// 20/08/2026 lendo a ESTRUTURA já cadastrada no Omie das peças da CREHI MT003:
+// `CREHI PC005 VCCSR` consome `MATCH 00200 PEB00` (PVC expandido) e
+// `CREHI PC007 ACFRS` consome `MATCH 00600 ARB00` (acrílico). Inicial FORA desta
+// tabela não relaxa o filtro: quem decide é o `casarMateriaPrima`, que recusa
+// quando a geometria serve a mais de uma liga.
 const LIGA_POR_INICIAL: Record<string, Liga> = {
   I: "INOX430",
   C: "CARBONO1020",
+  V: "PVC",
+  A: "ACRILICO",
 };
 
 // 2º caractere do 3º bloco do código da PEÇA = FORMA. "0" (zero) significa "não

@@ -24,6 +24,21 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-08-20",
+    title: "Pranchas: Modo 2 no material de compra (matéria-prima, m² e chapas)",
+    items: [
+      "Na seção \"Material de compra\" apareceu um botão de modo, com dois estados: Clássico e Modo 2. O Clássico é exatamente o que você já usava, sem mudança nenhuma, e continua sendo o que abre por padrão. Passe o mouse no botão para ver o que cada um faz.",
+      "No Modo 2 entra uma seção nova de matéria-prima: além dos itens comprados, o sistema mostra a chapa, o tubo e o trefilado que as peças consomem, somados por cadastro do Omie.",
+      "Para chapa, o peso da BOM é convertido em metro quadrado (pela espessura e pela densidade do material) e depois em CHAPAS INTEIRAS a comprar, usando a medida que está no cadastro do Omie. Não é uma medida fixa: aço vem em 1200x2000 e acrílico e PVC em 1000x2000.",
+      "Tem um campo de aproveitamento da chapa, em porcentagem, para descontar a perda de corte. Ele começa em 100% (área teórica, sem sobra); ajuste para o que a sua experiência de nesting indicar e o número de chapas se ajusta na hora.",
+      "O campo \"Conjuntos a produzir\", que já existia, multiplica tudo: comprados, quilos, metros quadrados e chapas.",
+      "No Modo 2 a lista de comprados ganha a coluna de unidade, lida do cadastro do Omie, e marca em amarelo o código que está na BOM mas NÃO está cadastrado (ou está inativo) no Omie.",
+      "A planilha do botão \"Baixar Excel\" acompanha: no Modo 2 ela sai com a unidade na aba de materiais e com uma aba nova de matéria-prima, trazendo m², chapas, medida da chapa, densidade usada e quais peças entraram em cada linha.",
+      "Linha que o sistema não consegue converter (peça sem especificação na BOM, cadastro sem a medida da chapa, material de densidade desconhecida) aparece assim mesmo, com o motivo escrito. Ela nunca some da lista nem sai com número inventado.",
+      "O Modo 2 é a única parte da tela que fala com o Omie, e só depois de você ligar. O compilador de PDF continua rodando inteiro no seu navegador.",
+    ],
+  },
+  {
     date: "2026-08-10",
     title: "Produtos: montagem de destino e matéria-prima das peças",
     items: [

@@ -9,6 +9,8 @@ export interface ItemBom {
   numero: string; // numeração hierárquica da BOM ("1", "1.1"); "" quando veio de PDF
   quantidade: number; // quantidade da própria linha
   quantidadeEfetiva: number; // quantidade × a dos pais (o que de fato vai para a peça)
+  peso: number | null; // massa UNITÁRIA da peça, na unidade em que o CAD exportou
+  especificacao: string; // matéria-prima da peça ("# 0,6000", "TUBO RED. 19,1x1,5mm")
 }
 
 export interface ConteudoBom {
@@ -66,6 +68,8 @@ function conteudoDasLinhas(rows: BomRow[], parentKey: string | null): ConteudoBo
       numero,
       quantidade,
       quantidadeEfetiva: calcularEfetiva(numero, quantidade, qtdPorNumero),
+      peso: row.peso,
+      especificacao: row.especificacao.trim(),
     });
     if (!code.comercial && !vistos.has(code.key)) {
       vistos.add(code.key);

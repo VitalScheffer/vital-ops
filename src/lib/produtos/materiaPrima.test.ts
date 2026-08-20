@@ -21,6 +21,7 @@ const CATALOGO_BRUTO: ProdutoMatBruto[] = [
   { codigo: "MATCH 00200 IN430", descricao: "MATCH 00200 IN430 - CHAPA 2,0 AÇO INOX 430 (1200x2000)", unidade: "KG" },
   { codigo: "MATCH 00300 IN430", descricao: "MATCH 00300 IN430 - CHAPA ESP 3,00 AÇO INOX 430 (1200x2000)", unidade: "KG" },
   { codigo: "MATCH 00200 ARB00", descricao: "MATCH 00200 ARB00 - CHAPA 2,0 ACRILICO BRANCO (1000x2000)", unidade: "KG" },
+  { codigo: "MATCH 00200 PEB00", descricao: "MATCH 00200 PEB00 - CHAPA ESP 2,00 PVC EXPANDIDO BRANCO (1000x2000)", unidade: "KG" },
   { codigo: "MATTB Q2525 12I43", descricao: "MATTB Q2525 12I43 -  TUBO QUADRADO 25x25x1.2 AÇO INOX POLIDO 430 (6000mm)", unidade: "KG" },
   { codigo: "MATTB Q3030 12I43", descricao: "MATTB Q3030 12I43 - TUBO QUADRADO 30x30x1.2 AÇO INOX 430 (6000mm)", unidade: "KG" },
   { codigo: "MATTB Q2020 12C12", descricao: "MATTB Q2020 12C12 - TUBO QUADRADO 20x20x1.2 AÇO CARBONO 1020 (6000mm)", unidade: "KG" },
@@ -217,16 +218,27 @@ describe("casarMateriaPrima: peças reais da BOM MSVCH MT001 I0POL", () => {
   });
 
   it("material desconhecido no código não escolhe entre ligas diferentes", () => {
-    // "AC" = material fora da tabela (acrílico) + chapa. A espessura 2,0 existe
+    // "XC" = inicial fora da tabela de materiais + chapa. A espessura 2,0 existe
     // em inox E em acrílico: escolher uma delas mandaria a matéria-prima errada.
-    expect(casar("MSVCH PC032 ACSLD", "# 2,0000")).toBeNull();
+    expect(casar("MSVCH PC032 XCSLD", "# 2,0000")).toBeNull();
     // 0,9 existe em inox E em carbono: mesma ambiguidade.
-    expect(casar("MSVCH PC033 ACSLD", "# 0,9000")).toBeNull();
+    expect(casar("MSVCH PC033 XCSLD", "# 0,9000")).toBeNull();
   });
 
   it("material desconhecido ainda resolve quando a geometria só existe numa liga", () => {
     // 1,2 e 3,0 só estão cadastradas em inox neste recorte: não há o que confundir.
-    expect(casar("MSVCH PC034 ACSLD", "# 3,0000")?.item.codigo).toBe("MATCH 00300 IN430");
+    expect(casar("MSVCH PC034 XCSLD", "# 3,0000")?.item.codigo).toBe("MATCH 00300 IN430");
+  });
+
+  // "V" (PVC) e "A" (acrílico) entraram na tabela em 20/08/2026, confirmados pela
+  // ESTRUTURA já cadastrada no Omie das peças da CREHI MT003. Antes disso a
+  // espessura 2,0 era ambígua para essas peças e nada era sugerido.
+  it("inicial V escolhe o PVC, mesmo com a espessura existindo em outras ligas", () => {
+    expect(casar("CREHI PC005 VCCSR", "# 2,0000")?.item.codigo).toBe("MATCH 00200 PEB00");
+  });
+
+  it("inicial A escolhe o acrílico", () => {
+    expect(casar("CREHI PC031 ACSLD", "# 2,0000")?.item.codigo).toBe("MATCH 00200 ARB00");
   });
 });
 
