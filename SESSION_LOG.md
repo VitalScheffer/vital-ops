@@ -5479,3 +5479,31 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
   pesando uma chapa inteira). São 3 números no `DENSIDADE` do `src/lib/pranchas/chapas.ts`.
 - **Teste humano na tela**: subir a BOM da CREHI MT003, ligar o Modo 2, conferir os números
   e baixar o Excel.
+
+## 2026-08-27 — Multiplicador de BOMs em lote
+
+### Resumo
+- Criada a tela autenticada **Multiplicador** para processar vários PDFs, XLS, XLSX e CSV no navegador.
+- Cada arquivo aceita um fator próprio e opções independentes para multiplicar **QTD** e/ou **PESO**.
+- PDFs digitais preservam a folha original e recebem sobreposição somente nos valores da tabela; os PDFs processados podem ser unidos em um único arquivo para impressão em lote.
+
+### Arquivos alterados/criados
+- `src/app/(app)/multiplicador/page.tsx` e `src/components/multiplicador/MultiplicadorClient.tsx` — rota protegida e interface de lote.
+- `src/lib/multiplicador/` — leitura segura de cabeçalhos, transformação de planilhas, PDFs e testes unitários.
+- `src/lib/navigation.ts`, `src/components/AppShell.tsx` e `src/app/(app)/page.tsx` — item Multiplicador e ícone na navegação/atalhos.
+- `src/lib/changelog.ts` — novidade para usuários.
+- `docs/superpowers/specs/2026-08-27-multiplicador-design.md` e `docs/superpowers/plans/2026-08-27-multiplicador.md` — especificação e plano.
+
+### Decisões importantes
+- O processamento é 100% local; nenhum arquivo é enviado ao servidor ou ao NextStep.
+- PDF sem texto/tabela digital não é modificado para evitar alterar uma coluna incorreta.
+- A mesma permissão de Pranchas controla o novo utilitário, sem novo módulo ou alteração de contrato.
+
+### Comandos relevantes
+- `npx vitest run` — 52 arquivos e 630 testes verdes.
+- `npm run lint` — concluído sem erros.
+- `npx tsc --noEmit` — concluído sem erros.
+- `npm run build` — concluído; rota `/multiplicador` presente no build.
+
+### Pendências / próximos passos
+- Teste humano com um PDF exportado pelo SolidWorks para conferir a sobreposição visual nas fontes usadas pelo CAD.

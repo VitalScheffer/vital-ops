@@ -3,6 +3,7 @@
 import {
   Boxes,
   ClipboardList,
+  CopyPlus,
   ExternalLink,
   HelpCircle,
   Home,
@@ -37,6 +38,7 @@ const ICONS: Record<NavIcon, typeof Home> = {
   home: Home,
   products: Boxes,
   pranchas: Layers,
+  multiplicador: CopyPlus,
   configurador: SlidersHorizontal,
   projetos: Ruler,
   requisicoes: ClipboardList,

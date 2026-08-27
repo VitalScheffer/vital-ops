@@ -24,6 +24,17 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-08-27",
+    title: "Multiplicador: vários BOMs de uma vez",
+    items: [
+      "Nova tela Multiplicador: suba vários PDFs, XLS, XLSX ou CSV e aplique um fator diferente em cada arquivo.",
+      "Agora você escolhe se quer multiplicar quantidade, peso ou os dois. Por exemplo, fator 10 transforma QTD 2 em 20 e peso 84,49 em 844,90.",
+      "Planilhas voltam no mesmo formato. Em PDF digital, a folha original é preservada e apenas os valores encontrados nas colunas selecionadas são substituídos.",
+      "Depois de processar os PDFs, use \"Baixar PDF para imprimir\" para receber todas as folhas em um único arquivo, na ordem da lista.",
+      "O processamento acontece só no navegador. PDF escaneado/foto ou sem tabela digital não é alterado, para não trocar um número da coluna errada.",
+    ],
+  },
+  {
     date: "2026-08-20",
     title: "Pranchas: Modo 2 no material de compra (matéria-prima, m² e chapas)",
     items: [

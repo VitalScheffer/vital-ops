@@ -14,6 +14,7 @@ export type NavIcon =
   | "home"
   | "products"
   | "pranchas"
+  | "multiplicador"
   | "configurador"
   | "projetos"
   | "requisicoes"
@@ -71,6 +72,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Pranchas",
     description: "Junte os desenhos de um conjunto num PDF único pronto para imprimir.",
     icon: "pranchas",
+    visibleTo: (role, permissions) => hasModuleAccess(role, "pranchas", permissions),
+  },
+  {
+    key: "multiplicador",
+    href: "/multiplicador",
+    label: "Multiplicador",
+    description: "Multiplique quantidade e peso de vários BOMs sem alterar o desenho original.",
+    icon: "multiplicador",
     visibleTo: (role, permissions) => hasModuleAccess(role, "pranchas", permissions),
   },
   {

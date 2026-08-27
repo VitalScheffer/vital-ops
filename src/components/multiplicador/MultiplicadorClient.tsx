@@ -1,0 +1,141 @@
+"use client";
+
+import { Download, FileText, Loader2, Printer, Trash2, Upload } from "lucide-react";
+import { ChangeEvent, useRef, useState } from "react";
+
+import type { ArquivoGerado } from "@/lib/multiplicador/celulas";
+
+interface ItemArquivo {
+  id: string;
+  file: File;
+  fator: number;
+  quantidade: boolean;
+  peso: boolean;
+  processando: boolean;
+  erro: string | null;
+  resultado: ArquivoGerado | null;
+}
+
+const ACEITOS = new Set(["pdf", "xls", "xlsx", "csv"]);
+
+function extensao(nome: string): string {
+  return nome.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function baixar(arquivo: ArquivoGerado): void {
+  const blob = new Blob([arquivo.bytes as BlobPart], { type: arquivo.mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = arquivo.nome;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function MultiplicadorClient() {
+  const [arquivos, setArquivos] = useState<ItemArquivo[]>([]);
+  const [imprimindo, setImprimindo] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function adicionar(files: FileList | File[]) {
+    const novos = Array.from(files)
+      .filter((file) => ACEITOS.has(extensao(file.name)))
+      .map((file) => ({
+        id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+        file,
+        fator: 1,
+        quantidade: true,
+        peso: false,
+        processando: false,
+        erro: null,
+        resultado: null,
+      }));
+    setArquivos((atual) => [...atual, ...novos]);
+  }
+
+  function selecionar(event: ChangeEvent<HTMLInputElement>) {
+    if (event.target.files) adicionar(event.target.files);
+    event.target.value = "";
+  }
+
+  function atualizar(id: string, alteracao: Partial<ItemArquivo>) {
+    setArquivos((atual) => atual.map((item) => (item.id === id ? { ...item, ...alteracao, resultado: null, erro: null } : item)));
+  }
+
+  async function processar(id: string) {
+    const item = arquivos.find((arquivo) => arquivo.id === id);
+    if (!item) return;
+    atualizar(id, { processando: true });
+    try {
+      const opcoes = { fator: item.fator, quantidade: item.quantidade, peso: item.peso };
+      const resultado =
+        extensao(item.file.name) === "pdf"
+          ? await (await import("@/lib/multiplicador/pdf")).multiplicarPdf(item.file, opcoes)
+          : await (await import("@/lib/multiplicador/planilha")).multiplicarPlanilha(item.file, opcoes);
+      setArquivos((atual) => atual.map((arquivo) => (arquivo.id === id ? { ...arquivo, processando: false, resultado, erro: null } : arquivo)));
+    } catch (erro) {
+      setArquivos((atual) =>
+        atual.map((arquivo) =>
+          arquivo.id === id ? { ...arquivo, processando: false, resultado: null, erro: erro instanceof Error ? erro.message : "Não consegui processar este arquivo." } : arquivo,
+        ),
+      );
+    }
+  }
+
+  async function processarTodos() {
+    for (const item of arquivos) await processar(item.id);
+  }
+
+  async function baixarImpressao() {
+    const pdfs = arquivos.flatMap((item) => (item.resultado?.mime === "application/pdf" ? [item.resultado] : []));
+    if (pdfs.length === 0) return;
+    setImprimindo(true);
+    try {
+      const { juntarPdfsMultiplicados } = await import("@/lib/multiplicador/pdf");
+      baixar({ nome: "BOMs-multiplicados-para-impressao.pdf", bytes: await juntarPdfsMultiplicados(pdfs), mime: "application/pdf" });
+    } finally {
+      setImprimindo(false);
+    }
+  }
+
+  const pdfsProntos = arquivos.filter((item) => item.resultado?.mime === "application/pdf").length;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="rounded-xl border border-dashed border-border bg-card p-6 text-center">
+        <Upload className="mx-auto h-7 w-7 text-primary" />
+        <h2 className="mt-3 font-semibold text-card-foreground">Adicionar BOMs</h2>
+        <p className="mt-1 text-sm text-muted-foreground">PDF digital, XLS, XLSX ou CSV. Pode selecionar vários de uma vez.</p>
+        <input ref={inputRef} type="file" accept=".pdf,.xls,.xlsx,.csv" multiple className="hidden" onChange={selecionar} />
+        <button type="button" onClick={() => inputRef.current?.click()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+          <Upload className="h-4 w-4" /> Selecionar arquivos
+        </button>
+      </section>
+
+      {arquivos.length > 0 && (
+        <section className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead><tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground"><th className="px-4 py-3">Arquivo</th><th className="w-28 px-4 py-3">Fator</th><th className="w-36 px-4 py-3">Multiplicar</th><th className="w-64 px-4 py-3">Resultado</th><th className="w-12 px-4 py-3" /></tr></thead>
+              <tbody>
+                {arquivos.map((item) => (
+                  <tr key={item.id} className="border-b border-border/60 last:border-0">
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-primary" /><span className="max-w-64 truncate font-medium text-card-foreground" title={item.file.name}>{item.file.name}</span></div></td>
+                    <td className="px-4 py-3"><input aria-label={`Fator para ${item.file.name}`} type="number" min="0.01" step="0.01" value={item.fator} onChange={(event) => atualizar(item.id, { fator: Number(event.target.value) })} className="w-20 rounded-lg border border-border bg-card px-2 py-1.5 text-foreground" /></td>
+                    <td className="px-4 py-3"><div className="flex gap-3"><label className="flex items-center gap-1.5"><input type="checkbox" checked={item.quantidade} onChange={(event) => atualizar(item.id, { quantidade: event.target.checked })} /> QTD</label><label className="flex items-center gap-1.5"><input type="checkbox" checked={item.peso} onChange={(event) => atualizar(item.id, { peso: event.target.checked })} /> Peso</label></div></td>
+                    <td className="px-4 py-3">{item.erro ? <p className="text-xs text-danger">{item.erro}</p> : item.resultado ? <button type="button" onClick={() => baixar(item.resultado!)} className="inline-flex items-center gap-1.5 text-primary underline underline-offset-2"><Download className="h-3.5 w-3.5" /> {item.resultado.nome}</button> : <button type="button" disabled={item.processando} onClick={() => void processar(item.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-muted disabled:opacity-50">{item.processando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}{item.processando ? "Multiplicando..." : "Multiplicar"}</button>}</td>
+                    <td className="px-4 py-3"><button type="button" onClick={() => setArquivos((atual) => atual.filter((arquivo) => arquivo.id !== item.id))} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-danger" aria-label={`Remover ${item.file.name}`}><Trash2 className="h-4 w-4" /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
+            <p className="text-sm text-muted-foreground">Cada arquivo volta no formato original. PDFs digitais prontos: {pdfsProntos}.</p>
+            <div className="flex gap-2"><button type="button" onClick={() => void processarTodos()} disabled={arquivos.some((item) => item.processando)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">Multiplicar todos</button><button type="button" onClick={() => void baixarImpressao()} disabled={pdfsProntos === 0 || imprimindo} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-muted disabled:opacity-50">{imprimindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}{imprimindo ? "Preparando..." : "Baixar PDF para imprimir"}</button></div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}

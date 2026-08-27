@@ -18,9 +18,18 @@ import {
 const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 
 describe("visibleNavFor", () => {
+  it("expõe Multiplicador junto de Pranchas e o oculta sem essa permissão", () => {
+    expect(visibleNavFor("FUNCIONARIO", DEFAULT).map((item) => item.key)).toContain("multiplicador");
+    const semPranchas: RolePermissionsMap = {
+      ...DEFAULT,
+      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
+    };
+    expect(visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key)).not.toContain("multiplicador");
+  });
+
   it("FUNCIONARIO vê os módulos operacionais (sem Usuários, Auditoria nem Configurações)", () => {
     const keys = visibleNavFor("FUNCIONARIO", DEFAULT).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "pranchas", "configurador", "requisicoes", "baixas"]);
+    expect(keys).toEqual(["home", "produtos", "pranchas", "multiplicador", "configurador", "requisicoes", "baixas"]);
   });
 
   it("FABRICA vê SÓ Início e Requisições", () => {
@@ -39,6 +48,7 @@ describe("visibleNavFor", () => {
       "home",
       "produtos",
       "pranchas",
+      "multiplicador",
       "configurador",
       "projetos",
       "requisicoes",
@@ -54,6 +64,7 @@ describe("visibleNavFor", () => {
       "home",
       "produtos",
       "pranchas",
+      "multiplicador",
       "configurador",
       "projetos",
       "requisicoes",
@@ -80,6 +91,7 @@ describe("visibleNavFor", () => {
       "home",
       "produtos",
       "pranchas",
+      "multiplicador",
       "configurador",
       "projetos",
       "requisicoes",
