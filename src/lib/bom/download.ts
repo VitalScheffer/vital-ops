@@ -7,5 +7,7 @@ export function baixarBlob(blob: Blob, nomeArquivo: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // A revogação síncrona pode cancelar o download antes de o navegador
+  // consumir o href, especialmente em arquivos gerados de forma assíncrona.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

@@ -5507,3 +5507,26 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 
 ### Pendências / próximos passos
 - Teste humano com um PDF exportado pelo SolidWorks para conferir a sobreposição visual nas fontes usadas pelo CAD.
+
+## 2026-08-27 — Download e prévia em lote do Multiplicador
+
+### Resumo
+- Corrigido o download de arquivos gerados: o URL temporário agora permanece válido até o navegador iniciar o salvamento.
+- Adicionados `Baixar todos (.zip)` para PDFs e planilhas processados e `Visualizar PDF` para conferir o PDF consolidado antes da impressão.
+
+### Arquivos alterados/criados
+- `src/components/multiplicador/MultiplicadorClient.tsx` — ações de ZIP, prévia e mensagens de falha acionáveis.
+- `src/lib/multiplicador/lote.ts` e teste — compactação de todos os resultados sem modificar bytes/extensões.
+- `src/lib/bom/download.ts` e teste — revogação adiada do Blob URL.
+- `src/lib/changelog.ts` — instrução dos novos botões.
+
+### Decisões importantes
+- A prévia abre uma aba em branco imediatamente no clique, depois carrega o PDF; isso evita que o navegador bloqueie a nova aba por ser uma operação assíncrona.
+- O ZIP inclui todos os resultados que já foram processados, independentemente do formato.
+
+### Comandos relevantes
+- `npx vitest run src/lib/bom/download.test.ts src/lib/multiplicador/lote.test.ts src/lib/multiplicador/celulas.test.ts src/lib/multiplicador/planilha.test.ts src/lib/multiplicador/pdf.test.ts` — 8 testes verdes.
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` — concluídos sem erros.
+
+### Pendências / próximos passos
+- Validar no navegador de produção com um lote real de PDFs e planilhas.

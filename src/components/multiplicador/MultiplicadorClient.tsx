@@ -1,9 +1,10 @@
 "use client";
 
-import { Download, FileText, Loader2, Printer, Trash2, Upload } from "lucide-react";
+import { Download, Eye, FileArchive, FileText, Loader2, Printer, Trash2, Upload } from "lucide-react";
 import { ChangeEvent, useRef, useState } from "react";
 
 import type { ArquivoGerado } from "@/lib/multiplicador/celulas";
+import { baixarBlob } from "@/lib/bom/download";
 
 interface ItemArquivo {
   id: string;
@@ -23,18 +24,15 @@ function extensao(nome: string): string {
 }
 
 function baixar(arquivo: ArquivoGerado): void {
-  const blob = new Blob([arquivo.bytes as BlobPart], { type: arquivo.mime });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = arquivo.nome;
-  link.click();
-  URL.revokeObjectURL(url);
+  baixarBlob(new Blob([arquivo.bytes as BlobPart], { type: arquivo.mime }), arquivo.nome);
 }
 
 export function MultiplicadorClient() {
   const [arquivos, setArquivos] = useState<ItemArquivo[]>([]);
   const [imprimindo, setImprimindo] = useState(false);
+  const [baixandoLote, setBaixandoLote] = useState(false);
+  const [previsualizando, setPrevisualizando] = useState(false);
+  const [erroLote, setErroLote] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function adicionar(files: FileList | File[]) {
@@ -89,12 +87,56 @@ export function MultiplicadorClient() {
   async function baixarImpressao() {
     const pdfs = arquivos.flatMap((item) => (item.resultado?.mime === "application/pdf" ? [item.resultado] : []));
     if (pdfs.length === 0) return;
+    setErroLote(null);
     setImprimindo(true);
     try {
       const { juntarPdfsMultiplicados } = await import("@/lib/multiplicador/pdf");
       baixar({ nome: "BOMs-multiplicados-para-impressao.pdf", bytes: await juntarPdfsMultiplicados(pdfs), mime: "application/pdf" });
+    } catch (erro) {
+      setErroLote(erro instanceof Error ? erro.message : "Não consegui preparar o PDF para impressão.");
     } finally {
       setImprimindo(false);
+    }
+  }
+
+  async function baixarTodos() {
+    const resultados = arquivos.flatMap((item) => (item.resultado ? [item.resultado] : []));
+    if (resultados.length === 0) return;
+    setErroLote(null);
+    setBaixandoLote(true);
+    try {
+      const { criarZipDeResultados } = await import("@/lib/multiplicador/lote");
+      baixar({ nome: "BOMs-multiplicadas.zip", bytes: criarZipDeResultados(resultados), mime: "application/zip" });
+    } catch (erro) {
+      setErroLote(erro instanceof Error ? erro.message : "Não consegui preparar o arquivo em lote.");
+    } finally {
+      setBaixandoLote(false);
+    }
+  }
+
+  async function visualizarImpressao() {
+    const pdfs = arquivos.flatMap((item) => (item.resultado?.mime === "application/pdf" ? [item.resultado] : []));
+    if (pdfs.length === 0) return;
+    // Abre durante o gesto de clique para o navegador não bloquear a prévia
+    // depois do processamento assíncrono do PDF.
+    const aba = window.open("", "_blank");
+    if (!aba) {
+      setErroLote("O navegador bloqueou a prévia. Libere pop-ups para o Vital Ops e tente novamente.");
+      return;
+    }
+    setErroLote(null);
+    setPrevisualizando(true);
+    try {
+      const { juntarPdfsMultiplicados } = await import("@/lib/multiplicador/pdf");
+      const bytes = await juntarPdfsMultiplicados(pdfs);
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+      aba.location.href = url;
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (erro) {
+      aba.close();
+      setErroLote(erro instanceof Error ? erro.message : "Não consegui abrir a prévia do PDF.");
+    } finally {
+      setPrevisualizando(false);
     }
   }
 
@@ -132,8 +174,9 @@ export function MultiplicadorClient() {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
             <p className="text-sm text-muted-foreground">Cada arquivo volta no formato original. PDFs digitais prontos: {pdfsProntos}.</p>
-            <div className="flex gap-2"><button type="button" onClick={() => void processarTodos()} disabled={arquivos.some((item) => item.processando)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">Multiplicar todos</button><button type="button" onClick={() => void baixarImpressao()} disabled={pdfsProntos === 0 || imprimindo} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-muted disabled:opacity-50">{imprimindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}{imprimindo ? "Preparando..." : "Baixar PDF para imprimir"}</button></div>
+            <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void processarTodos()} disabled={arquivos.some((item) => item.processando)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">Multiplicar todos</button><button type="button" onClick={() => void baixarTodos()} disabled={!arquivos.some((item) => item.resultado) || baixandoLote} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-muted disabled:opacity-50">{baixandoLote ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />}{baixandoLote ? "Compactando..." : "Baixar todos (.zip)"}</button><button type="button" onClick={() => void visualizarImpressao()} disabled={pdfsProntos === 0 || previsualizando} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-muted disabled:opacity-50">{previsualizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}{previsualizando ? "Abrindo..." : "Visualizar PDF"}</button><button type="button" onClick={() => void baixarImpressao()} disabled={pdfsProntos === 0 || imprimindo} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-muted disabled:opacity-50">{imprimindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}{imprimindo ? "Preparando..." : "Baixar PDF para imprimir"}</button></div>
           </div>
+          {erroLote ? <p className="border-t border-danger/20 bg-danger-dim px-4 py-3 text-sm text-danger">{erroLote}</p> : null}
         </section>
       )}
     </div>

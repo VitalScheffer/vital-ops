@@ -31,6 +31,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       "Agora você escolhe se quer multiplicar quantidade, peso ou os dois. Por exemplo, fator 10 transforma QTD 2 em 20 e peso 84,49 em 844,90.",
       "Planilhas voltam no mesmo formato. Em PDF digital, a folha original é preservada e apenas os valores encontrados nas colunas selecionadas são substituídos.",
       "Depois de processar os PDFs, use \"Baixar PDF para imprimir\" para receber todas as folhas em um único arquivo, na ordem da lista.",
+      "Use \"Visualizar PDF\" para conferir o lote antes de baixar/imprimir e \"Baixar todos (.zip)\" para baixar de uma vez os PDFs e planilhas processados.",
       "O processamento acontece só no navegador. PDF escaneado/foto ou sem tabela digital não é alterado, para não trocar um número da coluna errada.",
     ],
   },
