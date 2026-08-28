@@ -29,7 +29,16 @@ describe("visibleNavFor", () => {
 
   it("FUNCIONARIO vê os módulos operacionais (sem Usuários, Auditoria nem Configurações)", () => {
     const keys = visibleNavFor("FUNCIONARIO", DEFAULT).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "pranchas", "multiplicador", "configurador", "requisicoes", "baixas"]);
+    expect(keys).toEqual([
+      "home",
+      "produtos",
+      "pranchas",
+      "multiplicador",
+      "configurador",
+      "requisicoes",
+      "baixas",
+      "movimentacoes",
+    ]);
   });
 
   it("FABRICA vê SÓ Início e Requisições", () => {
@@ -53,6 +62,8 @@ describe("visibleNavFor", () => {
       "projetos",
       "requisicoes",
       "baixas",
+      "movimentacoes",
+      "depara",
       "usuarios",
       "auditoria",
     ]);
@@ -69,6 +80,8 @@ describe("visibleNavFor", () => {
       "projetos",
       "requisicoes",
       "baixas",
+      "movimentacoes",
+      "depara",
       "usuarios",
       "auditoria",
       "configuracoes",
@@ -96,6 +109,8 @@ describe("visibleNavFor", () => {
       "projetos",
       "requisicoes",
       "baixas",
+      "movimentacoes",
+      "depara",
       "usuarios",
     ]);
   });
@@ -106,7 +121,7 @@ describe("visibleNavFor", () => {
       FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
     };
     const keys = visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "configurador", "requisicoes", "baixas"]);
+    expect(keys).toEqual(["home", "produtos", "configurador", "requisicoes", "baixas", "movimentacoes"]);
   });
 
   it("Configurações continua fora do menu de GESTOR mesmo com todos os módulos habilitados", () => {
@@ -179,6 +194,8 @@ describe("rbac", () => {
         projetos: false,
         requisicoes: false,
         baixas: false,
+        movimentacoes: false,
+        depara: false,
         users: false,
         audit: false,
       },
@@ -198,6 +215,8 @@ describe("rbac", () => {
         projetos: true,
         requisicoes: false,
         baixas: false,
+        movimentacoes: false,
+        depara: false,
         users: false,
         audit: false,
       },

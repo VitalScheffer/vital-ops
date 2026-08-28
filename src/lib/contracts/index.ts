@@ -4,6 +4,7 @@ export * from "./user";
 export * from "./produto";
 export * from "./requisicao";
 export * from "./baixa";
+export * from "./movimentacao";
 export * from "./configuracao";
 export * from "./push";
 export * from "./pcp";

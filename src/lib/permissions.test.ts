@@ -23,6 +23,8 @@ describe("buildRolePermissionsMap", () => {
       projetos: true,
       requisicoes: true,
       baixas: true,
+      movimentacoes: true,
+      depara: true,
       users: true,
       audit: false,
     });
@@ -37,6 +39,8 @@ describe("buildRolePermissionsMap", () => {
       projetos: false,
       requisicoes: true,
       baixas: false,
+      movimentacoes: false,
+      depara: false,
       users: false,
       audit: false,
     });
@@ -73,6 +77,8 @@ describe("buildRolePermissionsMap", () => {
       projetos: false,
       requisicoes: true,
       baixas: false,
+      movimentacoes: false,
+      depara: false,
       users: false,
       audit: false,
     });
@@ -90,6 +96,8 @@ describe("buildRolePermissionsMap", () => {
       { role: "ADMIN", module: "products", enabled: false },
       { role: "ADMIN", module: "configurador", enabled: false },
       { role: "ADMIN", module: "projetos", enabled: false },
+      { role: "ADMIN", module: "movimentacoes", enabled: false },
+      { role: "ADMIN", module: "depara", enabled: false },
     ]);
     expect(map.ADMIN).toEqual({
       products: true,
@@ -98,6 +106,8 @@ describe("buildRolePermissionsMap", () => {
       projetos: true,
       requisicoes: true,
       baixas: true,
+      movimentacoes: true,
+      depara: true,
       users: true,
       audit: true,
     });

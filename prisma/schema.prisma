@@ -50,6 +50,8 @@ model User {
   configuracoes        Configuracao[] @relation("ConfiguracaoAutor")
   configuracoesRespondidas Configuracao[] @relation("ConfiguracaoRespondente")
   pushSubscriptions    PushSubscription[] @relation("PushSubscriptions")
+  movimentosOp         MovimentoOp[]  @relation("MovimentoOpAutor")
+  deParaConfirmados    DeParaProduto[] @relation("DeParaConfirmador")
 
   @@index([role])
 }
@@ -396,20 +398,138 @@ model BaixaItem {
 // DEU CERTO). Aponta pro item de requisição OU pro item de baixa por planilha.
 model MovimentoEstoque {
   id               String   @id @default(cuid())
-  tipo             String // SAIDA (por ora só baixamos)
+  tipo             String // SAIDA | TRANSFERENCIA
   sku              String
   quantidade       Decimal
   omieRef          String?
   requisicaoItemId String?
   baixaItemId      String?
+  movimentoOpItemId String?
   criadoEm         DateTime @default(now())
 
   requisicaoItem RequisicaoItem? @relation(fields: [requisicaoItemId], references: [id], onDelete: Cascade)
   baixaItem      BaixaItem?      @relation(fields: [baixaItemId], references: [id], onDelete: Cascade)
+  movimentoOpItem MovimentoOpItem? @relation(fields: [movimentoOpItemId], references: [id], onDelete: Cascade)
 
   @@index([requisicaoItemId])
   @@index([baixaItemId])
+  @@index([movimentoOpItemId])
   @@index([sku])
+}
+
+// ---------------------------------------------------------------------------
+// Módulo Movimentação por OP: transferência de material entre locais de estoque
+//
+// A pessoa digita o número da ORDEM DE PRODUÇÃO do Omie e o sistema traz os
+// itens que a OP consome (o Omie já devolve a BOM explodida e multiplicada pela
+// quantidade da ordem), deixa escolher quais mover e transfere do local de
+// origem para o local de destino.
+//
+// O Omie NÃO tem método de transferência: cada item são DUAS escritas, uma
+// saída na origem e uma entrada no destino. Por isso o item guarda as duas
+// referências separadas. `SAIDA_OK` é o estado que justifica esta tabela
+// existir: a saída passou e a entrada não, o material saiu do saldo da origem e
+// não chegou ao destino. Sem persistir isso, uma queda no meio da execução
+// viraria divergência de estoque que ninguém descobre.
+// ---------------------------------------------------------------------------
+
+model MovimentoOp {
+  id       String @id @default(cuid())
+  autorId  String
+  numeroOp String // cNumOP do Omie (ex.: "2026/00802")
+  // Snapshot do cabeçalho da OP no momento da movimentação. A OP pode ser
+  // concluída ou alterada depois; o histórico continua legível como foi feito.
+  omieCodigoOp     String?
+  produtoCodigo    String?
+  produtoDescricao String?
+  quantidadeOp     Decimal?
+
+  origemCodigo  String
+  origemNome    String?
+  destinoCodigo String
+  destinoNome   String?
+
+  status     String   @default("ENVIANDO") // ENVIANDO | CONCLUIDO | PENDENTE | FALHA
+  totalItens Int      @default(0)
+  criadoEm   DateTime @default(now())
+
+  autor User              @relation("MovimentoOpAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  itens MovimentoOpItem[]
+
+  @@index([autorId])
+  @@index([numeroOp])
+  @@index([status])
+}
+
+model MovimentoOpItem {
+  id          String  @id @default(cuid())
+  movimentoId String
+  sku         String
+  descricao   String?
+  unidade     String?
+  familia     String?
+  grupo       String? // MAT | COM | SBM | PECA | OUTRO
+  quantidade  Decimal
+
+  // PENDENTE | TRANSFERIDO | SAIDA_OK (entrada pendente) | FALHA
+  status     String  @default("PENDENTE")
+  motivoErro String?
+
+  omieIdProd String?
+  refSaida   String? // id_ajuste da SAÍDA na origem
+  refEntrada String? // id_ajuste da ENTRADA no destino
+  // Custo médio unitário no momento da transferência (base do valor dos dois
+  // ajustes e do relatório).
+  custoUnitario Decimal?
+  // Alocação de lote usada na saída ([{nIdLote, nQtdLote}]) — a entrada precisa
+  // cair nos MESMOS lotes, senão o lote se perde na transferência.
+  loteConsumido Json?
+  concluidoEm   DateTime?
+
+  movimento  MovimentoOp        @relation(fields: [movimentoId], references: [id], onDelete: Cascade)
+  movimentos MovimentoEstoque[]
+
+  @@index([movimentoId])
+  @@index([sku])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// De/Para de código antigo (PRD…) para o cadastro novo (MAT…)
+//
+// O estoque físico ainda está lançado nos códigos antigos e as OPs novas já
+// pedem os códigos novos. Esta tabela é a ponte, e ela é escrita por PESSOA: o
+// sistema sugere pelo casamento de geometria e liga, mas a confirmação é humana
+// (a descrição antiga diz "INOX 200" onde o catálogo novo é 430, e a unidade
+// muda de M² para KG — casar sozinho trocaria a matéria-prima de uma OP).
+//
+// `codigoNovo` nulo com confianca SEM_EQUIVALENTE é uma decisão registrada, não
+// um buraco: significa "olhei e não existe equivalente", e evita que o item
+// volte para a fila toda semana.
+// ---------------------------------------------------------------------------
+
+model DeParaProduto {
+  id              String  @id @default(cuid())
+  codigoLegado    String  @unique
+  descricaoLegado String
+  unidadeLegado   String?
+  codigoNovo      String?
+  descricaoNovo   String?
+  unidadeNovo     String?
+  // EXATA | APROXIMADA | MANUAL | SEM_EQUIVALENTE
+  confianca String
+  motivo    String?
+  observacao String?
+
+  confirmadoPorId String?
+  confirmadoEm    DateTime?
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+
+  confirmadoPor User? @relation("DeParaConfirmador", fields: [confirmadoPorId], references: [id], onDelete: SetNull)
+
+  @@index([codigoNovo])
+  @@index([confianca])
 }
 
 // ---------------------------------------------------------------------------

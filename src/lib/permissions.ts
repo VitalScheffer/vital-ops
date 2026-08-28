@@ -18,6 +18,8 @@ export const MODULES = [
   "projetos",
   "requisicoes",
   "baixas",
+  "movimentacoes",
+  "depara",
   "users",
   "audit",
 ] as const;
@@ -34,11 +36,11 @@ export type RolePermissionsMap = Record<string, Record<Module, boolean>>;
 // Por isso FABRICA/FABRICA_GESTOR ficam de fora dos dois, e "projetos" (fila de
 // trabalho de um time específico) não vai nem pro FUNCIONARIO por padrão.
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<Module, boolean>> = {
-  ADMIN: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, users: true, audit: true },
-  GESTOR: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, users: true, audit: true },
-  FUNCIONARIO: { products: true, pranchas: true, configurador: true, projetos: false, requisicoes: true, baixas: true, users: false, audit: false },
-  FABRICA: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, users: false, audit: false },
-  FABRICA_GESTOR: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, users: false, audit: false },
+  ADMIN: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, movimentacoes: true, depara: true, users: true, audit: true },
+  GESTOR: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, movimentacoes: true, depara: true, users: true, audit: true },
+  FUNCIONARIO: { products: true, pranchas: true, configurador: true, projetos: false, requisicoes: true, baixas: true, movimentacoes: true, depara: false, users: false, audit: false },
+  FABRICA: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, movimentacoes: false, depara: false, users: false, audit: false },
+  FABRICA_GESTOR: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, movimentacoes: false, depara: false, users: false, audit: false },
 };
 
 function moduloVazio(): Record<Module, boolean> {
@@ -49,6 +51,8 @@ function moduloVazio(): Record<Module, boolean> {
     projetos: false,
     requisicoes: false,
     baixas: false,
+    movimentacoes: false,
+    depara: false,
     users: false,
     audit: false,
   };

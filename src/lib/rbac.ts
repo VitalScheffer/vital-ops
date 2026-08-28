@@ -74,6 +74,21 @@ export function canViewBaixas(role: Role, permissions: RolePermissionsMap): bool
   return hasModuleAccess(role, "baixas", permissions);
 }
 
+// Movimentação por OP: transfere material de um local para outro (reserva de
+// produção) a partir do número da Ordem de Produção do Omie. Escreve no estoque
+// sem passar pelo gestor, igual à Baixa, então tem módulo próprio.
+export function canViewMovimentacoes(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "movimentacoes", permissions);
+}
+
+// De/Para de códigos: define de qual cadastro o material sai quando a OP pede o
+// código novo e o saldo ainda está no antigo. Módulo separado da Movimentação
+// de propósito — quem opera a transferência do dia a dia não precisa poder
+// reescrever o mapa que ela usa.
+export function canViewDePara(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "depara", permissions);
+}
+
 // Só o ADMIN pode conceder o papel ADMIN — um Gestor não promove ninguém a dono.
 // Regra de segurança fixa em código, independente da tela de permissões.
 export function canAssignRole(actorRole: Role, targetRole: Role, permissions: RolePermissionsMap): boolean {

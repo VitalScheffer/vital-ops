@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ArrowLeftRight,
+  ArrowRightLeft,
   BellRing,
   BookOpenCheck,
   Boxes,
@@ -25,6 +27,8 @@ const ICONS: Record<TutorialIcon, typeof HelpCircle> = {
   products: Boxes,
   requisicoes: ClipboardList,
   baixas: PackageMinus,
+  movimentacoes: ArrowLeftRight,
+  depara: ArrowRightLeft,
   users: Users,
   audit: ScrollText,
   notificacoes: BellRing,

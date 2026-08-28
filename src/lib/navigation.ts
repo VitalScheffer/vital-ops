@@ -5,6 +5,8 @@ import {
   canViewAudit,
   canViewBaixas,
   canViewConfigurador,
+  canViewDePara,
+  canViewMovimentacoes,
   canViewProjetos,
   canViewRequisicoes,
 } from "@/lib/rbac";
@@ -19,6 +21,8 @@ export type NavIcon =
   | "projetos"
   | "requisicoes"
   | "baixas"
+  | "movimentacoes"
+  | "depara"
   | "users"
   | "audit"
   | "settings";
@@ -113,6 +117,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description: "Suba a planilha de matéria-prima (MAT) e dê baixa direto no Omie.",
     icon: "baixas",
     visibleTo: canViewBaixas,
+  },
+  {
+    key: "movimentacoes",
+    href: "/movimentacoes",
+    label: "Movimentação por OP",
+    description: "Digite o número da OP e transfira a matéria-prima para o local de produção.",
+    icon: "movimentacoes",
+    visibleTo: canViewMovimentacoes,
+  },
+  {
+    key: "depara",
+    href: "/de-para",
+    label: "De/Para de códigos",
+    description: "Ligue o código antigo (PRD) ao cadastro novo de matéria-prima (MAT).",
+    icon: "depara",
+    visibleTo: canViewDePara,
   },
   {
     key: "usuarios",

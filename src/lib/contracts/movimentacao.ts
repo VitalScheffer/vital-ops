@@ -1,0 +1,91 @@
+import { z } from "zod";
+
+import { localEstoqueCodigoSchema } from "./baixa";
+
+// Movimentação por OP: transferência de material entre locais de estoque a
+// partir do número da Ordem de Produção do Omie.
+
+export const grupoItemSchema = z.enum(["MAT", "COM", "SBM", "PECA", "OUTRO"]);
+export type GrupoItemMovimento = z.infer<typeof grupoItemSchema>;
+
+// Número da OP como a pessoa digita. Aceita "2026/00802", "2026-802" ou "802";
+// a normalização e o casamento com o `cNumOP` do Omie são do módulo de OP.
+export const numeroOpSchema = z.string().trim().min(1).max(30);
+
+// Uma linha escolhida na tela. `idProd` é o id INTERNO do Omie, que é como a OP
+// identifica o item; o `sku` vai junto porque é ele que aparece no histórico e
+// em toda mensagem de erro (id interno não diz nada para quem lê depois).
+export const movimentoItemSchema = z.object({
+  idProd: z.string().trim().regex(/^\d{1,20}$/),
+  sku: z.string().trim().min(1).max(60),
+  descricao: z.string().trim().max(200).optional(),
+  unidade: z.string().trim().max(10).optional(),
+  familia: z.string().trim().max(120).optional(),
+  grupo: grupoItemSchema.optional(),
+  quantidade: z.number().positive().finite(),
+});
+export type MovimentoItemInput = z.infer<typeof movimentoItemSchema>;
+
+// Conferência (leitura, sem escrever no Omie): resolve a OP, os produtos e o
+// saldo na origem.
+export const conferirOpSchema = z.object({
+  numeroOp: numeroOpSchema,
+  origemCodigo: localEstoqueCodigoSchema,
+  recarregar: z.boolean().optional(),
+});
+export type ConferirOpInput = z.infer<typeof conferirOpSchema>;
+
+// Origem e destino IGUAIS não é transferência, é um par de ajustes que se
+// anulam gastando duas escritas no Omie. Recusado no contrato, antes de chegar
+// perto do ERP.
+export const executarMovimentoSchema = z
+  .object({
+    numeroOp: numeroOpSchema,
+    origemCodigo: localEstoqueCodigoSchema,
+    destinoCodigo: localEstoqueCodigoSchema,
+    itens: z.array(movimentoItemSchema).min(1).max(300),
+  })
+  .refine((v) => v.origemCodigo !== v.destinoCodigo, {
+    message: "A origem e o destino precisam ser locais diferentes.",
+    path: ["destinoCodigo"],
+  });
+export type ExecutarMovimentoInput = z.infer<typeof executarMovimentoSchema>;
+
+// Retomada de um movimento que ficou com item em SAIDA_OK (saiu da origem e não
+// entrou no destino). Só o id: os itens e os locais vêm do banco, não da tela —
+// retomar com locais diferentes dos originais devolveria o material no lugar
+// errado.
+export const continuarMovimentoSchema = z.object({
+  movimentoId: z.string().trim().min(1).max(40),
+});
+export type ContinuarMovimentoInput = z.infer<typeof continuarMovimentoSchema>;
+
+// --- De/Para de código antigo -----------------------------------------------
+
+export const confiancaDeParaSchema = z.enum(["EXATA", "APROXIMADA", "MANUAL", "SEM_EQUIVALENTE"]);
+export type ConfiancaDeParaGravada = z.infer<typeof confiancaDeParaSchema>;
+
+// `codigoNovo` nulo só é aceito com SEM_EQUIVALENTE: é a diferença entre "olhei
+// e não existe equivalente" (decisão registrada) e uma linha salva pela metade.
+export const salvarDeParaSchema = z
+  .object({
+    codigoLegado: z.string().trim().min(1).max(60),
+    descricaoLegado: z.string().trim().min(1).max(200),
+    unidadeLegado: z.string().trim().max(10).optional(),
+    codigoNovo: z.string().trim().max(60).nullable().optional(),
+    descricaoNovo: z.string().trim().max(200).optional(),
+    unidadeNovo: z.string().trim().max(10).optional(),
+    confianca: confiancaDeParaSchema,
+    motivo: z.string().trim().max(300).optional(),
+    observacao: z.string().trim().max(300).optional(),
+  })
+  .refine((v) => v.confianca === "SEM_EQUIVALENTE" || Boolean(v.codigoNovo), {
+    message: "Escolha o código novo ou marque \"sem equivalente\".",
+    path: ["codigoNovo"],
+  });
+export type SalvarDeParaInput = z.infer<typeof salvarDeParaSchema>;
+
+export const removerDeParaSchema = z.object({
+  codigoLegado: z.string().trim().min(1).max(60),
+});
+export type RemoverDeParaInput = z.infer<typeof removerDeParaSchema>;

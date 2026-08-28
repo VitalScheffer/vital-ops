@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ArrowLeftRight,
+  ArrowRightLeft,
   Boxes,
   ClipboardList,
   CopyPlus,
@@ -43,6 +45,8 @@ const ICONS: Record<NavIcon, typeof Home> = {
   projetos: Ruler,
   requisicoes: ClipboardList,
   baixas: PackageMinus,
+  movimentacoes: ArrowLeftRight,
+  depara: ArrowRightLeft,
   users: Users,
   audit: ScrollText,
   settings: Settings,

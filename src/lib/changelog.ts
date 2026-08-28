@@ -24,6 +24,21 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-08-28",
+    title: "Movimentação por OP e De/Para de códigos",
+    items: [
+      "Nova tela Movimentação por OP: digite o número da Ordem de Produção do Omie (ex.: 2026/00802) e o sistema traz sozinho o produto, a quantidade a produzir e toda a lista de material. Sem PDF, sem planilha, sem digitar item por item.",
+      "As quantidades já vêm certas e na unidade de cada cadastro: 10 unidades de uma chapa de 1 kg aparecem como 10 kg, e uma OP de 450 peças traz os 263,745 kg de tubo que ela consome. Quem multiplica é o próprio Omie, então o número é o mesmo que o PCP enxerga.",
+      "Quando o mesmo material entra em peças diferentes da OP, as linhas são somadas em uma só. Você não corre o risco de mover o mesmo tubo duas vezes.",
+      "Vêm marcados só matéria-prima e comprados, que é o que a fábrica separa. Um botão mostra toda a BOM (submontagens e peças) quando você quiser conferir a árvore inteira.",
+      "Você escolhe o local de origem e o de destino. O padrão sugerido é sair do Estoque de Matéria-Prima e ir para Reservado Produção, mas dá para usar Reservado Cliente, Reservado Licitação ou qualquer outro. Trocar a origem reconsulta o saldo na hora.",
+      "Se algo interromper no meio, a tela avisa em destaque quais itens saíram da origem e não entraram no destino, e o botão \"Concluir entrada\" manda só a perna que faltou. Reenviar nunca movimenta o mesmo material duas vezes.",
+      "Nova tela De/Para de códigos: liga o código antigo (PRD) ao cadastro novo de matéria-prima (MAT). A fila sai do que ainda tem saldo no código velho, ordenada pelo saldo, e a sugestão é automática pela geometria e pela liga da descrição.",
+      "Nada é ligado sozinho. Quando a descrição antiga diz uma liga que o catálogo novo não tem (inox 200 contra 430) ou quando a unidade muda (M² contra KG), a linha vem com o aviso escrito e pede a sua confirmação.",
+      "As duas telas conversam: se uma OP pedir um código novo que está sem saldo, a Movimentação mostra em qual código antigo o material está parado e quanto tem, em vez de só dizer \"saldo zero\".",
+    ],
+  },
+  {
     date: "2026-08-27",
     title: "Multiplicador: vários BOMs de uma vez",
     items: [

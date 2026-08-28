@@ -1,5 +1,123 @@
 # SESSION_LOG — vital-ops
 
+## 2026-08-28 — Movimentação por OP e De/Para de códigos (2 telas novas)
+
+### Resumo
+Pedido do Vitor: uma tela que, a partir do NÚMERO DA OP (sem PDF), traga os itens
+que a ordem consome, deixe escolher local de origem e de destino (reserva de
+produção) e movimente com a quantidade certa em UN e KG; e uma segunda tela para
+converter o código antigo (PRD) no cadastro novo (MAT). Pediu antes o mapeamento
+do Omie pela lista de APIs dele.
+
+Sondagem READ-ONLY contra a API real (cerca de 20 leituras, nenhuma escrita)
+mudou o desenho e vale registrar:
+
+- **A OP do Omie já entrega a BOM explodida e MULTIPLICADA.** `ListarOrdemProducao`
+  (`produtos/op/`) com `lExibirItens: true` devolve `itensDetalhes` com produto,
+  quantidade e local. OP 2026/00801 (10 un de CREHS MT002 I0POL) = 75 itens, com
+  `10` de cada peça e `11,7349` KG de tubo; OP 2026/00802 (450 un) traz `263,745`
+  KG. **Quem multiplica é o Omie**, então a tela não precisa de parser de BOM nem
+  de conversão de peso. Era o núcleo do pedido e saiu de graça.
+- **O Omie NÃO tem transferência entre locais.** `estoque/ajuste/` só tem ENT e
+  SAI. Transferir = uma saída na origem + uma entrada no destino.
+- **"Reservado Produção" já existia**: código 12, id `12170621031`, criado
+  24/08/2026. Também existem "Reservado Cliente" e "Reservado Licitação".
+- **O saldo está no código ANTIGO.** Dos 92 MAT ativos: 0 com saldo no Local
+  Padrão, 19 no Estoque de Matéria-Prima. Esse local tem 961 itens com saldo,
+  quase todos `PRD…`. Ou seja, o De/Para não é complemento da tela 1, é
+  pré-requisito dela.
+- `ListarProdutos` aceita `codigo_produto` (id interno) dentro de
+  `produtosPorCodigo`: OP de 75 itens custa 2 leituras, não 75.
+- A OP identifica item só por `nIdProdutoMalha`, e repete o mesmo material uma
+  vez por peça que o consome (o `MATTB RD190` sai duas vezes na 00802). A
+  agregação por produto acontece antes de tudo.
+
+### Decisões (confirmadas com o Vitor)
+- Número da OP = **OP do Omie** (`2026/00802`), não a do PCP do nextstep. A do
+  PCP não tem BOM: exigiria estourar a estrutura nível a nível (MT > SM > PC >
+  MAT), dezenas de chamadas por OP.
+- Efeito no Omie = **transferência SAI + ENT**, não a flag `cReservado` nativa
+  da OP.
+- **Origem E destino selecionáveis** (o Vitor pediu seletor no destino também,
+  para servir a Reservado Cliente e Reservado Licitação). Sugestão inicial por
+  NOME, nunca por id fixo: o id de local é de cada base.
+- De/Para cobre só matéria-prima (PRD → MAT).
+- Transferir saldo do PRD para o MAT ficou FORA: é migração de estoque, decisão
+  em separado.
+
+### Arquivos criados
+- `src/lib/estoque/omieOp.ts` + `omieOp.test.ts` (24 casos) — módulo puro: leitura
+  da OP, `chaveDaOrdem`/`acharOrdem` (aceita "2026/00802", "2026-802" e "802", e
+  devolve as candidatas em vez de escolher quando o sequencial repete entre
+  anos), `agregarItens`, `grupoDoItem`, `buscarProdutosPorId` e
+  `transferirEstoque`.
+- `src/lib/depara/depara.ts` + `legado.ts` + `depara.test.ts` (10 casos) —
+  sugestão de equivalente reaproveitando o motor de `materiaPrima.ts`, e a fila
+  saindo da posição de estoque.
+- `src/lib/estoque/locais.ts` — escolha do local sugerido, pura, compartilhada
+  entre Server Component e cliente.
+- `src/lib/contracts/movimentacao.ts` — zod das duas telas.
+- `src/app/(app)/movimentacoes/` (page + actions) e
+  `src/components/movimentacoes/MovimentacaoOpClient.tsx`.
+- `src/app/(app)/de-para/` (page + actions) e
+  `src/components/depara/DeParaClient.tsx`.
+- `prisma/migrations/20260828120000_movimentacao_op_e_depara/migration.sql`.
+- `docs/superpowers/specs/2026-08-28-movimentacao-op-e-depara-design.md`.
+
+### Arquivos alterados
+- `prisma/schema.prisma` — `MovimentoOp`, `MovimentoOpItem`, `DeParaProduto`;
+  `MovimentoEstoque` ganhou `movimentoOpItemId` e o tipo `TRANSFERENCIA`.
+- `src/lib/permissions.ts` — módulos `movimentacoes` e `depara`.
+- `src/lib/rbac.ts`, `src/lib/navigation.ts`, `src/components/AppShell.tsx`,
+  `src/app/(app)/page.tsx`, `src/components/configuracoes/PermissionsMatrixForm.tsx`.
+- `src/lib/tutorial.ts`, `src/components/Tutorial.tsx`, `src/lib/changelog.ts`.
+- Testes ajustados ao módulo novo: `permissions.test.ts`, `navigation.test.ts`,
+  `push/__tests__/destinatarios.test.ts`.
+
+### O estado que justifica as tabelas novas
+`MovimentoOpItem.status = 'SAIDA_OK'`: a saída passou e a entrada não. O material
+saiu do saldo da origem e não chegou ao destino. Não é falha (repetir do zero
+baixaria de novo) e não é sucesso. A tela mostra em destaque no topo e "Concluir
+entrada" reenvia só a perna que falta (`saidaFeita: true`). `cod_int_ajuste` é
+`<id do item>-s` / `-e`, então reenviar nunca movimenta duas vezes. A retomada lê
+locais e quantidades do BANCO, nunca da tela: retomar com outra origem devolveria
+o material no lugar errado.
+
+### Onde o automático para de propósito
+- `ligaDoTexto` trata todo "INOX" como 430 (certo para o catálogo novo, que só
+  tem 430). A descrição antiga diz "ACO INOX 200", que é outra série: confiança
+  cai para APROXIMADA com aviso escrito na linha.
+- A unidade muda de M² para KG. Converter dependeria de espessura e densidade, e
+  a tabela de densidade ainda tem 3 valores estimados (pendência de 20/08).
+
+### Permissões
+`movimentacoes` acompanha `baixas` (as duas escrevem no estoque do Omie).
+`depara` nasce só para ADMIN/GESTOR: uma linha errada ali move a matéria-prima
+errada em toda OP seguinte. O admin libera para a engenharia em Configurações.
+
+### Comandos
+```bash
+npx prisma generate
+npx tsc --noEmit
+npm run lint
+npx vitest run
+npm run build
+```
+
+### Pendências / próximos passos
+1. Rodar a migração `20260828120000_movimentacao_op_e_depara` (o `vercel-build`
+   já faz `prisma migrate deploy`).
+2. Primeira sessão de De/Para com a engenharia: 92 MAT ativos contra centenas de
+   PRD com saldo. Enquanto a fila não andar, a Movimentação só opera nos 19 MAT
+   que já têm saldo.
+3. Decidir se haverá botão de transferir o saldo do PRD para o MAT (migração de
+   estoque, hoje fora do escopo).
+4. Achado lateral, NÃO corrigido: telas antigas (`baixas`, `configuracoes`,
+   `requisicoes`) usam `text-destructive`/`bg-destructive/10`, e `destructive`
+   não existe no `@theme` do `globals.css` — o token é `danger`. Essas mensagens
+   de erro provavelmente saem sem cor. As telas novas usam `danger`.
+
+
 ## 2026-07-02 — Fase 1 (Backend / Fundação)
 
 ### Resumo
