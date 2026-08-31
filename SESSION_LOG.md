@@ -1,5 +1,113 @@
 # SESSION_LOG — vital-ops
 
+## 2026-08-31 — Substituto legado na Movimentação, baixa/estorno da OP, OP no Multiplicador
+
+### Resumo
+Três pedidos do Vitor (mais um no meio da sessão):
+
+1. Na Movimentação por OP, poder **escolher o PRD** quando o código novo está
+   sem saldo, tentando puxar automático, mas **avisando quando o PRD não bate
+   com a nomenclatura nova**.
+2. Botão para **dar baixa** no que foi reservado quando a OP for startada, com
+   local para todos OU um local por item, tabelinha das reservadas e **reverter
+   baixa**.
+3. No Multiplicador, botão para **puxar de uma OP**.
+4. (no meio da sessão) No De/Para, **considerar só os ativos**.
+
+### Decisões (confirmadas com o Vitor)
+- A baixa fica num painel na PRÓPRIA tela de Movimentação, não em tela separada:
+  o fluxo é sequencial (reservar, produzir, baixar) e a pessoa já está ali com a
+  OP aberta.
+- Substituto em outra unidade **exige digitar a quantidade**. Pré-preencher com
+  a quantidade da OP seria oferecer 21,66 "kg" de um cadastro em M², e número
+  preenchido tende a ser confirmado sem leitura.
+- O Multiplicador gera planilha com CÓDIGO, DESCRIÇÃO, UNIDADE e QTD, e a OP
+  entra na lista como se fosse arquivo subido — assim download, ZIP e lote
+  continuam funcionando sem mexer no motor.
+
+### Arquivos criados
+- `src/lib/depara/substituto.ts` + `.test.ts` (13 casos) — índice INVERSO do
+  De/Para: `{código novo → candidatos legados}`. Duas origens, e a tela mostra a
+  diferença: `confirmado` (alguém revisou) e `automatico` (casado por geometria
+  e liga). Confirmado vem sempre antes de automático, mesmo com menos saldo.
+  `anotarUnidades` fecha o aviso de unidade, que só dá para calcular sabendo os
+  dois lados.
+- `src/lib/depara/legado.test.ts` (7 casos) — cobre o filtro de ativos.
+- `src/lib/multiplicador/opPlanilha.ts` + `.test.ts` (4 casos) — a OP virando
+  planilha. Um dos testes casa o cabeçalho gerado contra o `localizarColunas` do
+  próprio Multiplicador: sem isso a planilha sairia daqui e seria recusada lá.
+- `src/app/(app)/multiplicador/actions.ts` — `puxarOp`, leitura pura, permissão
+  `pranchas` (a mesma da tela).
+- `src/components/movimentacoes/ConsumoOpPanel.tsx` — tabelinha do reservado,
+  seletor global + por item, baixa e estorno.
+- `prisma/migrations/20260831120000_baixa_da_op_e_substituto/migration.sql`.
+
+### Arquivos alterados
+- `prisma/schema.prisma` — `MovimentoOpItem` ganhou `substituiSku` e as colunas
+  de consumo (`baixadoEm`, `refBaixa`, `baixaLocalCodigo/Nome`,
+  `baixaMotivoErro`, `baixaLote`, `estornadoEm`, `refEstorno`).
+- `src/lib/estoque/omieOp.ts` — `ProdutoOp` expõe `inativo`/`bloqueado`, e
+  `buscarProdutosPorId` passou a descartar id não numérico.
+- `src/lib/depara/legado.ts` — só cadastro ATIVO, e agora traz a UNIDADE.
+- `src/app/(app)/movimentacoes/actions.ts` — `anexarSubstitutos` (no lugar de
+  `anexarAlternativas`), `resumoOp`, `baixarOp`, `estornarOp`.
+- `src/components/movimentacoes/MovimentacaoOpClient.tsx` — seletor de
+  substituto por linha, regra de quantidade e o painel de consumo.
+- `src/components/multiplicador/MultiplicadorClient.tsx` — bloco "Puxar OP".
+- `src/lib/contracts/movimentacao.ts`, `src/lib/changelog.ts`,
+  `src/lib/tutorial.ts`, páginas das três telas.
+
+### Reservar e baixar são o MESMO item
+As colunas de consumo entraram no `MovimentoOpItem` em vez de virar tabela nova:
+o que se baixa é exatamente o que foi reservado. `baixaLocalCodigo` é gravado
+porque o estorno tem que devolver NO MESMO local de onde saiu, e a pessoa pode
+ter escolhido um local diferente por item. `cod_int_ajuste` da baixa é
+`<id do item>-b`, distinto das pernas da transferência (`-s` e `-e`), então
+baixar de novo é duplicado idempotente. Como `baixarEstoque`/`reverterBaixa`
+operam num local por vez, os itens são AGRUPADOS por local e cada grupo vira uma
+execução: saldo, lotes e FEFO sempre lidos do lugar certo.
+
+### O ciclo baixa → estorno → baixa
+`baixaSeq` conta os ciclos e entra no `cod_int_ajuste` (`<id>-b<seq>`). Sem o
+contador, baixar de novo depois de um estorno reusaria a mesma chave: o Omie
+responderia "duplicado", o app marcaria como baixado e o material continuaria no
+estoque. Divergência silenciosa, que é justamente o que o estorno existe para
+evitar. O estorno LIMPA `baixadoEm`/`refBaixa`/`baixaLote` (o material voltou) e
+guarda `estornadoEm`/`refEstorno` como rastro. A baixa seguinte limpa o
+`estornadoEm` (começa ciclo novo), senão o SEGUNDO estorno do mesmo item seria
+recusado pelo filtro e a pessoa ficaria sem como voltar atrás na segunda vez. As
+quatro chaves de um item (`-s`, `-e`, `-b<n>`, `est-...-b<n>`) têm teste
+provando que não colidem.
+
+### Dois furos meus, achados durante o trabalho
+1. O aviso de "a unidade muda de M² para KG" NUNCA disparava na tela de De/Para:
+   `listarLegadosComSaldo` não devolvia `unidade` (o `ListarPosEstoque` não tem
+   esse campo), então `sugerirEquivalente` recebia `undefined` e concluía que
+   não havia mudança. O pedido de "só ativos" exigia a mesma leitura de cadastro,
+   e os dois foram resolvidos juntos.
+2. `buscarProdutosPorId` fazia `Number(id)` sem checar: id não numérico viraria
+   `NaN` no `codigo_produto` do payload. Requisição inválida é requisição
+   incorreta, e incorreta conta pro bloqueio da app_key.
+
+### Comandos
+```bash
+npx prisma generate
+npx tsc --noEmit
+npm run lint
+npx vitest run
+npm run build
+```
+
+### Pendências / próximos passos
+1. Rodar as migrações `20260828120000_movimentacao_op_e_depara` e
+   `20260831120000_baixa_da_op_e_substituto`.
+2. O painel de consumo aparece sempre que a OP tem material reservado; NÃO lê o
+   `dDtInicio`/`cEtapa` da OP no Omie para saber se ela foi "startada" de fato.
+   Se o time quiser esse travamento, é uma leitura a mais no cabeçalho da OP.
+3. Continua valendo: fila do De/Para com a engenharia, e o token `destructive`
+   inexistente nas telas antigas.
+
+
 ## 2026-08-28 — Movimentação por OP e De/Para de códigos (2 telas novas)
 
 ### Resumo

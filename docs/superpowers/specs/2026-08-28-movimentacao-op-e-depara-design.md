@@ -68,3 +68,35 @@ O De/Para nunca liga sozinho. Dois motivos concretos, os dois com aviso escrito 
 - Rodar a migração `20260828120000_movimentacao_op_e_depara` (o `vercel-build` já faz `prisma migrate deploy`).
 - Primeira sessão de De/Para com a engenharia: são 92 MAT ativos e centenas de `PRD` com saldo.
 - Decidir em separado se haverá botão de transferir saldo do código antigo para o novo.
+
+---
+
+## Atualização de 31/08/2026
+
+Três pedidos novos do Vitor, mais um no meio da sessão.
+
+### Substituto legado na Movimentação
+
+Item da OP sem saldo no código novo passa a oferecer o cadastro ANTIGO que tem o material, num seletor por linha. O índice é o INVERSO do De/Para (`{código novo → candidatos legados}`), montado em `src/lib/depara/substituto.ts`, com duas origens que a tela distingue: `confirmado` (revisado por gente) e `automatico` (casado por geometria e liga). Confirmado vem sempre antes de automático, mesmo com menos saldo: quantidade de material não é argumento contra uma decisão que alguém já tomou.
+
+Quando a unidade do cadastro antigo difere da que a OP pede, a quantidade vem EM BRANCO e a linha só fica selecionável depois que alguém digitar. Decisão do Vitor, e o motivo é concreto: pré-preencher 21,66 "kg" de um cadastro em M² produz um número errado por definição, e número já preenchido tende a ser confirmado sem leitura.
+
+O item gravado carrega `substituiSku` com o código que a OP pediu, para o histórico não dizer que a ordem consumiu um PRD que ela nunca pediu.
+
+### Baixa e estorno na própria tela
+
+Reservar e consumir são dois passos do MESMO item, então as colunas de consumo entraram no `MovimentoOpItem` em vez de virar tabela nova. O painel mostra a tabelinha do reservado, um seletor de local global e um por item (o padrão é cada item sair de onde foi reservado, porque forçar um local único é a forma mais fácil de baixar material de onde ele não está).
+
+Como `baixarEstoque`/`reverterBaixa` operam num local por vez, os itens são agrupados por local e cada grupo vira uma execução, com saldo, lotes e FEFO lidos do lugar certo.
+
+O ponto delicado é o ciclo: `baixaSeq` conta as idas e vindas e entra no `cod_int_ajuste` (`<id>-b<seq>`). Sem o contador, baixar de novo depois de um estorno reusaria a chave anterior, o Omie responderia "duplicado" e o app marcaria como baixado sem ter baixado nada. O estorno limpa `baixadoEm`/`refBaixa`/`baixaLote` (o material voltou) e guarda `estornadoEm`/`refEstorno` como rastro. As quatro chaves de um item (`-s`, `-e`, `-b<n>`, `est-…-b<n>`) têm teste provando que não colidem.
+
+### OP no Multiplicador
+
+`puxarOp` (leitura pura, permissão `pranchas`) traz os itens; a planilha é montada no NAVEGADOR (`opPlanilha.ts`) e entra na lista como se fosse arquivo subido, então download, ZIP e lote continuam funcionando sem tocar no motor. Um teste casa o cabeçalho gerado contra o `localizarColunas` do próprio Multiplicador, senão a planilha sairia daqui e seria recusada lá.
+
+### De/Para só com cadastro ativo
+
+`listarLegadosComSaldo` passou a confirmar cada candidato no cadastro (leitura em lote, 50 ids por chamada) e descarta inativo e bloqueado. A mesma leitura traz a UNIDADE, que a posição de estoque não devolve — e sem ela o aviso de "a unidade muda de M² para KG" nunca disparava na tela de De/Para. Os dois foram resolvidos juntos.
+
+Efeito colateral bom: `buscarProdutosPorId` ganhou guarda para id não numérico, que viraria `NaN` no `codigo_produto`. Requisição inválida é requisição incorreta, e incorreta conta pro bloqueio da app_key.

@@ -12,6 +12,7 @@ import { blocosDoCodigo } from "@/lib/bom/bomParser";
 import type { OmiePayload } from "@/lib/omie/client";
 import { lerEspecificacao, parteDescritiva } from "@/lib/produtos/materiaPrima";
 import type { ChamarFn } from "@/lib/estoque/omieEstoque";
+import { buscarProdutosPorId } from "@/lib/estoque/omieOp";
 import type { ItemLegado } from "./depara";
 
 const REGISTROS_POR_PAGINA = 100;
@@ -47,15 +48,26 @@ export interface ItemPosicao extends ItemLegado {
 }
 
 /**
- * Cadastros com saldo no local, já filtrados para o que faz sentido converter.
+ * Cadastros ATIVOS com saldo no local, já filtrados para o que faz sentido
+ * converter.
  *
- * Dois filtros, nesta ordem:
+ * Três filtros, nesta ordem (os dois primeiros são locais e de graça; o
+ * terceiro custa leitura, então só roda no que sobrou):
+ *
  *  1. código fora do padrão novo 5-5-5 — quem já é MAT/COM/SBM/PCA não tem
  *     para onde ir;
  *  2. a descrição precisa se ler como matéria-prima (chapa, tubo, trefilado).
  *     É o mesmo `lerEspecificacao` do casamento, e é ele que mantém caneta
  *     esferográfica e papel sulfite fora da fila sem depender de uma lista de
- *     exceções escrita à mão.
+ *     exceções escrita à mão;
+ *  3. cadastro ATIVO e não bloqueado. A posição de estoque não diz nada sobre
+ *     isso: item inativo com sobra de saldo continua aparecendo lá, e revisar
+ *     De/Para de cadastro morto é trabalho jogado fora.
+ *
+ * O passo 3 traz junto a UNIDADE do cadastro, que a posição de estoque também
+ * não devolve. Sem ela, o aviso de "a unidade muda de M² para KG" nunca
+ * dispararia — a fila mostraria o casamento como se não houvesse nada a
+ * conferir, que é exatamente o erro que o De/Para existe para evitar.
  *
  * `cExibeTodos: "N"` traz só o que tem saldo. Aqui isso é seguro (o local tem
  * centenas de itens); é no filtro POR SKU que o "N" viraria fault de vazio.
@@ -66,7 +78,7 @@ export async function listarLegadosComSaldo(
   chamar: ChamarFn,
   opcoes: { revalidar?: boolean } = {},
 ): Promise<ItemPosicao[]> {
-  const encontrados: ItemPosicao[] = [];
+  const candidatos: ItemPosicao[] = [];
 
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const resp = await chamar(
@@ -94,7 +106,7 @@ export async function listarLegadosComSaldo(
         // Com o código junto, os dígitos dele entram como medida: "CREHI PC002
         // CCPTD - CHAPA DE FIXAÇÃO" viraria uma chapa de 2 mm que não existe.
         if (!lerEspecificacao(parteDescritiva(codigo, descricao))) continue;
-        encontrados.push({
+        candidatos.push({
           codigo,
           idProd,
           descricao,
@@ -108,5 +120,19 @@ export async function listarLegadosComSaldo(
     if (pagina >= totalPaginas) break;
   }
 
-  return encontrados;
+  if (candidatos.length === 0) return candidatos;
+
+  // Leitura em lote (50 ids por chamada) para saber quem está ativo e em qual
+  // unidade. Cadastro que não voltar do Omie fica de fora: sem confirmar que
+  // está ativo, ele não entra numa fila que decide de onde sai material.
+  const cadastros = await buscarProdutosPorId(
+    candidatos.map((item) => item.idProd),
+    chamar,
+  );
+
+  return candidatos.flatMap((item) => {
+    const cadastro = cadastros.get(item.idProd);
+    if (!cadastro || cadastro.inativo || cadastro.bloqueado) return [];
+    return [{ ...item, unidade: cadastro.unidade }];
+  });
 }

@@ -23,6 +23,12 @@ export const movimentoItemSchema = z.object({
   familia: z.string().trim().max(120).optional(),
   grupo: grupoItemSchema.optional(),
   quantidade: z.number().positive().finite(),
+  /**
+   * Código NOVO que a OP pediu, quando esta linha está movendo o cadastro
+   * ANTIGO no lugar dele. Sem isso o histórico diria que a OP consumiu um PRD
+   * que ela nunca pediu.
+   */
+  substituiSku: z.string().trim().max(60).optional(),
 });
 export type MovimentoItemInput = z.infer<typeof movimentoItemSchema>;
 
@@ -89,3 +95,34 @@ export const removerDeParaSchema = z.object({
   codigoLegado: z.string().trim().min(1).max(60),
 });
 export type RemoverDeParaInput = z.infer<typeof removerDeParaSchema>;
+
+// --- Consumo do que foi reservado (baixa da OP) e estorno --------------------
+
+// Uma linha da baixa. `localCodigo` por item porque a pessoa pode ter guardado
+// parte do material em outro lugar; quando ela não escolhe, cai no local da
+// reserva daquele item, não num padrão global escondido.
+export const baixaOpItemSchema = z.object({
+  itemId: z.string().trim().min(1).max(40),
+  localCodigo: localEstoqueCodigoSchema.optional(),
+});
+export type BaixaOpItemInput = z.infer<typeof baixaOpItemSchema>;
+
+export const baixarOpSchema = z.object({
+  numeroOp: numeroOpSchema,
+  itens: z.array(baixaOpItemSchema).min(1).max(300),
+});
+export type BaixarOpInput = z.infer<typeof baixarOpSchema>;
+
+// Estorno: devolve o material ao local de onde a baixa saiu. Recebe só os ids;
+// local, quantidade e lotes vêm do banco, do registro da própria baixa.
+export const estornarOpSchema = z.object({
+  itemIds: z.array(z.string().trim().min(1).max(40)).min(1).max(300),
+});
+export type EstornarOpInput = z.infer<typeof estornarOpSchema>;
+
+// --- Multiplicador: puxar os itens de uma OP --------------------------------
+
+export const puxarOpSchema = z.object({
+  numeroOp: numeroOpSchema,
+});
+export type PuxarOpInput = z.infer<typeof puxarOpSchema>;

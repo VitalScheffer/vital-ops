@@ -1,10 +1,12 @@
 "use client";
 
-import { Download, Eye, FileArchive, FileText, Loader2, Printer, Trash2, Upload } from "lucide-react";
+import { ClipboardList, Download, Eye, FileArchive, FileText, Loader2, Printer, Trash2, Upload } from "lucide-react";
 import { ChangeEvent, useRef, useState } from "react";
 
-import type { ArquivoGerado } from "@/lib/multiplicador/celulas";
+import { puxarOp } from "@/app/(app)/multiplicador/actions";
 import { baixarBlob } from "@/lib/bom/download";
+import type { ArquivoGerado } from "@/lib/multiplicador/celulas";
+import { planilhaDaOp } from "@/lib/multiplicador/opPlanilha";
 
 interface ItemArquivo {
   id: string;
@@ -18,6 +20,8 @@ interface ItemArquivo {
 }
 
 const ACEITOS = new Set(["pdf", "xls", "xlsx", "csv"]);
+
+const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function extensao(nome: string): string {
   return nome.split(".").pop()?.toLowerCase() ?? "";
@@ -33,6 +37,10 @@ export function MultiplicadorClient() {
   const [baixandoLote, setBaixandoLote] = useState(false);
   const [previsualizando, setPrevisualizando] = useState(false);
   const [erroLote, setErroLote] = useState<string | null>(null);
+  const [numeroOp, setNumeroOp] = useState("");
+  const [puxando, setPuxando] = useState(false);
+  const [erroOp, setErroOp] = useState<string | null>(null);
+  const [avisoOp, setAvisoOp] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function adicionar(files: FileList | File[]) {
@@ -49,6 +57,63 @@ export function MultiplicadorClient() {
         resultado: null,
       }));
     setArquivos((atual) => [...atual, ...novos]);
+  }
+
+  /**
+   * Puxa os itens de uma OP do Omie e entra na lista como se fosse um arquivo
+   * subido. A planilha é montada AQUI, no navegador: do servidor vem só a lista
+   * de itens, e o Multiplicador continua sendo uma tela que processa local.
+   *
+   * As quantidades da OP já vêm multiplicadas pela quantidade da ordem, então o
+   * fator daqui é o "e se eu produzir N vezes essa OP".
+   */
+  async function puxarDaOp() {
+    const numero = numeroOp.trim();
+    if (!numero) return;
+    setPuxando(true);
+    setErroOp(null);
+    setAvisoOp(null);
+    try {
+      const resposta = await puxarOp({ numeroOp: numero });
+      if (!resposta.ok) {
+        setErroOp(
+          resposta.ambiguas?.length
+            ? `${resposta.erro} Encontrei: ${resposta.ambiguas.join(", ")}.`
+            : (resposta.erro ?? "Não consegui puxar a OP."),
+        );
+        return;
+      }
+      if (resposta.itens.length === 0) {
+        setErroOp(`A OP ${resposta.numeroOp} não tem itens de material no Omie.`);
+        return;
+      }
+
+      const planilha = planilhaDaOp(resposta.numeroOp ?? numero, resposta.itens);
+      const file = new File([planilha.bytes as BlobPart], planilha.nome, { type: MIME_XLSX });
+      setArquivos((atual) => [
+        ...atual,
+        {
+          id: `op-${resposta.numeroOp}-${crypto.randomUUID()}`,
+          file,
+          fator: 1,
+          quantidade: true,
+          peso: false,
+          processando: false,
+          erro: null,
+          resultado: null,
+        },
+      ]);
+      setNumeroOp("");
+      setAvisoOp(
+        `OP ${resposta.numeroOp} (${resposta.produtoCodigo ?? "produto"}, ${resposta.quantidadeOp ?? 0} a produzir): ` +
+          `${resposta.itens.length} itens. As quantidades já vêm multiplicadas pela quantidade da ordem; ` +
+          "o fator aqui multiplica em cima disso.",
+      );
+    } catch {
+      setErroOp("Não consegui puxar a OP agora. Tente novamente.");
+    } finally {
+      setPuxando(false);
+    }
   }
 
   function selecionar(event: ChangeEvent<HTMLInputElement>) {
@@ -152,6 +217,37 @@ export function MultiplicadorClient() {
         <button type="button" onClick={() => inputRef.current?.click()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
           <Upload className="h-4 w-4" /> Selecionar arquivos
         </button>
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">Puxar de uma Ordem de Produção</span>
+            <input
+              value={numeroOp}
+              onChange={(event) => setNumeroOp(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void puxarDaOp();
+              }}
+              placeholder="2026/00802"
+              className="w-48 rounded-lg border border-border bg-field px-3 py-2 text-sm text-card-foreground outline-none focus-visible:border-primary"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void puxarDaOp()}
+            disabled={puxando || numeroOp.trim().length === 0}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {puxando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+            {puxando ? "Puxando..." : "Puxar OP"}
+          </button>
+          <p className="text-xs text-muted-foreground">
+            A lista de material vem direto do Omie e entra aqui como planilha, com a coluna QTD pronta para o fator.
+          </p>
+        </div>
+        {erroOp ? <p className="mt-3 rounded-lg bg-danger-dim px-3 py-2 text-sm text-danger">{erroOp}</p> : null}
+        {avisoOp ? <p className="mt-3 rounded-lg bg-success-dim px-3 py-2 text-sm text-success">{avisoOp}</p> : null}
       </section>
 
       {arquivos.length > 0 && (

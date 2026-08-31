@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ListChecks, PackageSearch, Send } from "lucide-react";
+import { ArrowLeftRight, ListChecks, PackageMinus, PackageSearch, Send } from "lucide-react";
 
 import { Forbidden } from "@/components/Forbidden";
 import {
@@ -42,7 +42,7 @@ function ComoFunciona() {
       icon: ListChecks,
       titulo: "2. Confira a lista",
       texto:
-        "As quantidades já vêm multiplicadas pela quantidade da OP, na unidade de cada cadastro (10 unidades de uma chapa de 1 kg aparecem como 10 kg). Vêm marcadas só matéria-prima e comprados; um botão mostra toda a BOM.",
+        "As quantidades já vêm multiplicadas pela quantidade da OP, na unidade de cada cadastro (10 unidades de uma chapa de 1 kg aparecem como 10 kg). Item sem saldo no código novo oferece o cadastro antigo que tem o material, avisando quando a nomenclatura ou a unidade não batem.",
     },
     {
       icon: ArrowLeftRight,
@@ -56,10 +56,16 @@ function ComoFunciona() {
       texto:
         "O Omie não tem transferência: cada item vira uma saída na origem e uma entrada no destino. Se algo interromper no meio, a tela avisa quais itens ficaram sem a entrada e conclui só o que falta, sem mover nada duas vezes.",
     },
+    {
+      icon: PackageMinus,
+      titulo: "5. Quando a produção começar, dê baixa",
+      texto:
+        "Abaixo aparece a tabelinha do que está reservado para a OP. Escolha um local para todos ou um por item e dê baixa: aí sim o material sai do saldo. Errou? \"Reverter baixa\" devolve tudo ao mesmo local e aos mesmos lotes.",
+    },
   ];
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {passos.map((passo) => (
         <div key={passo.titulo} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">

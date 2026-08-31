@@ -6,7 +6,9 @@ import {
   acharOrdem,
   agregarItens,
   buscarProdutosPorId,
+  chaveDaBaixa,
   chaveDaOrdem,
+  itemDaChaveDeBaixa,
   grupoDoItem,
   listarOrdensProducao,
   transferirEstoque,
@@ -217,7 +219,56 @@ describe("buscarProdutosPorId", () => {
       unidade: "KG",
       grupo: "MAT",
       controleLote: false,
+      inativo: false,
+      bloqueado: false,
     });
+  });
+
+  it("marca inativo e bloqueado (quem monta lista de escolha precisa descartar)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({
+      produto_servico_cadastro: [
+        { codigo_produto: 1, codigo: "PRD00001", descricao: "x", inativo: "S", bloqueado: "N" },
+        { codigo_produto: 2, codigo: "PRD00002", descricao: "y", inativo: "N", bloqueado: "S" },
+      ],
+    });
+
+    const mapa = await buscarProdutosPorId(["1", "2"], chamar);
+    expect(mapa.get("1")?.inativo).toBe(true);
+    expect(mapa.get("2")?.bloqueado).toBe(true);
+  });
+
+  it("id não numérico NÃO vira NaN no payload (requisição inválida conta pro ban)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue({ produto_servico_cadastro: [] });
+
+    await buscarProdutosPorId(["12128056828", "abc", ""], chamar);
+
+    expect(chamar.mock.calls[0][2]).toMatchObject({
+      produtosPorCodigo: [{ codigo_produto: 12128056828 }],
+    });
+  });
+
+  it("sem nenhum id válido, não chama o Omie", async () => {
+    const chamar = vi.fn<ChamarFn>();
+    expect(await buscarProdutosPorId(["abc"], chamar)).toEqual(new Map());
+    expect(chamar).not.toHaveBeenCalled();
+  });
+});
+
+describe("chaves de idempotência", () => {
+  it("a baixa carrega o ciclo, para o estorno não bloquear uma baixa nova", () => {
+    expect(chaveDaBaixa("cmabc123", 0)).toBe("cmabc123-b0");
+    expect(chaveDaBaixa("cmabc123", 1)).toBe("cmabc123-b1");
+  });
+
+  it("a chave volta para o id do item, mesmo com '-b' no meio do cuid", () => {
+    expect(itemDaChaveDeBaixa("cm-b-abc-b3")).toBe("cm-b-abc");
+    expect(itemDaChaveDeBaixa(chaveDaBaixa("cmabc123", 7))).toBe("cmabc123");
+  });
+
+  it("baixa e estorno do mesmo ciclo NÃO colidem com as pernas da transferência", () => {
+    const id = "cmabc123";
+    const chaves = new Set([`${id}-s`, `${id}-e`, chaveDaBaixa(id, 0), `est-${chaveDaBaixa(id, 0)}`]);
+    expect(chaves.size).toBe(4);
   });
 });
 

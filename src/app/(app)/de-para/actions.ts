@@ -68,6 +68,8 @@ export interface DecisaoSalva {
 export interface LinhaFila {
   codigo: string;
   descricao: string;
+  /** Unidade do cadastro antigo, lida do Omie. */
+  unidade?: string;
   saldo: number;
   sugestao: SugestaoDePara;
   decidido?: DecisaoSalva;
@@ -142,6 +144,7 @@ export async function carregarFila(
     return {
       codigo: linha.codigo,
       descricao: linha.descricao,
+      unidade: linha.unidade,
       saldo: linha.saldo ?? 0,
       sugestao: linha.sugestao,
       decidido: decisao

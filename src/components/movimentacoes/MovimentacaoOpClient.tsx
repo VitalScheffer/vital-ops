@@ -16,10 +16,13 @@ import {
   conferirOp,
   continuarMovimento,
   executarMovimento,
+  resumoOp,
+  type ItemReservado,
   type LinhaConferida,
   type ResultadoConferenciaOp,
   type ResultadoExecucaoMovimento,
 } from "@/app/(app)/movimentacoes/actions";
+import { ConsumoOpPanel } from "@/components/movimentacoes/ConsumoOpPanel";
 import { Select } from "@/components/ui/Select";
 import type { GrupoItemMovimento } from "@/lib/contracts";
 import { destinoSugerido, origemSugerida } from "@/lib/estoque/locais";
@@ -51,7 +54,7 @@ const ROTULO_GRUPO: Record<GrupoItemMovimento, string> = {
 };
 
 // O que a fábrica separa e leva pra produção. Submontagem e peça só entram
-// quando a pessoa pede "toda a BOM" — elas são fabricadas, não retiradas.
+// quando a pessoa pede "toda a BOM": elas são fabricadas, não retiradas.
 const GRUPOS_PADRAO: GrupoItemMovimento[] = ["MAT", "COM"];
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -72,6 +75,50 @@ function numero(valor: number, casas = 4): string {
   return valor.toLocaleString("pt-BR", { maximumFractionDigits: casas });
 }
 
+/**
+ * O item que a linha vai MOVER de verdade.
+ *
+ * A OP pede um código; quando ele está sem saldo e a pessoa escolhe um cadastro
+ * antigo, o que vai para o Omie é o antigo, e o código da OP fica registrado em
+ * `substituiSku` para o histórico não mentir sobre o que a ordem pediu.
+ */
+interface ItemEfetivo {
+  idProd: string;
+  sku: string;
+  unidade?: string;
+  descricao: string;
+  saldo: number;
+  substituiSku?: string;
+  avisos: string[];
+  /** A unidade mudou: a quantidade tem que ser digitada, não herdada da OP. */
+  exigeQuantidade: boolean;
+}
+
+function itemEfetivo(linha: LinhaConferida, escolha: string): ItemEfetivo {
+  const substituto = linha.substitutos?.find((s) => s.codigo === escolha);
+  if (!substituto) {
+    return {
+      idProd: linha.idProd,
+      sku: linha.sku,
+      unidade: linha.unidade,
+      descricao: linha.descricao,
+      saldo: linha.saldoOrigem,
+      avisos: [],
+      exigeQuantidade: false,
+    };
+  }
+  return {
+    idProd: substituto.idProd,
+    sku: substituto.codigo,
+    unidade: substituto.unidade,
+    descricao: substituto.descricao,
+    saldo: substituto.saldo,
+    substituiSku: linha.sku,
+    avisos: substituto.avisos,
+    exigeQuantidade: substituto.unidadeMuda,
+  };
+}
+
 interface Props {
   locais: LocalOpcao[];
   pendentes: PendenteResumo[];
@@ -88,9 +135,13 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   const [tudo, setTudo] = useState(false);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
+  // Por linha (chave = idProd do item da OP): "" usa o código que a OP pede;
+  // qualquer outro valor é o código do cadastro antigo escolhido no lugar dele.
+  const [substitutos, setSubstitutos] = useState<Record<string, string>>({});
   const [execucao, setExecucao] = useState<ResultadoExecucaoMovimento | null>(null);
   const [executando, setExecutando] = useState(false);
   const [retomando, setRetomando] = useState<string | null>(null);
+  const [reservados, setReservados] = useState<ItemReservado[]>([]);
   const reqId = useRef(0);
 
   const visiveis = useMemo(() => {
@@ -100,8 +151,33 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   const totalLinhas = conferencia?.linhas.length ?? 0;
   const escondidas = totalLinhas - visiveis.length;
 
-  const selecionadas = visiveis.filter((l) => marcados.has(l.idProd));
   const mesmoLocal = origem === destino;
+  const numeroCanonico = conferencia?.ordem?.numero ?? numeroOp;
+
+  // Linha marcada só entra na movimentação com quantidade > 0. É o que segura o
+  // caso do substituto em outra unidade: ao trocar, a quantidade é zerada e a
+  // linha fica inelegível até alguém digitar quanto vai sair.
+  const selecionadas = visiveis
+    .filter((linha) => marcados.has(linha.idProd))
+    .filter((linha) => (quantidades[linha.idProd] ?? 0) > 0);
+
+  function aplicarConferencia(resultado: ResultadoConferenciaOp) {
+    setConferencia(resultado);
+    setSubstitutos({});
+    setQuantidades(Object.fromEntries(resultado.linhas.map((l) => [l.idProd, l.quantidade])));
+    // Já vem marcado o que dá para mover: linha sem saldo entra desmarcada, com
+    // o motivo e as alternativas à vista, em vez de sumir da lista.
+    setMarcados(
+      new Set(
+        resultado.linhas.filter((l) => GRUPOS_PADRAO.includes(l.grupo) && l.suficiente).map((l) => l.idProd),
+      ),
+    );
+  }
+
+  async function carregarReservados(numero: string) {
+    const resumo = await resumoOp(numero);
+    setReservados(resumo.ok ? resumo.itens : []);
+  }
 
   async function buscar(recarregar = false) {
     const id = ++reqId.current;
@@ -110,14 +186,9 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
     try {
       const resultado = await conferirOp({ numeroOp, origemCodigo: origem, recarregar });
       if (reqId.current !== id) return;
-      setConferencia(resultado);
-      // Já vem marcado o que dá para mover: linha sem saldo entra desmarcada,
-      // com o motivo à vista, em vez de sumir da lista.
-      const iniciais = new Set(
-        resultado.linhas.filter((l) => GRUPOS_PADRAO.includes(l.grupo) && l.suficiente).map((l) => l.idProd),
-      );
-      setMarcados(iniciais);
-      setQuantidades(Object.fromEntries(resultado.linhas.map((l) => [l.idProd, l.quantidade])));
+      aplicarConferencia(resultado);
+      if (resultado.ok && resultado.ordem) await carregarReservados(resultado.ordem.numero);
+      else setReservados([]);
     } finally {
       if (reqId.current === id) setBuscando(false);
     }
@@ -128,19 +199,14 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   async function trocarOrigem(novo: string) {
     setOrigem(novo);
     setExecucao(null);
-    if (conferencia?.ok) {
-      const id = ++reqId.current;
-      setBuscando(true);
-      try {
-        const resultado = await conferirOp({ numeroOp, origemCodigo: novo });
-        if (reqId.current !== id) return;
-        setConferencia(resultado);
-        setMarcados(
-          new Set(resultado.linhas.filter((l) => GRUPOS_PADRAO.includes(l.grupo) && l.suficiente).map((l) => l.idProd)),
-        );
-      } finally {
-        if (reqId.current === id) setBuscando(false);
-      }
+    if (!conferencia?.ok) return;
+    const id = ++reqId.current;
+    setBuscando(true);
+    try {
+      const resultado = await conferirOp({ numeroOp, origemCodigo: novo });
+      if (reqId.current === id) aplicarConferencia(resultado);
+    } finally {
+      if (reqId.current === id) setBuscando(false);
     }
   }
 
@@ -153,8 +219,35 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
     });
   }
 
+  function podeMover(linha: LinhaConferida): boolean {
+    const efetivo = itemEfetivo(linha, substitutos[linha.idProd] ?? "");
+    const quantidade = quantidades[linha.idProd] ?? 0;
+    return quantidade > 0 && efetivo.saldo >= quantidade;
+  }
+
   function marcarTodos(ligar: boolean) {
-    setMarcados(ligar ? new Set(visiveis.filter((l) => l.suficiente).map((l) => l.idProd)) : new Set());
+    setMarcados(ligar ? new Set(visiveis.filter(podeMover).map((l) => l.idProd)) : new Set());
+  }
+
+  /**
+   * Trocar o cadastro a mover zera a quantidade quando a unidade muda e
+   * desmarca a linha. Manter o número da OP ali seria oferecer 21,66 "kg" de um
+   * cadastro que está em M², e número já preenchido tende a ser confirmado sem
+   * leitura.
+   */
+  function escolherSubstituto(linha: LinhaConferida, codigo: string) {
+    setSubstitutos((atual) => ({ ...atual, [linha.idProd]: codigo }));
+    const efetivo = itemEfetivo(linha, codigo);
+    if (efetivo.exigeQuantidade) {
+      setQuantidades((atual) => ({ ...atual, [linha.idProd]: 0 }));
+      setMarcados((atual) => {
+        const proximo = new Set(atual);
+        proximo.delete(linha.idProd);
+        return proximo;
+      });
+      return;
+    }
+    setQuantidades((atual) => ({ ...atual, [linha.idProd]: linha.quantidade }));
   }
 
   async function transferir() {
@@ -162,20 +255,25 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
     setExecutando(true);
     try {
       const resultado = await executarMovimento({
-        numeroOp: conferencia?.ordem?.numero ?? numeroOp,
+        numeroOp: numeroCanonico,
         origemCodigo: origem,
         destinoCodigo: destino,
-        itens: selecionadas.map((linha) => ({
-          idProd: linha.idProd,
-          sku: linha.sku,
-          descricao: linha.descricao,
-          unidade: linha.unidade,
-          familia: linha.familia,
-          grupo: linha.grupo,
-          quantidade: quantidades[linha.idProd] ?? linha.quantidade,
-        })),
+        itens: selecionadas.map((linha) => {
+          const efetivo = itemEfetivo(linha, substitutos[linha.idProd] ?? "");
+          return {
+            idProd: efetivo.idProd,
+            sku: efetivo.sku,
+            descricao: efetivo.descricao,
+            unidade: efetivo.unidade,
+            familia: linha.familia,
+            grupo: linha.grupo,
+            quantidade: quantidades[linha.idProd] ?? linha.quantidade,
+            substituiSku: efetivo.substituiSku,
+          };
+        }),
       });
       setExecucao(resultado);
+      await carregarReservados(numeroCanonico);
     } finally {
       setExecutando(false);
     }
@@ -184,7 +282,9 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   async function retomar(movimentoId: string) {
     setRetomando(movimentoId);
     try {
-      setExecucao(await continuarMovimento({ movimentoId }));
+      const resultado = await continuarMovimento({ movimentoId });
+      setExecucao(resultado);
+      if (conferencia?.ordem) await carregarReservados(conferencia.ordem.numero);
     } finally {
       setRetomando(null);
     }
@@ -198,7 +298,9 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
         <div className="rounded-xl border border-warning/40 bg-warning-dim p-4">
           <p className="flex items-center gap-2 text-sm font-semibold text-warning">
             <TriangleAlert className="h-4 w-4 shrink-0" />
-            {pendentes.length === 1 ? "Uma movimentação ficou pela metade" : `${pendentes.length} movimentações ficaram pela metade`}
+            {pendentes.length === 1
+              ? "Uma movimentação ficou pela metade"
+              : `${pendentes.length} movimentações ficaram pela metade`}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             Nesses itens a saída foi lançada na origem e a entrada no destino não. O material está fora dos dois
@@ -213,7 +315,7 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
                 </span>
                 <button
                   type="button"
-                  onClick={() => retomar(p.id)}
+                  onClick={() => void retomar(p.id)}
                   disabled={retomando !== null}
                   className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-60"
                 >
@@ -352,12 +454,11 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[52rem] text-sm">
+            <table className="w-full min-w-[56rem] text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="w-10 px-3 py-2" />
-                  <th className="px-3 py-2">Código</th>
-                  <th className="px-3 py-2">Descrição</th>
+                  <th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2">Tipo</th>
                   <th className="px-3 py-2 text-right">Quantidade</th>
                   <th className="px-3 py-2 text-right">Saldo na origem</th>
@@ -368,12 +469,12 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
                   <LinhaTabela
                     key={linha.idProd}
                     linha={linha}
+                    escolha={substitutos[linha.idProd] ?? ""}
                     marcado={marcados.has(linha.idProd)}
-                    quantidade={quantidades[linha.idProd] ?? linha.quantidade}
+                    quantidade={quantidades[linha.idProd] ?? 0}
                     onToggle={() => alternar(linha.idProd)}
-                    onQuantidade={(valor) =>
-                      setQuantidades((atual) => ({ ...atual, [linha.idProd]: valor }))
-                    }
+                    onQuantidade={(valor) => setQuantidades((atual) => ({ ...atual, [linha.idProd]: valor }))}
+                    onSubstituto={(codigo) => escolherSubstituto(linha, codigo)}
                   />
                 ))}
               </tbody>
@@ -399,56 +500,119 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
       ) : null}
 
       {execucao ? <ResultadoExecucao resultado={execucao} /> : null}
+
+      {reservados.length > 0 ? (
+        <ConsumoOpPanel
+          numeroOp={numeroCanonico}
+          itens={reservados}
+          locais={locais}
+          onAtualizar={setReservados}
+        />
+      ) : null}
     </div>
   );
 }
 
 function LinhaTabela({
   linha,
+  escolha,
   marcado,
   quantidade,
   onToggle,
   onQuantidade,
+  onSubstituto,
 }: {
   linha: LinhaConferida;
+  escolha: string;
   marcado: boolean;
   quantidade: number;
   onToggle: () => void;
   onQuantidade: (valor: number) => void;
+  onSubstituto: (codigo: string) => void;
 }) {
-  const excede = quantidade > linha.saldoOrigem;
+  const efetivo = itemEfetivo(linha, escolha);
+  const excede = quantidade > efetivo.saldo;
+  const faltaQuantidade = quantidade <= 0;
+  const temSubstituto = (linha.substitutos?.length ?? 0) > 0;
+
   return (
     <tr className="border-t border-border align-top">
       <td className="px-3 py-2">
-        <input type="checkbox" checked={marcado} onChange={onToggle} className="h-4 w-4 accent-[var(--primary)]" />
+        <input
+          type="checkbox"
+          checked={marcado}
+          onChange={onToggle}
+          disabled={faltaQuantidade}
+          className="h-4 w-4 accent-[var(--primary)] disabled:opacity-40"
+        />
       </td>
-      <td className="px-3 py-2 font-mono text-xs text-card-foreground">{linha.sku}</td>
+
       <td className="px-3 py-2">
-        <span className="text-card-foreground">{linha.descricao}</span>
-        {linha.aviso ? <span className="mt-1 block text-xs text-danger">{linha.aviso}</span> : null}
-        {linha.alternativa ? (
-          <span className="mt-1 block text-xs text-warning">
-            O saldo está no código antigo <b className="font-mono">{linha.alternativa.codigoLegado}</b> (
-            {numero(linha.alternativa.saldo)} na origem): {linha.alternativa.descricaoLegado}.
+        <span className="font-mono text-xs text-card-foreground">{efetivo.sku}</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">{efetivo.descricao}</span>
+
+        {efetivo.substituiSku ? (
+          <span className="mt-0.5 block text-xs text-warning">
+            no lugar de <b className="font-mono">{efetivo.substituiSku}</b>, que a OP pede
           </span>
         ) : null}
+
+        {linha.aviso ? <span className="mt-1 block text-xs text-danger">{linha.aviso}</span> : null}
+
+        {temSubstituto ? (
+          <div className="mt-2 flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">
+              {linha.sku} está sem saldo aqui. Dá para mover um cadastro antigo no lugar:
+            </span>
+            <Select
+              value={escolha}
+              onChange={(e) => onSubstituto(e.target.value)}
+              containerClassName="max-w-[26rem]"
+              className="py-1 text-xs"
+            >
+              <option value="" className="bg-card text-foreground">
+                {linha.sku} (saldo {numero(linha.saldoOrigem)})
+              </option>
+              {linha.substitutos?.map((substituto) => (
+                <option key={substituto.codigo} value={substituto.codigo} className="bg-card text-foreground">
+                  {substituto.codigo} (saldo {numero(substituto.saldo)}
+                  {substituto.unidade ? ` ${substituto.unidade}` : ""})
+                  {substituto.origem === "confirmado" ? " · De/Para confirmado" : " · deduzido, confira"}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
+
+        {efetivo.avisos.map((aviso) => (
+          <span key={aviso} className="mt-1 block text-xs text-warning">
+            {aviso}
+          </span>
+        ))}
       </td>
+
       <td className="px-3 py-2 text-xs text-muted-foreground">{ROTULO_GRUPO[linha.grupo]}</td>
+
       <td className="px-3 py-2 text-right">
         <input
           type="number"
           min={0}
           step="any"
-          value={quantidade}
+          value={quantidade === 0 ? "" : quantidade}
+          placeholder={efetivo.exigeQuantidade ? "digite" : "0"}
           onChange={(e) => onQuantidade(Number(e.target.value))}
           className={`w-28 rounded-lg border bg-field px-2 py-1 text-right text-sm text-card-foreground outline-none ${
-            excede ? "border-danger" : "border-border"
+            excede || faltaQuantidade ? "border-danger" : "border-border"
           }`}
         />
-        <span className="ml-1 text-xs text-muted-foreground">{linha.unidade ?? ""}</span>
+        <span className="ml-1 text-xs text-muted-foreground">{efetivo.unidade ?? ""}</span>
+        {faltaQuantidade && efetivo.exigeQuantidade ? (
+          <span className="mt-1 block text-xs text-warning">informe a quantidade nesta unidade</span>
+        ) : null}
       </td>
+
       <td className={`px-3 py-2 text-right ${excede ? "text-danger" : "text-muted-foreground"}`}>
-        {numero(linha.saldoOrigem)} {linha.unidade ?? ""}
+        {numero(efetivo.saldo)} {efetivo.unidade ?? ""}
       </td>
     </tr>
   );

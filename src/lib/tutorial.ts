@@ -93,6 +93,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       "Passo 2 — Confira a lista. As quantidades já vêm multiplicadas pela quantidade da OP e na unidade de cada cadastro (10 unidades de uma chapa de 1 kg aparecem como 10 kg). Vêm marcados só matéria-prima e comprados; um botão mostra toda a BOM.",
       "Passo 3 — Escolha de onde sai e para onde vai. O padrão é sair do Estoque de Matéria-Prima e ir para Reservado Produção, mas o destino é livre. Trocar a origem reconsulta o saldo na hora.",
       "Passo 4 — Ao transferir, cada item vira uma saída na origem e uma entrada no destino (o Omie não tem transferência pronta). Se algo interromper, a tela avisa o que ficou sem a entrada e conclui só o que falta, sem mover nada duas vezes.",
+      "Item sem saldo no código novo oferece o cadastro ANTIGO que tem o material. Se a unidade for outra (M² contra KG), a quantidade vem em branco e você digita: a conversão não é automática.",
+      "Passo 5 — Quando a produção começar, use a seção \"Reservado para a OP\" para dar baixa. Escolha um local para todos ou um por item. Errou? \"Reverter baixa\" devolve o material ao mesmo local e aos mesmos lotes.",
     ],
     icon: "movimentacoes",
     visibleTo: (navKeys) => navKeys.has("movimentacoes"),
@@ -102,7 +104,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "De/Para de códigos (PRD para MAT)",
     body: [
       "O estoque físico ainda está lançado nos códigos antigos (PRD) e as ordens de produção novas já pedem os códigos novos (MAT). Esta tela liga um ao outro, uma vez por item.",
-      "A fila mostra os cadastros antigos que ainda têm saldo, ordenados pelo saldo: quem tem mais material parado aparece primeiro.",
+      "A fila mostra os cadastros ATIVOS que ainda têm saldo, ordenados pelo saldo: quem tem mais material parado aparece primeiro. Cadastro inativo ou bloqueado não entra.",
       "A sugestão é automática (forma, bitola e liga lidas da descrição), mas quem decide é você. Onde a liga não bate com o catálogo novo ou onde a unidade muda, a linha vem com aviso e exige confirmação.",
       "Depois de ligado, a tela de Movimentação por OP passa a mostrar em qual código antigo o material está quando o código novo aparecer sem saldo.",
     ],

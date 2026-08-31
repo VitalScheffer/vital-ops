@@ -20,7 +20,7 @@ function ComoFunciona() {
       icon: ListFilter,
       titulo: "1. A fila sai do estoque",
       texto:
-        "A lista mostra os cadastros no padrão ANTIGO que ainda têm saldo no local escolhido e cuja descrição se lê como matéria-prima (chapa, tubo, trefilado). Caneta e papel não entram.",
+        "A lista mostra os cadastros ATIVOS no padrão ANTIGO que ainda têm saldo no local escolhido e cuja descrição se lê como matéria-prima (chapa, tubo, trefilado). Caneta, papel e cadastro inativo ou bloqueado não entram.",
     },
     {
       icon: Wand2,
@@ -100,7 +100,7 @@ export default async function DeParaPage() {
 
       <Panel
         title="Fila de conversão"
-        description="Cadastros antigos com saldo, a sugestão automática e a sua decisão. Nada é ligado sem confirmação."
+        description="Cadastros antigos ATIVOS com saldo, a sugestão automática e a sua decisão. Nada é ligado sem confirmação."
       >
         {locais.length === 0 || !filaInicial ? (
           <p className="rounded-lg bg-danger-dim px-3 py-2 text-sm text-danger">

@@ -279,6 +279,14 @@ export interface ProdutoOp extends ProdutoEstoque {
   codigo: string;
   familia?: string;
   grupo: GrupoItem;
+  /**
+   * Cadastro inativo ou bloqueado no Omie. NÃO filtramos aqui de propósito: uma
+   * OP pode referenciar um produto que foi inativado depois, e sumir com a linha
+   * faria a pessoa movimentar menos material do que a ordem pede sem perceber.
+   * Quem monta lista de escolha (De/Para, substituto) é que descarta.
+   */
+  inativo: boolean;
+  bloqueado: boolean;
 }
 
 const BLOCO_IDS = 50;
@@ -300,7 +308,16 @@ export async function buscarProdutosPorId(
   ids: readonly string[],
   chamar: ChamarFn,
 ): Promise<Map<string, ProdutoOp>> {
-  const unicos = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+  // Só id NUMÉRICO entra: `codigo_produto` é inteiro no Omie, e um id estranho
+  // viraria `NaN` no payload. Requisição inválida é requisição incorreta, e
+  // requisição incorreta conta pro bloqueio da app_key (§6 do REQUISITOS).
+  const unicos = [
+    ...new Set(
+      ids
+        .map((id) => String(id).trim())
+        .filter((id) => id.length > 0 && Number.isFinite(Number(id))),
+    ),
+  ];
   const mapa = new Map<string, ProdutoOp>();
   if (unicos.length === 0) return mapa;
 
@@ -328,11 +345,44 @@ export async function buscarProdutosPorId(
         controleLote: texto(registro.produto_lote)?.toUpperCase() === "S",
         familia,
         grupo: grupoDoItem(codigo, familia),
+        inativo: texto(registro.inativo)?.toUpperCase() === "S",
+        bloqueado: texto(registro.bloqueado)?.toUpperCase() === "S",
       });
     }
   }
 
   return mapa;
+}
+
+// -----------------------------------------------------------------------------
+// Chaves de idempotência
+// -----------------------------------------------------------------------------
+//
+// Todo ajuste que mandamos leva um `cod_int_ajuste` derivado do id do NOSSO
+// item, e é ele que faz reenviar virar duplicado em vez de mover material duas
+// vezes. Um item pode gerar até quatro ajustes ao longo da vida, e cada um
+// precisa de chave própria:
+//
+//   `<id>-s`       saída na origem (transferência)
+//   `<id>-e`       entrada no destino (transferência)
+//   `<id>-b<n>`    saída de consumo (baixa), ciclo n
+//   `est-<id>-b<n>` entrada de estorno do ciclo n (prefixo do `reverterBaixa`)
+//
+// O contador `n` existe por causa do estorno: sem ele, baixar de novo depois de
+// devolver o material reusaria a chave da baixa anterior, o Omie responderia
+// "duplicado" e o app marcaria como baixado sem ter baixado nada.
+
+export const SUFIXO_SAIDA = "s";
+export const SUFIXO_ENTRADA = "e";
+
+/** `cod_int_ajuste` da baixa de consumo do ciclo `seq`. */
+export function chaveDaBaixa(itemId: string, seq: number): string {
+  return `${itemId}-b${Math.max(0, Math.trunc(seq))}`;
+}
+
+/** Volta de `<id>-b<n>` para o id do item. */
+export function itemDaChaveDeBaixa(chave: string): string {
+  return String(chave ?? "").replace(/-b\d+$/, "");
 }
 
 // -----------------------------------------------------------------------------
@@ -516,7 +566,7 @@ export async function transferirEstoque(
           "IncluirAjusteEstoque",
           {
             ...base,
-            cod_int_ajuste: `${item.chave}-s`.slice(0, 60),
+            cod_int_ajuste: `${item.chave}-${SUFIXO_SAIDA}`.slice(0, 60),
             tipo: "SAI",
             obs: `Saída p/ ${item.obs}`.slice(0, 500),
             ...(origem ? { codigo_local_estoque: origem } : {}),
@@ -562,7 +612,7 @@ export async function transferirEstoque(
         "IncluirAjusteEstoque",
         {
           ...base,
-          cod_int_ajuste: `${item.chave}-e`.slice(0, 60),
+          cod_int_ajuste: `${item.chave}-${SUFIXO_ENTRADA}`.slice(0, 60),
           tipo: "ENT",
           obs: `Entrada p/ ${item.obs}`.slice(0, 500),
           ...(destino ? { codigo_local_estoque: destino } : {}),

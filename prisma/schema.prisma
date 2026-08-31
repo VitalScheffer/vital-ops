@@ -475,6 +475,11 @@ model MovimentoOpItem {
   status     String  @default("PENDENTE")
   motivoErro String?
 
+  // Quando a pessoa move o cadastro ANTIGO no lugar do código que a OP pede
+  // (porque o saldo ainda está no velho), aqui fica o código NOVO substituído.
+  // Sem isso o histórico diria que a OP consumiu um PRD que ela nunca pediu.
+  substituiSku String?
+
   omieIdProd String?
   refSaida   String? // id_ajuste da SAÍDA na origem
   refEntrada String? // id_ajuste da ENTRADA no destino
@@ -486,12 +491,41 @@ model MovimentoOpItem {
   loteConsumido Json?
   concluidoEm   DateTime?
 
+  // --- Consumo: a baixa do material que já está reservado -------------------
+  //
+  // A reserva (transferência) e o consumo (baixa) são dois passos do MESMO
+  // item, não dois registros: o que se baixa é exatamente o que foi reservado.
+  // Guardar aqui é o que permite a tabelinha "reservado para esta OP" mostrar,
+  // na mesma linha, o que já saiu e o que ainda está parado no destino.
+  //
+  // `baixaLocalCodigo` é gravado porque o estorno tem que lançar a entrada de
+  // volta NO MESMO local de onde saiu; a pessoa pode ter escolhido um local
+  // diferente por item.
+  //
+  // `baixaSeq` conta os ciclos de baixa/estorno deste item, e é ele que entra
+  // no `cod_int_ajuste` (`<id>-b<seq>`). Sem o contador, baixar de novo depois
+  // de um estorno reusaria a mesma chave: o Omie devolveria "duplicado", o app
+  // marcaria como baixado e o material continuaria no estoque. Divergência
+  // silenciosa, que é justamente o que o estorno existe para evitar.
+  baixaSeq         Int       @default(0)
+  baixadoEm        DateTime?
+  refBaixa         String? // id_ajuste da SAÍDA de consumo
+  baixaLocalCodigo String?
+  baixaLocalNome   String?
+  baixaMotivoErro  String?
+  // Lotes consumidos na BAIXA (o estorno devolve nos mesmos lotes). Separado do
+  // `loteConsumido` da transferência: são duas alocações diferentes.
+  baixaLote     Json?
+  estornadoEm   DateTime?
+  refEstorno    String?
+
   movimento  MovimentoOp        @relation(fields: [movimentoId], references: [id], onDelete: Cascade)
   movimentos MovimentoEstoque[]
 
   @@index([movimentoId])
   @@index([sku])
   @@index([status])
+  @@index([baixadoEm])
 }
 
 // ---------------------------------------------------------------------------

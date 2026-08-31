@@ -24,6 +24,21 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-08-31",
+    title: "Movimentação por OP: mover o código antigo, dar baixa e estornar",
+    items: [
+      "Item da OP sem saldo no código novo agora oferece o cadastro ANTIGO que tem o material: a linha vira um seletor com o saldo de cada opção, e você escolhe qual mover.",
+      "A opção vem de duas fontes e a tela diz qual é qual: \"De/Para confirmado\" quando alguém já revisou aquele par, e \"deduzido, confira\" quando o sistema casou sozinho pela geometria e pela liga da descrição. O deduzido nunca vem escolhido.",
+      "Quando o cadastro antigo está em outra unidade (M² contra KG, por exemplo), a quantidade vem EM BRANCO e a linha só entra depois que você digitar quanto vai sair. O aviso explica que a conversão não é automática.",
+      "O histórico registra os dois códigos: o que saiu de verdade e o que a OP tinha pedido.",
+      "Nova seção \"Reservado para a OP\": a tabelinha do que já foi movido para o local de produção, com a situação de cada item.",
+      "Botão de dar baixa quando a produção começar. Dá para baixar tudo de um local só ou escolher um local por item; o padrão é cada item sair de onde foi reservado.",
+      "Botão \"Reverter baixa\" para voltar um passo: devolve o material ao MESMO local e aos MESMOS lotes de onde saiu.",
+      "No Multiplicador apareceu \"Puxar OP\": digite o número da ordem e a lista de material entra na tela como planilha, com a coluna QTD pronta para receber o fator. Serve para responder \"e se eu produzir 3 vezes essa OP\".",
+      "No De/Para, a fila passou a considerar só cadastro ATIVO: item inativo ou bloqueado com sobra de saldo não aparece mais para revisão. A fila também passou a mostrar a unidade do cadastro antigo, que é o que faz o aviso de mudança de unidade aparecer.",
+    ],
+  },
+  {
     date: "2026-08-28",
     title: "Movimentação por OP e De/Para de códigos",
     items: [

@@ -18,8 +18,9 @@ export default async function MultiplicadorPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Multiplicador</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Suba vários BOMs, escolha o fator e multiplique quantidade, peso ou os dois. Os arquivos são processados
-          apenas neste navegador; o PDF preserva a página original e troca só os valores da tabela.
+          Suba vários BOMs (ou puxe a lista de material direto de uma Ordem de Produção), escolha o fator e
+          multiplique quantidade, peso ou os dois. Os arquivos são processados apenas neste navegador; o PDF
+          preserva a página original e troca só os valores da tabela.
         </p>
       </header>
       <MultiplicadorClient />

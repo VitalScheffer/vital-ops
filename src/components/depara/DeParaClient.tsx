@@ -119,6 +119,7 @@ export function DeParaClient({ locais, localInicial, filaInicial }: Props) {
       const resultado = await salvarDePara({
         codigoLegado: linha.codigo,
         descricaoLegado: linha.descricao,
+        unidadeLegado: linha.unidade,
         codigoNovo: semEquivalente ? null : escolhido,
         descricaoNovo: opcao?.descricao,
         unidadeNovo: opcao?.unidade,
@@ -218,8 +219,8 @@ export function DeParaClient({ locais, localInicial, filaInicial }: Props) {
 
       {fila?.ok ? (
         <p className="text-sm text-muted-foreground">
-          {fila.total} cadastro(s) antigo(s) com saldo neste local se leem como matéria-prima. {fila.decididos} já
-          ligado(s). Mostrando {visiveis.length}.
+          {fila.total} cadastro(s) antigo(s) ATIVOS com saldo neste local se leem como matéria-prima.{" "}
+          {fila.decididos} já ligado(s). Mostrando {visiveis.length}.
         </p>
       ) : null}
 
@@ -280,6 +281,7 @@ function Linha({
         </div>
         <span className="text-xs text-muted-foreground">
           saldo <b className="text-card-foreground">{numero(linha.saldo)}</b>
+          {linha.unidade ? ` ${linha.unidade}` : ""}
         </span>
       </div>
 
