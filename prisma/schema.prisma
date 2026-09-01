@@ -52,6 +52,8 @@ model User {
   pushSubscriptions    PushSubscription[] @relation("PushSubscriptions")
   movimentosOp         MovimentoOp[]  @relation("MovimentoOpAutor")
   deParaConfirmados    DeParaProduto[] @relation("DeParaConfirmador")
+  deParaAposentados    DeParaProduto[] @relation("DeParaAposentador")
+  migracoesLegado      MigracaoLegado[] @relation("MigracaoLegadoAutor")
 
   @@index([role])
 }
@@ -555,15 +557,115 @@ model DeParaProduto {
   motivo    String?
   observacao String?
 
+  // Fator de conversão do par, na direção "1 unidade do NOVO = X do ANTIGO".
+  //
+  // Sem ele, um par em unidades diferentes (M² no antigo, KG no novo) só dava
+  // para movimentar digitando a quantidade na mão, item por item, toda vez — e
+  // o número certo é sempre o MESMO para aquele par. Nulo em par de unidade
+  // igual (converter ali é sempre 1 para 1) e nulo enquanto ninguém decidiu:
+  // são estados diferentes, e quem os distingue é a unidade dos dois lados,
+  // não este campo sozinho.
+  //
+  // A direção é a da conta que a fábrica faz: a OP pede no NOVO e quem tem
+  // saldo é o ANTIGO. Guardar invertido obrigaria a dividir em todo lugar.
+  fatorConversao Decimal?
+
+  // --- Aposentadoria do código antigo ---------------------------------------
+  //
+  // A "tag" que tira o cadastro velho de circulação: ele some da fila de
+  // revisão e para de ser oferecido como substituto na Movimentação por OP.
+  // É uma marca NOSSA, e por isso separada de `inativadoNoOmieEm`: o cadastro
+  // pode estar aposentado aqui e ainda ativo no Omie (a inativação lá é uma
+  // escrita que pode falhar, ou que alguém decide fazer depois).
+  //
+  // `saldoMigrado` é o total que saiu do código antigo para o novo na
+  // migração — é ele que responde "quanto tinha ali quando a gente virou a
+  // chave", e é contra ele que uma entrada NOVA no código velho (uma NF que
+  // chegou com o PRD antigo) aparece como divergência a tratar.
+  aposentadoEm      DateTime?
+  aposentadoPorId   String?
+  migradoEm         DateTime?
+  saldoMigrado      Decimal?
+  inativadoNoOmieEm DateTime?
+
   confirmadoPorId String?
   confirmadoEm    DateTime?
   criadoEm        DateTime  @default(now())
   atualizadoEm    DateTime  @updatedAt
 
   confirmadoPor User? @relation("DeParaConfirmador", fields: [confirmadoPorId], references: [id], onDelete: SetNull)
+  aposentadoPor User? @relation("DeParaAposentador", fields: [aposentadoPorId], references: [id], onDelete: SetNull)
+  migracoes     MigracaoLegado[]
 
   @@index([codigoNovo])
   @@index([confianca])
+  @@index([aposentadoEm])
+}
+
+// ---------------------------------------------------------------------------
+// Migração de saldo do código ANTIGO para o NOVO
+//
+// Mesma anatomia da transferência por OP, e pelo mesmo motivo: o Omie não tem
+// "trocar o produto de um saldo". Cada local com saldo vira DUAS escritas — uma
+// saída do cadastro antigo e uma entrada do cadastro novo, no MESMO local, com
+// a quantidade convertida pelo fator do De/Para.
+//
+// `SAIDA_OK` é o estado que justifica a tabela existir: a saída passou e a
+// entrada não. O material sumiu do antigo e não apareceu no novo. Sem persistir
+// isso, uma queda no meio viraria estoque evaporado que ninguém descobre.
+//
+// Uma migração por LOCAL e não uma só pelo total porque o saldo tem endereço:
+// migrar 240 do "total" e lançar tudo no local padrão moveria material que
+// estava na Matéria-Prima para um lugar onde ele nunca esteve.
+// ---------------------------------------------------------------------------
+
+model MigracaoLegado {
+  id           String @id @default(cuid())
+  deParaId     String
+  autorId      String
+  codigoLegado String
+  codigoNovo   String
+  // Fator aplicado NESTA migração, copiado do De/Para no momento da execução.
+  // Guardado aqui porque o fator do par pode ser corrigido depois: o histórico
+  // precisa dizer com qual número aquele saldo foi convertido.
+  fator Decimal
+
+  status      String   @default("ENVIANDO") // ENVIANDO | CONCLUIDO | PENDENTE | FALHA
+  totalLocais Int      @default(0)
+  criadoEm    DateTime @default(now())
+
+  dePara DeParaProduto        @relation(fields: [deParaId], references: [id], onDelete: Cascade)
+  autor  User                 @relation("MigracaoLegadoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  itens  MigracaoLegadoItem[]
+
+  @@index([deParaId])
+  @@index([autorId])
+  @@index([codigoLegado])
+  @@index([status])
+}
+
+model MigracaoLegadoItem {
+  id          String @id @default(cuid())
+  migracaoId  String
+  localCodigo String
+  localNome   String?
+
+  quantidadeLegado Decimal
+  quantidadeNovo   Decimal
+  custoUnitario    Decimal?
+
+  status     String  @default("PENDENTE") // PENDENTE | MIGRADO | SAIDA_OK | FALHA
+  motivoErro String?
+  refSaida   String?
+  refEntrada String?
+  // Lotes consumidos na saída do cadastro antigo (alocação FEFO).
+  loteConsumido Json?
+  concluidoEm   DateTime?
+
+  migracao MigracaoLegado @relation(fields: [migracaoId], references: [id], onDelete: Cascade)
+
+  @@index([migracaoId])
+  @@index([status])
 }
 
 // ---------------------------------------------------------------------------

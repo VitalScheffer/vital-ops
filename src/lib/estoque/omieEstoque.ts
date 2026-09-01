@@ -312,6 +312,59 @@ export async function saldosPorCodigo(
   return mapa;
 }
 
+export interface SaldoNoLocal extends SaldoEstoque {
+  localCodigo: string;
+}
+
+/**
+ * Onde o saldo de UM código está, local por local.
+ *
+ * Diferente de `saldoTotalPorCodigo`, que soma tudo: aqui o endereço é o dado
+ * que importa. Migrar um código antigo pelo TOTAL e lançar a entrada no local
+ * padrão moveria material que estava no Estoque de Matéria-Prima para um lugar
+ * onde ele nunca esteve.
+ *
+ * `cExibeTodos: "S"` traz também os locais zerados (que o caller filtra) e evita
+ * a armadilha do conjunto vazio virar fault.
+ */
+export async function saldoPorLocal(
+  codigo: string,
+  dataPosicao: string,
+  chamar: ChamarFn,
+  opcoes: { revalidar?: boolean } = {},
+): Promise<SaldoNoLocal[]> {
+  const alvo = codigo.trim();
+  if (!alvo) return [];
+  const resp = await chamar(
+    "estoque/consulta/",
+    "ListarPosEstoque",
+    {
+      nPagina: 1,
+      nRegPorPagina: 50,
+      dDataPosicao: dataPosicao,
+      cExibeTodos: "S",
+      lista_local_estoque: "TODOS",
+      lista_produtos: [{ cCodigo: alvo }],
+    },
+    { ttlSeconds: 120, revalidar: opcoes.revalidar },
+  );
+  const produtos = resp?.produtos;
+  if (!Array.isArray(produtos)) return [];
+  const saida: SaldoNoLocal[] = [];
+  for (const p of produtos as OmiePayload[]) {
+    if (texto(p.cCodigo) !== alvo) continue;
+    const localCodigo = texto(p.codigo_local_estoque);
+    if (!localCodigo) continue;
+    saida.push({
+      localCodigo,
+      saldo: numero(p.nSaldo) ?? 0,
+      cmc: numero(p.nCMC) ?? 0,
+      estoqueMinimo: numero(p.estoque_minimo) ?? 0,
+    });
+  }
+  return saida;
+}
+
 // -----------------------------------------------------------------------------
 // Leitura: lotes disponíveis de um produto (controle de lote)
 // -----------------------------------------------------------------------------

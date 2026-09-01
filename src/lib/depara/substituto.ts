@@ -16,9 +16,10 @@
 // Módulo PURO: recebe as listas já lidas e não fala com o Omie.
 
 import type { ItemMat } from "@/lib/produtos/materiaPrima";
+import { avaliarConversao, formatarFator, quantidadeNoLegado } from "./conversao";
 import { sugerirEquivalente, type ItemLegado } from "./depara";
 
-export type OrigemSubstituto = "confirmado" | "automatico";
+export type OrigemSubstituto = "confirmado" | "automatico" | "busca";
 
 export interface Substituto {
   codigo: string;
@@ -30,6 +31,14 @@ export interface Substituto {
   origem: OrigemSubstituto;
   /** A unidade do cadastro antigo difere da que a OP pede. */
   unidadeMuda: boolean;
+  /**
+   * Fator do De/Para (1 unidade do NOVO = X do ANTIGO) quando a unidade muda e
+   * alguém já decidiu a conversão. Com ele a tela calcula a quantidade sozinha;
+   * sem ele, a quantidade continua sendo digitada na mão.
+   */
+  fatorConversao?: number;
+  /** Quanto sai deste cadastro para atender o que a OP pede. Null = não dá para saber. */
+  quantidadeSugerida?: number;
   /** O que a pessoa precisa ler ANTES de mover este item no lugar do novo. */
   avisos: string[];
 }
@@ -44,10 +53,8 @@ export interface DeParaConfirmado {
   codigoLegado: string;
   codigoNovo: string;
   unidadeLegado?: string | null;
-}
-
-function unidadeNormal(unidade: string | null | undefined): string {
-  return (unidade ?? "").trim().toUpperCase();
+  /** 1 unidade do NOVO = X do ANTIGO. Null enquanto ninguém decidiu. */
+  fatorConversao?: number | null;
 }
 
 /**
@@ -86,6 +93,7 @@ export function indexarSubstitutos(
         saldo: legado.saldo ?? 0,
         origem: "confirmado",
         unidadeMuda: false, // resolvido em `anotarUnidades`, que conhece a unidade do novo
+        ...(confirmado.fatorConversao ? { fatorConversao: Number(confirmado.fatorConversao) } : {}),
         avisos: [],
       });
       continue;
@@ -120,29 +128,63 @@ export function indexarSubstitutos(
 }
 
 /**
- * Fecha o aviso de unidade, que só dá para calcular sabendo a unidade dos DOIS
- * lados: a do cadastro antigo e a que a OP pede.
+ * Fecha a conversão, que só dá para calcular sabendo os DOIS lados: a unidade do
+ * cadastro antigo, a unidade que a OP pede e o fator gravado no De/Para.
  *
  * Este é o "avisar quando o PRD não bater com a nomenclatura nova" na sua forma
- * mais concreta: a OP pede 21,66 em KG e o cadastro antigo está em M². Mover o
- * mesmo número seria inventar material. Quem consome marca a linha para exigir
- * a quantidade na mão.
+ * mais concreta: a OP pede 21,66 em KG e o cadastro antigo está em M². Antes de
+ * existir o fator, a única saída era exigir a quantidade na mão — em toda
+ * movimentação, para todo item, e é digitando que o erro entra. Com o fator
+ * confirmado, a quantidade sai calculada e a linha diz de onde veio a conta.
+ *
+ * Sem fator o comportamento é o de antes, e de propósito: mover o mesmo número
+ * em outra unidade seria inventar material.
  */
 export function anotarUnidades(
   substitutos: readonly Substituto[],
   unidadeDoNovo: string | undefined,
+  quantidadePedida?: number,
 ): Substituto[] {
-  const nova = unidadeNormal(unidadeDoNovo);
   return substitutos.map((substituto) => {
-    const antiga = unidadeNormal(substituto.unidade);
-    const muda = antiga !== "" && nova !== "" && antiga !== nova;
-    if (!muda) return { ...substituto, unidadeMuda: false };
+    const avaliacao = avaliarConversao({
+      unidadeLegado: substituto.unidade,
+      unidadeNovo: unidadeDoNovo,
+      fator: substituto.fatorConversao,
+    });
+
+    if (avaliacao.mesmaUnidade || avaliacao.situacao === "UNIDADE_DESCONHECIDA") {
+      return {
+        ...substituto,
+        unidadeMuda: false,
+        ...(quantidadePedida !== undefined && avaliacao.mesmaUnidade
+          ? { quantidadeSugerida: quantidadePedida }
+          : {}),
+      };
+    }
+
+    if (avaliacao.situacao === "COM_FATOR") {
+      const convertida =
+        quantidadePedida === undefined ? undefined : quantidadeNoLegado(quantidadePedida, avaliacao);
+      return {
+        ...substituto,
+        unidadeMuda: true,
+        ...(convertida !== null && convertida !== undefined ? { quantidadeSugerida: convertida } : {}),
+        avisos: [
+          `A OP pede em ${avaliacao.unidadeNovo} e este cadastro está em ${avaliacao.unidadeLegado}. ` +
+            `Convertido pelo fator do De/Para: 1 ${avaliacao.unidadeNovo} = ` +
+            `${formatarFator(avaliacao.fator ?? 1)} ${avaliacao.unidadeLegado}. Confira antes de enviar.`,
+          ...substituto.avisos,
+        ],
+      };
+    }
+
     return {
       ...substituto,
       unidadeMuda: true,
       avisos: [
-        `A OP pede em ${nova} e este cadastro está em ${antiga}. ` +
-          "A quantidade NÃO se converte sozinha: informe quanto vai sair, na unidade do cadastro antigo.",
+        `A OP pede em ${avaliacao.unidadeNovo} e este cadastro está em ${avaliacao.unidadeLegado}. ` +
+          "Ninguém gravou o fator de conversão deste par no De/Para, então a quantidade NÃO se converte " +
+          "sozinha: informe quanto vai sair, na unidade do cadastro antigo.",
         ...substituto.avisos,
       ],
     };

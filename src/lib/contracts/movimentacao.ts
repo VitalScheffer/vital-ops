@@ -71,6 +71,12 @@ export type ContinuarMovimentoInput = z.infer<typeof continuarMovimentoSchema>;
 export const confiancaDeParaSchema = z.enum(["EXATA", "APROXIMADA", "MANUAL", "SEM_EQUIVALENTE"]);
 export type ConfiancaDeParaGravada = z.infer<typeof confiancaDeParaSchema>;
 
+// Fator de conversão do par, na direção "1 unidade do NOVO = X do ANTIGO".
+// O teto não é enfeite: fator acima de 100 mil quase sempre é vírgula digitada
+// como ponto (ou o contrário), e um fator errado aqui vira quantidade errada em
+// TODA movimentação futura daquele par.
+export const fatorConversaoSchema = z.number().positive().finite().max(100_000);
+
 // `codigoNovo` nulo só é aceito com SEM_EQUIVALENTE: é a diferença entre "olhei
 // e não existe equivalente" (decisão registrada) e uma linha salva pela metade.
 export const salvarDeParaSchema = z
@@ -84,6 +90,7 @@ export const salvarDeParaSchema = z
     confianca: confiancaDeParaSchema,
     motivo: z.string().trim().max(300).optional(),
     observacao: z.string().trim().max(300).optional(),
+    fatorConversao: fatorConversaoSchema.nullable().optional(),
   })
   .refine((v) => v.confianca === "SEM_EQUIVALENTE" || Boolean(v.codigoNovo), {
     message: "Escolha o código novo ou marque \"sem equivalente\".",
@@ -95,6 +102,67 @@ export const removerDeParaSchema = z.object({
   codigoLegado: z.string().trim().min(1).max(60),
 });
 export type RemoverDeParaInput = z.infer<typeof removerDeParaSchema>;
+
+// Busca de cadastro no Omie por código ou por parte da descrição. Existe porque
+// a fila do De/Para sai da POSIÇÃO DE ESTOQUE, e cadastro com saldo zero em
+// todos os locais (o caso do PRD02227) simplesmente não aparece lá. Sem uma
+// busca direta no catálogo, esse código não tem como ser ligado nunca.
+export const buscarCadastroSchema = z.object({
+  termo: z.string().trim().min(2).max(80),
+  /** Local usado para mostrar o saldo na linha encontrada. */
+  localCodigo: localEstoqueCodigoSchema.optional(),
+});
+export type BuscarCadastroInput = z.infer<typeof buscarCadastroSchema>;
+
+// Conferência de pendências antes de aposentar um código antigo. Só leitura.
+export const pendenciasLegadoSchema = z.object({
+  codigoLegado: z.string().trim().min(1).max(60),
+});
+export type PendenciasLegadoInput = z.infer<typeof pendenciasLegadoSchema>;
+
+// Migração de saldo + aposentadoria do código antigo.
+//
+// `inativarNoOmie` é separado e explícito porque é ESCRITA no cadastro do ERP,
+// e escrita que a tela não pode desfazer sozinha. Aposentar aqui dentro é
+// reversível; inativar lá não é, pela tela.
+export const migrarLegadoSchema = z.object({
+  codigoLegado: z.string().trim().min(1).max(60),
+  inativarNoOmie: z.boolean().default(false),
+  /**
+   * A pessoa leu as pendências (OP aberta, requisição, pedido de compra) e
+   * decidiu seguir mesmo assim. Sem isso, migrar com documento em aberto é
+   * recusado no servidor, não só escondido na tela.
+   */
+  confirmaPendencias: z.boolean().default(false),
+});
+export type MigrarLegadoInput = z.infer<typeof migrarLegadoSchema>;
+
+// Desfaz a tag de aposentado: o código volta a aparecer na fila e a ser
+// oferecido como substituto. NÃO desfaz o saldo migrado nem a inativação no
+// Omie — estoque não volta por causa de um clique numa tag.
+export const reativarLegadoSchema = z.object({
+  codigoLegado: z.string().trim().min(1).max(60),
+});
+export type ReativarLegadoInput = z.infer<typeof reativarLegadoSchema>;
+
+// Retomada de uma migração que ficou com local em SAIDA_OK.
+export const continuarMigracaoSchema = z.object({
+  migracaoId: z.string().trim().min(1).max(40),
+});
+export type ContinuarMigracaoInput = z.infer<typeof continuarMigracaoSchema>;
+
+// Busca livre de substituto na Movimentação por OP: em vez de escolher só entre
+// os candidatos que o sistema deduziu, a pessoa procura o cadastro pelo código
+// ou pela descrição e vê o saldo dele NA ORIGEM.
+export const buscarSubstitutoSchema = z.object({
+  termo: z.string().trim().min(2).max(80),
+  origemCodigo: localEstoqueCodigoSchema,
+  /** Código que a OP pede — usado para avaliar a mudança de unidade. */
+  skuDaOp: z.string().trim().min(1).max(60),
+  /** Quanto a OP pede (na unidade do código novo), para já converter pelo fator. */
+  quantidadePedida: z.number().positive().finite().optional(),
+});
+export type BuscarSubstitutoInput = z.infer<typeof buscarSubstitutoSchema>;
 
 // --- Consumo do que foi reservado (baixa da OP) e estorno --------------------
 

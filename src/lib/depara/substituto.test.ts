@@ -103,3 +103,55 @@ describe("anotarUnidades", () => {
     expect(anotado.unidadeMuda).toBe(false);
   });
 });
+
+describe("fator de conversão do De/Para", () => {
+  const CONFIRMADO_COM_FATOR = [
+    {
+      codigoLegado: "PRD00620",
+      codigoNovo: "MATCH 00090 IN430",
+      unidadeLegado: "M²",
+      fatorConversao: 0.1416,
+    },
+  ];
+
+  it("o confirmado carrega o fator gravado", () => {
+    const indice = indexarSubstitutos(
+      [legado("PRD00620", CHAPA_090, 240, "M²")],
+      CATALOGO,
+      CONFIRMADO_COM_FATOR,
+    );
+
+    expect(indice.get("MATCH 00090 IN430")?.[0].fatorConversao).toBe(0.1416);
+  });
+
+  it("com fator, a quantidade sai calculada em vez de exigir digitação", () => {
+    // O caso real: a OP pede 21,66 KG do código novo e quem tem saldo é um
+    // cadastro em M².
+    const indice = indexarSubstitutos(
+      [legado("PRD00620", CHAPA_090, 240, "M²")],
+      CATALOGO,
+      CONFIRMADO_COM_FATOR,
+    );
+    const [anotado] = anotarUnidades(indice.get("MATCH 00090 IN430") ?? [], "KG", 21.66);
+
+    expect(anotado.unidadeMuda).toBe(true);
+    expect(anotado.quantidadeSugerida).toBe(3.0671);
+    expect(anotado.avisos[0]).toContain("fator do De/Para");
+  });
+
+  it("sem fator, continua sem quantidade sugerida e diz por quê", () => {
+    const indice = indexarSubstitutos([legado("PRD00620", CHAPA_090, 240, "M²")], CATALOGO, []);
+    const [anotado] = anotarUnidades(indice.get("MATCH 00090 IN430") ?? [], "KG", 21.66);
+
+    expect(anotado.quantidadeSugerida).toBeUndefined();
+    expect(anotado.avisos[0]).toContain("NÃO se converte");
+  });
+
+  it("mesma unidade sugere a própria quantidade da OP", () => {
+    const indice = indexarSubstitutos([legado("PRD00620", CHAPA_090, 240, "KG")], CATALOGO, []);
+    const [anotado] = anotarUnidades(indice.get("MATCH 00090 IN430") ?? [], "KG", 21.66);
+
+    expect(anotado.unidadeMuda).toBe(false);
+    expect(anotado.quantidadeSugerida).toBe(21.66);
+  });
+});

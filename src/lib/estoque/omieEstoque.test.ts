@@ -12,6 +12,7 @@ import {
   lotesPorCodigo,
   nomeDoLocal,
   reverterBaixa,
+  saldoPorLocal,
   saldoTotalPorCodigo,
   saldosPorCodigo,
   type ItemReversao,
@@ -429,6 +430,48 @@ describe("saldoTotalPorCodigo", () => {
     const mapa = await saldoTotalPorCodigo([], "16/07/2026", chamar);
     expect(chamar).not.toHaveBeenCalled();
     expect(mapa.size).toBe(0);
+  });
+});
+
+describe("saldoPorLocal", () => {
+  // Recorte fiel da resposta real do PRD02227 (01/09/2026): zerado nos seis
+  // locais, que é justamente por que ele nunca apareceu na fila do De/Para.
+  const RESPOSTA = {
+    produtos: [
+      { cCodigo: "PRD00620", codigo_local_estoque: 5940905787, nSaldo: 240, nCMC: 12.5 },
+      { cCodigo: "PRD00620", codigo_local_estoque: 12170621031, nSaldo: 0, nCMC: 12.5 },
+      { cCodigo: "OUTRO", codigo_local_estoque: 5940905787, nSaldo: 99, nCMC: 1 },
+    ],
+  };
+
+  it("devolve o saldo com o ENDEREÇO, não somado", async () => {
+    // Migrar pelo TOTAL e lançar no local padrão moveria material que estava na
+    // Matéria-Prima para um lugar onde ele nunca esteve.
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA);
+    const linhas = await saldoPorLocal("PRD00620", "01/09/2026", chamar);
+
+    expect(linhas).toHaveLength(2);
+    expect(linhas[0]).toMatchObject({ localCodigo: "5940905787", saldo: 240, cmc: 12.5 });
+    expect(linhas[1]).toMatchObject({ localCodigo: "12170621031", saldo: 0 });
+  });
+
+  it("ignora linha de outro código que venha na mesma resposta", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA);
+    const linhas = await saldoPorLocal("PRD00620", "01/09/2026", chamar);
+    expect(linhas.some((l) => l.saldo === 99)).toBe(false);
+  });
+
+  it("pede TODOS os locais com cExibeTodos S (senão o conjunto zerado vira fault)", async () => {
+    const chamar = vi.fn<ChamarFn>().mockResolvedValue(RESPOSTA);
+    await saldoPorLocal("PRD00620", "01/09/2026", chamar);
+    const [, , param] = chamar.mock.calls[0];
+    expect(param).toMatchObject({ lista_local_estoque: "TODOS", cExibeTodos: "S" });
+  });
+
+  it("código vazio não chama o Omie", async () => {
+    const chamar = vi.fn<ChamarFn>();
+    expect(await saldoPorLocal("  ", "01/09/2026", chamar)).toEqual([]);
+    expect(chamar).not.toHaveBeenCalled();
   });
 });
 
