@@ -140,7 +140,10 @@ npm run build
    pedidos estão em outro lugar. A conferência está ligada e não custa nada; se
    passarem a usar, já avisa.
 4. **Remessa de industrialização da Evo** — definir com o Vitor.
-5. Não commitado: o Vitor não pediu commit nesta rodada.
+5. **Publicado** em `master` (`b0ac5bc` motor, `be8bb61` telas) e empurrado para
+   o `origin`, a pedido do Vitor, para disparar o deploy. O `vercel-build` roda
+   `prisma migrate deploy`, que aqui é no-op: a migração já tinha sido aplicada
+   antes, nesta mesma sessão.
 
 ## 2026-08-31 — Substituto legado na Movimentação, baixa/estorno da OP, OP no Multiplicador
 
