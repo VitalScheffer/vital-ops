@@ -42,7 +42,7 @@ function ComoFunciona() {
       icon: ListChecks,
       titulo: "2. Confira a lista",
       texto:
-        "As quantidades já vêm multiplicadas pela quantidade da OP, na unidade de cada cadastro (10 unidades de uma chapa de 1 kg aparecem como 10 kg). Item sem saldo no código novo oferece o cadastro antigo que tem o material, avisando quando a nomenclatura ou a unidade não batem.",
+        "As quantidades já vêm multiplicadas pela quantidade da OP, na unidade de cada cadastro (10 unidades de uma chapa de 1 kg aparecem como 10 kg). Item sem saldo no código novo oferece o cadastro antigo que tem o material; se a lista vier vazia, busque o código na própria linha. Quando o De/Para tem o fator do par, a quantidade já vem convertida.",
     },
     {
       icon: ArrowLeftRight,

@@ -1,5 +1,147 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-01 — De/Para: fator de conversão, busca direta e aposentadoria do código antigo
+
+### Resumo
+Pedido do Vitor, em bloco, sobre as duas telas novas (De/Para e Movimentação por OP):
+
+1. Validação de unidade no De/Para: conferir se as duas são iguais ou pedir um
+   **fator de conversão** para conseguir movimentar.
+2. Uma **tag para inativar o código antigo** e mover tudo do antigo pro novo.
+3. Além do saldo, conferir **OP rodando, pedido de compra e requisição** antes de
+   aposentar, e levar as informações do antigo pro novo.
+4. **NF que chega com o PRD antigo**: o sistema tem que indicar e o material tem
+   que ir para o estoque do código novo.
+5. O **buscar não puxa o PRD** — "esse PRD02227 não veio nada".
+6. Na Movimentação por OP, **buscar** o PRD em vez de só selecionar.
+7. **Selecionar tudo** nas tabelas de movimentação.
+8. Remessa de industrialização da Evo puxando do Reservado Produção.
+
+### Diagnóstico do PRD02227 (o item 5)
+Consultado na API do Omie em 01/09/2026:
+
+- `ListarProdutos` por código devolve: `PRD02227` = "SERRA FITA 13 X 0.9
+  x24dx4,05 MT -ESPUMA", família FERRAMENTAS, unidade UN, ativo, sem lote.
+- `ListarPosEstoque` com `lista_local_estoque: "TODOS"`: **saldo ZERO nos seis
+  locais**.
+
+Ou seja, ele cai nos DOIS filtros da fila: `listarLegadosComSaldo` pede
+`cExibeTodos: "N"` (só quem tem saldo) e depois exige que a descrição se leia como
+matéria-prima (`lerEspecificacao`). Não era bug de busca: **não existia busca**. A
+fila era o único caminho de entrada da tela.
+
+### Decisões
+- **Fator na direção "1 unidade do NOVO = X do ANTIGO"**, porque é a conta que a
+  fábrica faz (a OP pede em KG e quem tem saldo é o M²). Guardar invertido
+  obrigaria a dividir em todo lugar.
+- **Unidade igual ignora o fator**, sempre 1 para 1. Um fator sobrando de uma
+  correção anterior do par multiplicaria material sem motivo.
+- **`quantidadeNoLegado` devolve `null`** quando não dá para converter, em vez de
+  cair na mesma quantidade. Fallback silencioso seria a forma mais rápida de mover
+  21 "kg" de um cadastro que está em metro quadrado.
+- A validação de unidade mora **no servidor** (`salvarDePara`), não só na tela.
+- **Aposentar aqui ≠ inativar no Omie.** São dois campos (`aposentadoEm` e
+  `inativadoNoOmieEm`) porque o primeiro é reversível e o segundo é escrita no ERP
+  que pode falhar. "Reativar aqui" desfaz só a tag.
+- **Ordem da migração: mover saldo → aposentar aqui → inativar no Omie.** Inativar
+  antes deixaria o saldo preso num cadastro que a API não movimenta mais. E a
+  inativação só roda se a migração fechou inteira.
+- **Migração por LOCAL, nunca pelo total.** Migrar 240 do "total" e lançar no local
+  padrão moveria material que estava na Matéria-Prima para um lugar onde ele nunca
+  esteve.
+- **Cadastro novo com controle de lote reprova a migração antes de escrever.** O
+  `IncluirAjusteEstoque` de ENTRADA só aponta para lote existente e não cria lote:
+  a entrada sem lote produziria saldo que a fábrica não consegue baixar.
+- **O valor das duas pernas sai do CMC do ANTIGO.** Usar o CMC do novo (que pode
+  ser zero, ou de outra unidade) inventaria ou apagaria valor de estoque numa
+  operação que é só uma troca de etiqueta.
+- **"NF com PRD antigo" é detectado por SALDO, não por nota.** Qualquer entrada
+  conta (NF, devolução, ajuste), e o saldo é a única leitura que já fazemos e que
+  não depende de qual módulo do Omie originou o lançamento.
+- **Remessa de industrialização da Evo ficou para depois** (decisão do Vitor,
+  perguntado no começo da sessão): não existe nada de remessa/industrialização no
+  repositório e a definição precisa vir em separado.
+
+### Arquivos criados
+- `src/lib/depara/conversao.ts` + `.test.ts` (14 casos) — módulo PURO da validação
+  de unidade: `normalizarUnidade` (só variações tipográficas: M2/M², MT/M; NÃO
+  iguala UN e PC), `avaliarConversao` (4 situações: MESMA_UNIDADE, COM_FATOR,
+  FATOR_PENDENTE, UNIDADE_DESCONHECIDA), `quantidadeNoLegado` e `quantidadeNoNovo`.
+- `src/lib/depara/pendencias.ts` + `.test.ts` (7 casos) — o que ainda roda com o
+  código antigo: `opsQueUsam` (casa pelo id INTERNO do produto, reusa a leitura
+  cacheada de OPs), `comprasQueUsam` (`PesquisarPedCompra`), `conferirPendencias`
+  (cada leitura num try próprio: uma falhar não pode apagar as outras, e a
+  conferência se declara `incompleto`).
+- `src/lib/estoque/omieMigracao.ts` + `.test.ts` (12 casos) — motor da migração de
+  saldo, irmão do `transferirEstoque`. Mesma idempotência (`<chave>-ms`/`<chave>-me`),
+  mesmo estado `entrada_pendente`, mesma pausa de segurança. O eixo é que muda: lá
+  o produto é um e o local varia; aqui o local é um e o produto varia.
+- `src/lib/estoque/omieProduto.ts` — `inativarProduto` (`AlterarProduto` com o
+  mínimo: `codigo_produto` + `inativo`) e `produtoInativo`. "Já inativo" volta como
+  sucesso: repetir depois de uma queda tem que terminar em "está do jeito que eu
+  quero".
+- `src/components/depara/EntradasTardias.tsx` — o aviso de "entrou material num
+  código aposentado", com o botão que manda pro código novo.
+- `prisma/migrations/20260901120000_depara_fator_e_migracao/migration.sql`.
+
+### Arquivos alterados
+- `prisma/schema.prisma` — `DeParaProduto` ganhou `fatorConversao`,
+  `aposentadoEm`/`aposentadoPorId`, `migradoEm`, `saldoMigrado`,
+  `inativadoNoOmieEm`. Novos `MigracaoLegado` e `MigracaoLegadoItem`.
+- `src/lib/contracts/movimentacao.ts` — `fatorConversao` no `salvarDeParaSchema`
+  (teto de 100 mil: acima disso é vírgula digitada como ponto) e os schemas novos
+  (`buscarCadastro`, `pendenciasLegado`, `migrarLegado`, `reativarLegado`,
+  `continuarMigracao`, `buscarSubstituto`).
+- `src/lib/depara/substituto.ts` — `Substituto` ganhou `fatorConversao`,
+  `quantidadeSugerida` e a origem `busca`; `anotarUnidades` agora converte pelo
+  fator em vez de só avisar.
+- `src/lib/estoque/omieEstoque.ts` — `saldoPorLocal` (saldo COM endereço, um por
+  local) + 4 testes.
+- `src/app/(app)/de-para/actions.ts` — reescrita: `buscarCadastro`,
+  `buscarCodigoNovo`, `pendenciasLegado`, `migrarLegado`, `continuarMigracao`,
+  `reativarLegado`, `entradasEmAposentados`, `migrarEntradaTardia`; a fila passa a
+  esconder os aposentados e a validação de unidade entrou no `salvarDePara`.
+- `src/components/depara/DeParaClient.tsx` — caixa de busca no catálogo, check de
+  unidade com input de fator e exemplo, busca de código novo por linha, painel de
+  aposentadoria com as pendências, botão de reativar.
+- `src/app/(app)/de-para/page.tsx` — "Como funciona" foi para 6 passos e o aviso de
+  entradas tardias entrou no topo (só faz a leitura no Omie quando EXISTE
+  aposentado).
+- `src/app/(app)/movimentacoes/actions.ts` — `buscarSubstituto` (busca livre) e
+  `anexarSubstitutos` passando fator + quantidade e excluindo os aposentados.
+- `src/components/movimentacoes/MovimentacaoOpClient.tsx` — busca de substituto por
+  linha, "marcar todos" no cabeçalho, quantidade convertida pelo fator.
+- `src/components/movimentacoes/ConsumoOpPanel.tsx` — "marcar todos" (segue o grupo
+  que tem mais itens: reservados ou baixados).
+- `src/lib/changelog.ts`, `src/lib/tutorial.ts`,
+  `src/app/(app)/movimentacoes/page.tsx`.
+
+### Comandos
+```
+npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script
+npx prisma generate
+npx tsc --noEmit
+npm run lint
+npx vitest run
+npm run build
+```
+
+### Pendências / próximos passos
+1. ~~Rodar a migração `20260901120000_depara_fator_e_migracao`~~ — **APLICADA**
+   nesta sessão (`npx prisma migrate deploy`, com o ok do Vitor). Banco em dia.
+2. **Testar a inativação no Omie com um cadastro de verdade.** O `AlterarProduto`
+   com payload mínimo (`codigo_produto` + `inativo: "S"`) NÃO foi exercitado contra
+   a API — escrever num cadastro de produção só para testar não é aceitável. Se o
+   Omie exigir campos obrigatórios, a resposta vem como aviso na tela ("o saldo foi
+   migrado, mas a inativação falhou") e o `omieProduto.ts` precisa passar a
+   enriquecer o payload com o `ConsultarProduto`.
+3. **Pedido de compra:** o `PesquisarPedCompra` responde "não existem registros"
+   nesta base (conferido em 01/09/2026). Ou a empresa não usa o módulo, ou os
+   pedidos estão em outro lugar. A conferência está ligada e não custa nada; se
+   passarem a usar, já avisa.
+4. **Remessa de industrialização da Evo** — definir com o Vitor.
+5. Não commitado: o Vitor não pediu commit nesta rodada.
+
 ## 2026-08-31 — Substituto legado na Movimentação, baixa/estorno da OP, OP no Multiplicador
 
 ### Resumo

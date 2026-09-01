@@ -24,6 +24,23 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-09-01",
+    title: "De/Para: fator de conversão, busca direta e aposentadoria do código antigo",
+    items: [
+      "O De/Para agora CONFERE a unidade dos dois cadastros. Se são a mesma, a linha diz isso e a quantidade passa 1 para 1. Se muda (M² contra KG), a linha pede o fator uma vez — 1 KG do novo = quantos M² do antigo — e mostra a conta pronta para você conferir. Sem o fator, o par não é salvo: era exatamente aí que a conversão sobrava para quem estivesse movimentando.",
+      "Com o fator gravado, a Movimentação por OP para de pedir a quantidade na mão: ela já vem convertida, com o aviso dizendo de onde saiu a conta.",
+      "Novo \"Buscar cadastro\" no De/Para: procure pelo código (PRD02227) ou por parte da descrição e ligue o par mesmo que ele não apareça na fila. A fila lista só o que tem saldo no local e se lê como matéria-prima — cadastro zerado em todos os locais, ferramenta e componente comprado nunca apareciam ali, e não tinham como ser ligados.",
+      "O campo do código novo também ganhou busca: dá para escolher um equivalente fora do catálogo MAT (qualquer código no padrão novo).",
+      "Novo botão \"Aposentar código antigo\". Ele confere primeiro o que ainda está rodando com aquele código — OP aberta no Omie, requisição do Vital Ops e pedido de compra — e mostra a lista com número e quantidade. Nada acontece antes de você ler.",
+      "Ao confirmar, TODO o saldo é movido do código antigo para o novo, local por local (Matéria-Prima, Reservado Produção, Locação...), com a quantidade convertida pelo fator. Se a saída passar e a entrada não, a tela mostra o local pendente em vez de fingir que deu certo.",
+      "Marcando a opção, o cadastro antigo é INATIVADO no Omie depois de mover o saldo. A ordem importa: inativar antes deixaria o saldo preso num cadastro que a API não movimenta mais.",
+      "Código aposentado some da fila de revisão e para de ser oferecido como substituto na Movimentação por OP. \"Reativar aqui\" desfaz a tag (mas não devolve estoque nem reativa no Omie).",
+      "Se depois da aposentadoria entrar material no código velho — a nota fiscal que chegou com o PRD antigo —, um aviso aparece no topo do De/Para com o saldo que reapareceu e um botão para mandar tudo para o código novo. Sem isso, esse material fica invisível: as OPs pedem o código novo e não o encontram ali.",
+      "Na Movimentação por OP, a linha sem saldo agora tem um campo de BUSCA de substituto, e não só a lista pronta. Quando o sistema não deduz nada (a descrição antiga não se lê como chapa ou tubo), dá para procurar o cadastro pelo código ou pela descrição e ver o saldo dele na origem.",
+      "Caixa de \"marcar todos\" no cabeçalho das duas tabelas da Movimentação por OP: a da conferência (marca o que dá para mover) e a do material reservado (marca o que dá para baixar, ou o que dá para estornar quando já está tudo baixado).",
+    ],
+  },
+  {
     date: "2026-08-31",
     title: "Movimentação por OP: mover o código antigo, dar baixa e estornar",
     items: [

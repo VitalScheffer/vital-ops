@@ -7,11 +7,13 @@ import { audit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
 import {
   baixarOpSchema,
+  buscarSubstitutoSchema,
   conferirOpSchema,
   continuarMovimentoSchema,
   estornarOpSchema,
   executarMovimentoSchema,
   type BaixarOpInput,
+  type BuscarSubstitutoInput,
   type ConferirOpInput,
   type ContinuarMovimentoInput,
   type EstornarOpInput,
@@ -28,6 +30,7 @@ import {
   LOCAL_PADRAO,
   baixarEstoque,
   buscarProdutosPorCodigo,
+  buscarProdutosPorDescricao,
   dataOmieHoje,
   lotesPorCodigo,
   nomeDoLocal,
@@ -265,32 +268,161 @@ async function anexarSubstitutos(linhas: LinhaConferida[], origemCodigo: string)
   if (semSaldo.length === 0) return;
 
   try {
-    const [catalogo, legados, confirmados] = await Promise.all([
+    const [catalogo, legados, pares] = await Promise.all([
       listarCatalogoMat(chamar),
       listarLegadosComSaldo(origemCodigo, dataOmieHoje(), chamar),
       prisma.deParaProduto.findMany({
         where: { codigoNovo: { not: null } },
-        select: { codigoLegado: true, codigoNovo: true, unidadeLegado: true },
+        select: {
+          codigoLegado: true,
+          codigoNovo: true,
+          unidadeLegado: true,
+          fatorConversao: true,
+          aposentadoEm: true,
+        },
       }),
     ]);
 
+    // Código APOSENTADO não pode ser oferecido como substituto: ele foi tirado
+    // de circulação de propósito (o saldo dele já foi para o código novo, e o
+    // cadastro pode até estar inativo no Omie). Oferecer seria mandar a fábrica
+    // buscar material num lugar que a empresa acabou de fechar.
+    const aposentados = new Set(pares.filter((p) => p.aposentadoEm).map((p) => p.codigoLegado));
+    const confirmados = pares.flatMap((p) =>
+      p.codigoNovo && !p.aposentadoEm
+        ? [
+            {
+              codigoLegado: p.codigoLegado,
+              codigoNovo: p.codigoNovo,
+              unidadeLegado: p.unidadeLegado,
+              fatorConversao: p.fatorConversao === null ? null : Number(p.fatorConversao),
+            },
+          ]
+        : [],
+    );
+
     const indice = indexarSubstitutos(
-      legados,
+      legados.filter((l) => !aposentados.has(l.codigo)),
       catalogo,
-      confirmados.flatMap((c) => (c.codigoNovo ? [{ ...c, codigoNovo: c.codigoNovo }] : [])),
+      confirmados,
     );
 
     // `listarLegadosComSaldo` já devolve só cadastro ATIVO e com a unidade
-    // lida, que é o que permite avisar "a OP pede KG e este está em M²".
+    // lida, que é o que permite avisar "a OP pede KG e este está em M²" — e,
+    // quando o par tem fator gravado, já converter a quantidade em vez de
+    // deixá-la em branco para alguém digitar.
     for (const linha of semSaldo) {
       const achados = indice.get(linha.sku);
       if (!achados || achados.length === 0) continue;
-      linha.substitutos = anotarUnidades(achados, linha.unidade);
+      linha.substitutos = anotarUnidades(achados, linha.unidade, linha.quantidade);
     }
   } catch {
     // Ver o comentário acima: sem substituto a tela continua correta, só menos
     // prestativa. Derrubar a conferência por causa disso seria pior.
   }
+}
+
+export interface ResultadoBuscaSubstituto {
+  ok: boolean;
+  erro?: string;
+  substitutos: Substituto[];
+}
+
+/**
+ * Busca livre de substituto: a pessoa digita o código ou parte da descrição e a
+ * tela mostra o que existe, com o saldo NA ORIGEM.
+ *
+ * O seletor de candidatos deduzidos resolve o caso comum e falha exatamente
+ * onde dói: quando o casamento por geometria não achou nada (a descrição antiga
+ * não se lê como chapa/tubo), quando o cadastro está num local que não entrou na
+ * varredura, ou quando quem está na tela simplesmente SABE de qual código o
+ * material tem que sair. Nesses casos a lista pronta não tem o item e não havia
+ * como digitar.
+ *
+ * O resultado carrega os mesmos avisos do caminho automático: origem da
+ * ligação, mudança de unidade e conversão pelo fator do De/Para quando existe.
+ * Buscar na mão não pode ser um atalho que pula as conferências.
+ */
+export async function buscarSubstituto(
+  input: BuscarSubstitutoInput,
+): Promise<ResultadoBuscaSubstituto> {
+  const guarda = await guardar();
+  if ("erro" in guarda) return { ok: false, erro: guarda.erro, substitutos: [] };
+
+  const parsed = buscarSubstitutoSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, erro: "Digite pelo menos 2 caracteres do código ou da descrição.", substitutos: [] };
+  }
+  const { termo, origemCodigo, skuDaOp, quantidadePedida } = parsed.data;
+
+  let achados: Awaited<ReturnType<typeof buscarProdutosPorDescricao>>;
+  try {
+    achados = await buscarProdutosPorDescricao(termo, chamar, 20);
+  } catch (erro) {
+    return { ok: false, erro: mensagemOmieIndisponivel(erro), substitutos: [] };
+  }
+
+  const candidatos = achados.filter((a) => a.codigo !== skuDaOp);
+  if (candidatos.length === 0) return { ok: true, substitutos: [] };
+
+  const codigos = candidatos.map((c) => c.codigo);
+  let produtos: Map<string, ProdutoEstoque>;
+  let saldos: Map<string, SaldoEstoque>;
+  try {
+    produtos = await buscarProdutosPorCodigo([...codigos, skuDaOp], chamar);
+    saldos = await saldosPorCodigo(codigos, dataOmieHoje(), chamar, origemCodigo);
+  } catch (erro) {
+    return { ok: false, erro: mensagemOmieIndisponivel(erro), substitutos: [] };
+  }
+
+  const pares = await prisma.deParaProduto.findMany({
+    where: { codigoLegado: { in: codigos } },
+    select: { codigoLegado: true, codigoNovo: true, fatorConversao: true, aposentadoEm: true },
+  });
+  const porLegado = new Map(pares.map((p) => [p.codigoLegado, p]));
+
+  const unidadeDaOp = produtos.get(skuDaOp)?.unidade;
+
+  const substitutos: Substituto[] = [];
+  for (const candidato of candidatos) {
+    const par = porLegado.get(candidato.codigo);
+    // Aposentado não volta pela busca: fechar o cadastro e continuar oferecendo
+    // ele numa caixinha de texto seria fechar só pela metade.
+    if (par?.aposentadoEm) continue;
+    const produto = produtos.get(candidato.codigo);
+    if (!produto) continue;
+
+    const confirmadoPraEste = par?.codigoNovo === skuDaOp;
+    substitutos.push({
+      codigo: candidato.codigo,
+      idProd: produto.idProd,
+      descricao: candidato.descricao,
+      unidade: candidato.unidade ?? produto.unidade,
+      saldo: saldos.get(candidato.codigo)?.saldo ?? 0,
+      origem: confirmadoPraEste ? "confirmado" : "busca",
+      unidadeMuda: false,
+      ...(confirmadoPraEste && par?.fatorConversao
+        ? { fatorConversao: Number(par.fatorConversao) }
+        : {}),
+      avisos: confirmadoPraEste
+        ? []
+        : [
+            par?.codigoNovo
+              ? `Atenção: no De/Para este código está ligado a ${par.codigoNovo}, não a ${skuDaOp}.`
+              : "Escolhido na mão: ninguém ligou este código ao que a OP pede. Confira o material antes de mover.",
+          ],
+    });
+  }
+
+  // Quem tem material aparece primeiro; quem já está ligado ao código da OP
+  // ganha do resto. Saldo zero fica na lista de propósito, para a pessoa ver
+  // que achou o cadastro certo e ele está vazio.
+  substitutos.sort((a, b) => {
+    if (a.origem !== b.origem) return a.origem === "confirmado" ? -1 : 1;
+    return b.saldo - a.saldo;
+  });
+
+  return { ok: true, substitutos: anotarUnidades(substitutos, unidadeDaOp, quantidadePedida) };
 }
 
 // -----------------------------------------------------------------------------

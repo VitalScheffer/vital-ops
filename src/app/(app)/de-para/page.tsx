@@ -1,7 +1,8 @@
-import { ArrowRightLeft, ListFilter, ShieldCheck, Wand2 } from "lucide-react";
+import { ArrowRightLeft, ListFilter, PackageX, Ruler, ShieldCheck, Wand2 } from "lucide-react";
 
-import { carregarFila } from "@/app/(app)/de-para/actions";
+import { carregarFila, entradasEmAposentados } from "@/app/(app)/de-para/actions";
 import { DeParaClient } from "@/components/depara/DeParaClient";
+import { EntradasTardias } from "@/components/depara/EntradasTardias";
 import { Forbidden } from "@/components/Forbidden";
 import { Panel } from "@/components/Panel";
 import { auth } from "@/lib/auth";
@@ -35,15 +36,27 @@ function ComoFunciona() {
         "Nada é ligado sozinho. Onde a descrição antiga diz uma liga que o catálogo novo não tem (inox 200 x 430) ou onde a unidade muda (M² x KG), a linha vem com aviso e exige confirmação.",
     },
     {
+      icon: Ruler,
+      titulo: "4. A unidade tem que fechar",
+      texto:
+        "Se os dois cadastros estão na mesma unidade, a quantidade passa 1 para 1. Se muda (M² x KG), a linha pede o fator uma vez — 1 KG do novo = quantos M² do antigo — e a partir daí toda movimentação já vem convertida, sem ninguém digitar.",
+    },
+    {
       icon: ArrowRightLeft,
-      titulo: "4. A Movimentação usa o mapa",
+      titulo: "5. A Movimentação usa o mapa",
       texto:
         "Depois de ligado, quando uma OP pedir o código novo e ele estiver sem saldo, a tela de Movimentação por OP mostra em qual código antigo o material está parado e quanto tem.",
+    },
+    {
+      icon: PackageX,
+      titulo: "6. Quando terminar, aposente",
+      texto:
+        "\"Aposentar código antigo\" confere o que ainda roda com ele (OP aberta, requisição, pedido de compra), move TODO o saldo local por local para o código novo e, se você marcar, inativa o cadastro no Omie. Se depois entrar NF no código velho, a tela avisa.",
     },
   ];
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {passos.map((passo) => (
         <div key={passo.titulo} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -65,7 +78,7 @@ export default async function DeParaPage() {
     return <Forbidden message="Você não tem permissão para acessar o De/Para de códigos." />;
   }
 
-  const [locais, ultimos, total] = await Promise.all([
+  const [locais, ultimos, total, aposentados] = await Promise.all([
     locaisDisponiveis(),
     prisma.deParaProduto.findMany({
       orderBy: { atualizadoEm: "desc" },
@@ -79,7 +92,13 @@ export default async function DeParaPage() {
       },
     }),
     prisma.deParaProduto.count(),
+    prisma.deParaProduto.count({ where: { aposentadoEm: { not: null } } }),
   ]);
+
+  // A leitura de saldo dos aposentados só acontece quando EXISTE aposentado.
+  // Um alerta que custa uma chamada ao Omie em toda abertura da tela, mesmo
+  // quando não há nada para alertar, é orçamento de ban gasto à toa.
+  const entradas = aposentados > 0 ? await entradasEmAposentados() : null;
 
   // A primeira fila é montada AQUI, no servidor: o cliente abre com a lista
   // pronta em vez de piscar vazio e buscar num efeito de montagem.
@@ -95,6 +114,8 @@ export default async function DeParaPage() {
           códigos novos (MAT). Aqui você liga um ao outro, uma vez por item.
         </p>
       </header>
+
+      {entradas?.ok && entradas.entradas.length > 0 ? <EntradasTardias entradas={entradas.entradas} /> : null}
 
       <ComoFunciona />
 

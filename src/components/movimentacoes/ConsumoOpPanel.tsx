@@ -79,6 +79,18 @@ export function ConsumoOpPanel({ numeroOp, itens, locais, onAtualizar }: Props) 
     });
   }
 
+  // "Marcar tudo" do cabeçalho. Marcar reservado e baixado ao mesmo tempo seria
+  // uma seleção que não serve para nenhum dos dois botões (um baixa, o outro
+  // estorna), então a marcação em massa segue o que está em MAIOR número: se
+  // ainda há coisa para baixar, marca o que dá para baixar; se está tudo
+  // baixado, marca o que dá para estornar.
+  const emMassa = reservados.length > 0 ? reservados : baixados;
+  const todosMarcados = emMassa.length > 0 && emMassa.every((i) => marcados.has(i.id));
+
+  function marcarTodos(ligar: boolean) {
+    setMarcados(ligar ? new Set(emMassa.map((i) => i.id)) : new Set());
+  }
+
   function localDoItem(item: ItemReservado): string {
     return localPorItem[item.id] || localGlobal || item.localCodigo;
   }
@@ -200,7 +212,21 @@ export function ConsumoOpPanel({ numeroOp, itens, locais, onAtualizar }: Props) 
         <table className="w-full min-w-[48rem] text-sm">
           <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="w-10 px-3 py-2" />
+              <th className="w-10 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={todosMarcados}
+                  onChange={(e) => marcarTodos(e.target.checked)}
+                  disabled={emMassa.length === 0}
+                  title={
+                    reservados.length > 0
+                      ? "Marcar/desmarcar todos os reservados"
+                      : "Marcar/desmarcar todos os baixados"
+                  }
+                  aria-label="Marcar todos"
+                  className="h-4 w-4 accent-[var(--primary)] disabled:opacity-40"
+                />
+              </th>
               <th className="px-3 py-2">Código</th>
               <th className="px-3 py-2 text-right">Quantidade</th>
               <th className="px-3 py-2">Local</th>

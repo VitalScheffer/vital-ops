@@ -13,6 +13,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 
 import {
+  buscarSubstituto,
   conferirOp,
   continuarMovimento,
   executarMovimento,
@@ -25,6 +26,7 @@ import {
 import { ConsumoOpPanel } from "@/components/movimentacoes/ConsumoOpPanel";
 import { Select } from "@/components/ui/Select";
 import type { GrupoItemMovimento } from "@/lib/contracts";
+import type { OrigemSubstituto, Substituto } from "@/lib/depara/substituto";
 import { destinoSugerido, origemSugerida } from "@/lib/estoque/locais";
 
 export interface LocalOpcao {
@@ -56,6 +58,14 @@ const ROTULO_GRUPO: Record<GrupoItemMovimento, string> = {
 // O que a fábrica separa e leva pra produção. Submontagem e peça só entram
 // quando a pessoa pede "toda a BOM": elas são fabricadas, não retiradas.
 const GRUPOS_PADRAO: GrupoItemMovimento[] = ["MAT", "COM"];
+
+// De onde veio cada candidato. A diferença fica na própria opção porque ela
+// muda o que a pessoa precisa conferir antes de mover.
+const ROTULO_ORIGEM: Record<OrigemSubstituto, string> = {
+  confirmado: " · De/Para confirmado",
+  automatico: " · deduzido, confira",
+  busca: " · você buscou, confira",
+};
 
 const OUTCOME_LABEL: Record<string, string> = {
   TRANSFERIDO: "transferido ✓",
@@ -90,12 +100,20 @@ interface ItemEfetivo {
   saldo: number;
   substituiSku?: string;
   avisos: string[];
-  /** A unidade mudou: a quantidade tem que ser digitada, não herdada da OP. */
+  /** A unidade mudou e NÃO há fator: a quantidade tem que ser digitada. */
   exigeQuantidade: boolean;
+  /** Quantidade já convertida pelo fator do De/Para, quando ele existe. */
+  quantidadeSugerida?: number;
 }
 
-function itemEfetivo(linha: LinhaConferida, escolha: string): ItemEfetivo {
-  const substituto = linha.substitutos?.find((s) => s.codigo === escolha);
+/** Todos os cadastros oferecidos para a linha: os deduzidos e os que a pessoa buscou. */
+function candidatosDaLinha(linha: LinhaConferida, extras: Substituto[]): Substituto[] {
+  const vistos = new Set((linha.substitutos ?? []).map((s) => s.codigo));
+  return [...(linha.substitutos ?? []), ...extras.filter((e) => !vistos.has(e.codigo))];
+}
+
+function itemEfetivo(linha: LinhaConferida, escolha: string, extras: Substituto[] = []): ItemEfetivo {
+  const substituto = candidatosDaLinha(linha, extras).find((s) => s.codigo === escolha);
   if (!substituto) {
     return {
       idProd: linha.idProd,
@@ -115,7 +133,10 @@ function itemEfetivo(linha: LinhaConferida, escolha: string): ItemEfetivo {
     saldo: substituto.saldo,
     substituiSku: linha.sku,
     avisos: substituto.avisos,
-    exigeQuantidade: substituto.unidadeMuda,
+    // Com fator gravado no De/Para a conversão já foi feita no servidor: exigir
+    // digitação aí seria pedir de novo um número que a empresa já decidiu.
+    exigeQuantidade: substituto.unidadeMuda && substituto.quantidadeSugerida === undefined,
+    quantidadeSugerida: substituto.quantidadeSugerida,
   };
 }
 
@@ -138,6 +159,11 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   // Por linha (chave = idProd do item da OP): "" usa o código que a OP pede;
   // qualquer outro valor é o código do cadastro antigo escolhido no lugar dele.
   const [substitutos, setSubstitutos] = useState<Record<string, string>>({});
+  // Cadastros que a pessoa ACHOU na busca, somados aos que o sistema deduziu.
+  // A lista deduzida resolve o caso comum; a busca é o que salva quando ela
+  // vem vazia (o casamento por geometria não achou nada) ou quando quem está
+  // na tela sabe de qual código o material tem que sair.
+  const [achados, setAchados] = useState<Record<string, Substituto[]>>({});
   const [execucao, setExecucao] = useState<ResultadoExecucaoMovimento | null>(null);
   const [executando, setExecutando] = useState(false);
   const [retomando, setRetomando] = useState<string | null>(null);
@@ -164,6 +190,7 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   function aplicarConferencia(resultado: ResultadoConferenciaOp) {
     setConferencia(resultado);
     setSubstitutos({});
+    setAchados({});
     setQuantidades(Object.fromEntries(resultado.linhas.map((l) => [l.idProd, l.quantidade])));
     // Já vem marcado o que dá para mover: linha sem saldo entra desmarcada, com
     // o motivo e as alternativas à vista, em vez de sumir da lista.
@@ -220,7 +247,7 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
   }
 
   function podeMover(linha: LinhaConferida): boolean {
-    const efetivo = itemEfetivo(linha, substitutos[linha.idProd] ?? "");
+    const efetivo = itemEfetivo(linha, substitutos[linha.idProd] ?? "", achados[linha.idProd]);
     const quantidade = quantidades[linha.idProd] ?? 0;
     return quantidade > 0 && efetivo.saldo >= quantidade;
   }
@@ -229,15 +256,24 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
     setMarcados(ligar ? new Set(visiveis.filter(podeMover).map((l) => l.idProd)) : new Set());
   }
 
+  // "Marcar tudo" do cabeçalho: liga o que dá para mover e desliga tudo. Só
+  // entram as linhas com saldo e quantidade — marcar o que a execução vai
+  // recusar não é seleção, é uma lista de erros pronta.
+  const marcaveis = visiveis.filter(podeMover);
+  const todosMarcados = marcaveis.length > 0 && marcaveis.every((l) => marcados.has(l.idProd));
+
   /**
-   * Trocar o cadastro a mover zera a quantidade quando a unidade muda e
-   * desmarca a linha. Manter o número da OP ali seria oferecer 21,66 "kg" de um
-   * cadastro que está em M², e número já preenchido tende a ser confirmado sem
-   * leitura.
+   * Trocar o cadastro a mover ajusta a quantidade.
+   *
+   * Com o fator do De/Para gravado, a quantidade já vem convertida (a OP pede
+   * 21,66 KG e a linha passa a mover 3,0671 M²). Sem fator, a quantidade é
+   * ZERADA e a linha desmarcada: manter o número da OP ali seria oferecer 21,66
+   * "kg" de um cadastro que está em M², e número já preenchido tende a ser
+   * confirmado sem leitura.
    */
   function escolherSubstituto(linha: LinhaConferida, codigo: string) {
     setSubstitutos((atual) => ({ ...atual, [linha.idProd]: codigo }));
-    const efetivo = itemEfetivo(linha, codigo);
+    const efetivo = itemEfetivo(linha, codigo, achados[linha.idProd]);
     if (efetivo.exigeQuantidade) {
       setQuantidades((atual) => ({ ...atual, [linha.idProd]: 0 }));
       setMarcados((atual) => {
@@ -247,7 +283,21 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
       });
       return;
     }
-    setQuantidades((atual) => ({ ...atual, [linha.idProd]: linha.quantidade }));
+    setQuantidades((atual) => ({
+      ...atual,
+      [linha.idProd]: efetivo.quantidadeSugerida ?? linha.quantidade,
+    }));
+  }
+
+  /** Junta o que a busca achou aos candidatos já oferecidos naquela linha. */
+  function guardarAchados(linha: LinhaConferida, novos: Substituto[]) {
+    setAchados((atual) => {
+      const jaTem = new Set((atual[linha.idProd] ?? []).map((s) => s.codigo));
+      return {
+        ...atual,
+        [linha.idProd]: [...(atual[linha.idProd] ?? []), ...novos.filter((n) => !jaTem.has(n.codigo))],
+      };
+    });
   }
 
   async function transferir() {
@@ -259,7 +309,7 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
         origemCodigo: origem,
         destinoCodigo: destino,
         itens: selecionadas.map((linha) => {
-          const efetivo = itemEfetivo(linha, substitutos[linha.idProd] ?? "");
+          const efetivo = itemEfetivo(linha, substitutos[linha.idProd] ?? "", achados[linha.idProd]);
           return {
             idProd: efetivo.idProd,
             sku: efetivo.sku,
@@ -457,7 +507,17 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
             <table className="w-full min-w-[56rem] text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="w-10 px-3 py-2" />
+                  <th className="w-10 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={todosMarcados}
+                      onChange={(e) => marcarTodos(e.target.checked)}
+                      disabled={marcaveis.length === 0}
+                      title="Marcar/desmarcar todos os que dá para mover"
+                      aria-label="Marcar todos"
+                      className="h-4 w-4 accent-[var(--primary)] disabled:opacity-40"
+                    />
+                  </th>
                   <th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2">Tipo</th>
                   <th className="px-3 py-2 text-right">Quantidade</th>
@@ -469,12 +529,15 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
                   <LinhaTabela
                     key={linha.idProd}
                     linha={linha}
+                    candidatos={candidatosDaLinha(linha, achados[linha.idProd] ?? [])}
                     escolha={substitutos[linha.idProd] ?? ""}
                     marcado={marcados.has(linha.idProd)}
                     quantidade={quantidades[linha.idProd] ?? 0}
+                    origem={origem}
                     onToggle={() => alternar(linha.idProd)}
                     onQuantidade={(valor) => setQuantidades((atual) => ({ ...atual, [linha.idProd]: valor }))}
                     onSubstituto={(codigo) => escolherSubstituto(linha, codigo)}
+                    onAchados={(novos) => guardarAchados(linha, novos)}
                   />
                 ))}
               </tbody>
@@ -515,25 +578,61 @@ export function MovimentacaoOpClient({ locais, pendentes }: Props) {
 
 function LinhaTabela({
   linha,
+  candidatos,
   escolha,
   marcado,
   quantidade,
+  origem,
   onToggle,
   onQuantidade,
   onSubstituto,
+  onAchados,
 }: {
   linha: LinhaConferida;
+  candidatos: Substituto[];
   escolha: string;
   marcado: boolean;
   quantidade: number;
+  origem: string;
   onToggle: () => void;
   onQuantidade: (valor: number) => void;
   onSubstituto: (codigo: string) => void;
+  onAchados: (novos: Substituto[]) => void;
 }) {
-  const efetivo = itemEfetivo(linha, escolha);
+  const [termo, setTermo] = useState("");
+  const [buscandoSub, setBuscandoSub] = useState(false);
+  const [semResultado, setSemResultado] = useState(false);
+
+  const efetivo = itemEfetivo(linha, escolha, candidatos);
   const excede = quantidade > efetivo.saldo;
   const faltaQuantidade = quantidade <= 0;
-  const temSubstituto = (linha.substitutos?.length ?? 0) > 0;
+  const temSubstituto = candidatos.length > 0;
+  // A busca aparece em toda linha SEM saldo, tenha ou não candidato deduzido:
+  // é justamente quando a dedução não achou nada que digitar o código é a única
+  // saída, e é aí que a lista pronta não ajudava.
+  const podeBuscar = !linha.suficiente && !linha.sku.startsWith("#");
+
+  async function procurar() {
+    const q = termo.trim();
+    if (q.length < 2) return;
+    setBuscandoSub(true);
+    setSemResultado(false);
+    try {
+      const resultado = await buscarSubstituto({
+        termo: q,
+        origemCodigo: origem,
+        skuDaOp: linha.sku,
+        quantidadePedida: linha.quantidade,
+      });
+      if (!resultado.ok || resultado.substitutos.length === 0) {
+        setSemResultado(true);
+        return;
+      }
+      onAchados(resultado.substitutos);
+    } finally {
+      setBuscandoSub(false);
+    }
+  }
 
   return (
     <tr className="border-t border-border align-top">
@@ -573,14 +672,53 @@ function LinhaTabela({
               <option value="" className="bg-card text-foreground">
                 {linha.sku} (saldo {numero(linha.saldoOrigem)})
               </option>
-              {linha.substitutos?.map((substituto) => (
+              {candidatos.map((substituto) => (
                 <option key={substituto.codigo} value={substituto.codigo} className="bg-card text-foreground">
                   {substituto.codigo} (saldo {numero(substituto.saldo)}
                   {substituto.unidade ? ` ${substituto.unidade}` : ""})
-                  {substituto.origem === "confirmado" ? " · De/Para confirmado" : " · deduzido, confira"}
+                  {ROTULO_ORIGEM[substituto.origem]}
                 </option>
               ))}
             </Select>
+          </div>
+        ) : null}
+
+        {podeBuscar ? (
+          <div className="mt-2 flex flex-col gap-1">
+            {!temSubstituto ? (
+              <span className="text-xs text-muted-foreground">
+                {linha.sku} está sem saldo aqui e o sistema não achou equivalente sozinho. Busque o cadastro pelo
+                código ou pela descrição:
+              </span>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-1">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={termo}
+                  onChange={(e) => {
+                    setTermo(e.target.value);
+                    setSemResultado(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void procurar();
+                  }}
+                  placeholder="buscar outro código (PRD00620, CHAPA…)"
+                  className="w-64 rounded-lg border border-border bg-field py-1 pl-7 pr-2 text-xs text-card-foreground outline-none focus-visible:border-primary"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void procurar()}
+                disabled={buscandoSub || termo.trim().length < 2}
+                className="rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground disabled:opacity-60"
+              >
+                {buscandoSub ? "Buscando…" : "Buscar"}
+              </button>
+              {semResultado ? (
+                <span className="text-xs text-warning">Nada encontrado com esse termo.</span>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
