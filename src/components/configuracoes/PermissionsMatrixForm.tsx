@@ -18,6 +18,7 @@ const MODULE_LABEL: Record<Module, string> = {
   baixas: "Baixa de estoque",
   movimentacoes: "Movimentação por OP",
   depara: "De/Para de códigos",
+  recebimento: "Recebimento de NF",
   users: "Usuários e setores",
   audit: "Auditoria",
 };

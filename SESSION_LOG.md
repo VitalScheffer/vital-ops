@@ -1,5 +1,55 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-08 — Nova tela: Recebimento de NF (checklist manual por semana)
+
+### Resumo
+Pedido do dono do repo (croqui em papel, fotografado): uma tela nova pra
+acompanhar semanalmente as NFs recebidas de fornecedor, com checklist por
+produto — sem nenhuma integração com o Omie, é o usuário quem marca.
+
+### O que foi decidido no brainstorm
+- Cada NF pode ter vários produtos; os 4 checks (**Material recebido**, **Tem
+  OC**, **OC Aprovado**, **NF-e lançada**) são por PRODUTO, não por NF inteira.
+- "Tem OC" é checkbox simples (não guarda o número do pedido).
+- Agrupamento por semana (segunda–domingo) é **automático**, calculado a partir
+  da Data de Emissão — não fica persistido, só calculado na leitura.
+- Sem integração com Omie, sem import de planilha — só export (Excel/PDF) sob
+  demanda, gerado no navegador a partir do que já está na tela.
+- Acesso: módulo novo `recebimento` no sistema de permissões existente (mesma
+  matriz Papel × Módulo de `/configuracoes`). Default: ADMIN/GESTOR/FUNCIONARIO
+  habilitados, FABRICA/FABRICA_GESTOR não (mesmo padrão dos módulos operacionais).
+- Usuário pediu pra pular o spec formal ("é só uma planilha interativa") —
+  fomos direto pra implementação com TDD na lógica pura.
+
+### Implementado
+- Prisma: `RecebimentoNota` (cabeçalho) + `RecebimentoItem` (produto + 4
+  booleans), migration `20260908170755_recebimento_nf`.
+- `src/lib/recebimento/semanas.ts` — agrupamento/rótulo de semana (TDD).
+- `src/lib/recebimento/planilha.ts` — export Excel, uma linha por produto (TDD).
+- `src/lib/recebimento/pdf.ts` — export PDF com o mesmo visual de marca do
+  resto do app (TDD, baseado em `baixas/consumoPdf.ts`).
+- `src/app/(app)/recebimento/actions.ts` + `page.tsx` +
+  `src/components/recebimento/RecebimentoClient.tsx` — CRUD de NF/produto,
+  checkbox individual e "marcar/desmarcar todos" por coluna (otimista no
+  cliente), tudo auditado via `audit()`.
+- Módulo `recebimento` registrado em `permissions.ts`, `rbac.ts`,
+  `navigation.ts`, `seed.ts` e nos rótulos de `PermissionsMatrixForm.tsx`/ícones
+  do `AppShell.tsx`.
+
+### Testado manualmente (Chrome, localhost:3000, login ADMIN)
+Criar NF → adicionar 2 produtos → marcar checks individuais → "marcar todos"
+numa coluna → editar NF → remover produto → remover NF → conferido que o
+módulo aparece certo em `/configuracoes`. Tudo funcionando; único erro de
+console foi um hydration mismatch de `nonce` no `<script>` do layout raiz,
+pré-existente e sem relação com esta tela.
+
+### Observação de ambiente
+`.env` deste checkout aponta pro Neon com host `ep-shiny-smoke-...` — o
+usuário confirmou que é o banco real (não um dev isolado) e autorizou testar
+direto nele. `db:seed` roda com `upsert` no ADMIN/GESTOR (reseta a senha
+desses dois logins pro padrão `vital123` toda vez que roda) — o usuário
+confirmou que a senha real já era essa, sem incidente.
+
 ## 2026-09-01 — De/Para: fator de conversão, busca direta e aposentadoria do código antigo
 
 ### Resumo

@@ -8,6 +8,7 @@ import {
   canViewDePara,
   canViewMovimentacoes,
   canViewProjetos,
+  canViewRecebimento,
   canViewRequisicoes,
 } from "@/lib/rbac";
 
@@ -23,6 +24,7 @@ export type NavIcon =
   | "baixas"
   | "movimentacoes"
   | "depara"
+  | "recebimento"
   | "users"
   | "audit"
   | "settings";
@@ -133,6 +135,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description: "Ligue o código antigo (PRD) ao cadastro novo de matéria-prima (MAT).",
     icon: "depara",
     visibleTo: canViewDePara,
+  },
+  {
+    key: "recebimento",
+    href: "/recebimento",
+    label: "Recebimento de NF",
+    description: "Marque o checklist de recebimento (material, OC, aprovação, NF-e lançada) por semana.",
+    icon: "recebimento",
+    visibleTo: canViewRecebimento,
   },
   {
     key: "usuarios",

@@ -8,3 +8,4 @@ export * from "./movimentacao";
 export * from "./configuracao";
 export * from "./push";
 export * from "./pcp";
+export * from "./recebimento";

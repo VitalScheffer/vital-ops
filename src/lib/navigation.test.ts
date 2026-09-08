@@ -38,6 +38,7 @@ describe("visibleNavFor", () => {
       "requisicoes",
       "baixas",
       "movimentacoes",
+      "recebimento",
     ]);
   });
 
@@ -64,6 +65,7 @@ describe("visibleNavFor", () => {
       "baixas",
       "movimentacoes",
       "depara",
+      "recebimento",
       "usuarios",
       "auditoria",
     ]);
@@ -82,6 +84,7 @@ describe("visibleNavFor", () => {
       "baixas",
       "movimentacoes",
       "depara",
+      "recebimento",
       "usuarios",
       "auditoria",
       "configuracoes",
@@ -111,6 +114,7 @@ describe("visibleNavFor", () => {
       "baixas",
       "movimentacoes",
       "depara",
+      "recebimento",
       "usuarios",
     ]);
   });
@@ -121,7 +125,7 @@ describe("visibleNavFor", () => {
       FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
     };
     const keys = visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key);
-    expect(keys).toEqual(["home", "produtos", "configurador", "requisicoes", "baixas", "movimentacoes"]);
+    expect(keys).toEqual(["home", "produtos", "configurador", "requisicoes", "baixas", "movimentacoes", "recebimento"]);
   });
 
   it("Configurações continua fora do menu de GESTOR mesmo com todos os módulos habilitados", () => {
@@ -196,6 +200,7 @@ describe("rbac", () => {
         baixas: false,
         movimentacoes: false,
         depara: false,
+        recebimento: false,
         users: false,
         audit: false,
       },
@@ -217,6 +222,7 @@ describe("rbac", () => {
         baixas: false,
         movimentacoes: false,
         depara: false,
+        recebimento: false,
         users: false,
         audit: false,
       },

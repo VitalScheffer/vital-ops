@@ -730,6 +730,42 @@ model Configuracao {
 }
 
 // ---------------------------------------------------------------------------
+// Recebimento de NF — checklist manual (sem integração com o Omie) de acompa-
+// nhamento das notas de fornecedor: material recebido, tem OC, OC aprovada,
+// NF-e lançada. Agrupamento por semana é calculado na leitura (dataEmissao),
+// não persistido. Cada produto da nota tem seu próprio jogo de 4 checks.
+// ---------------------------------------------------------------------------
+
+model RecebimentoNota {
+  id            String   @id @default(cuid())
+  numero        String
+  fornecedor    String
+  dataEmissao   DateTime
+  criadoPorId   String
+  criadoPorNome String
+  criadoEm      DateTime @default(now())
+
+  itens RecebimentoItem[]
+
+  @@index([dataEmissao])
+}
+
+model RecebimentoItem {
+  id               String  @id @default(cuid())
+  notaId           String
+  produto          String
+  ordem            Int     @default(0)
+  materialRecebido Boolean @default(false)
+  temOC            Boolean @default(false)
+  ocAprovado       Boolean @default(false)
+  nfeLancada       Boolean @default(false)
+
+  nota RecebimentoNota @relation(fields: [notaId], references: [id], onDelete: Cascade)
+
+  @@index([notaId])
+}
+
+// ---------------------------------------------------------------------------
 // Cliente Omie — durabilidade importa (REQUISITOS §6, portado do nextstep)
 // ---------------------------------------------------------------------------
 

@@ -89,6 +89,13 @@ export function canViewDePara(role: Role, permissions: RolePermissionsMap): bool
   return hasModuleAccess(role, "depara", permissions);
 }
 
+// Recebimento de NF: checklist manual (sem integração com o Omie) de acompa-
+// nhamento das notas de fornecedor. Módulo próprio pra o admin poder liberar
+// sem também abrir Requisições/Baixas.
+export function canViewRecebimento(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "recebimento", permissions);
+}
+
 // Só o ADMIN pode conceder o papel ADMIN — um Gestor não promove ninguém a dono.
 // Regra de segurança fixa em código, independente da tela de permissões.
 export function canAssignRole(actorRole: Role, targetRole: Role, permissions: RolePermissionsMap): boolean {
