@@ -1,5 +1,6 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { audit } from "@/lib/audit";
@@ -60,6 +61,34 @@ function ehGuarda(g: Guarda | ErroGuarda): g is Guarda {
 }
 
 const REVALIDAR = "/recebimento";
+const TENTATIVAS_ORDEM_ITEM = 3;
+
+function erroDeSerializacao(erro: unknown): boolean {
+  return typeof erro === "object" && erro !== null && "code" in erro && erro.code === "P2034";
+}
+
+async function criarItemComOrdem(notaId: string, produto: string) {
+  for (let tentativa = 0; tentativa < TENTATIVAS_ORDEM_ITEM; tentativa += 1) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          const maxOrdem = await tx.recebimentoItem.aggregate({
+            where: { notaId },
+            _max: { ordem: true },
+          });
+          return tx.recebimentoItem.create({
+            data: { notaId, produto, ordem: (maxOrdem._max.ordem ?? -1) + 1 },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (erro) {
+      if (!erroDeSerializacao(erro) || tentativa === TENTATIVAS_ORDEM_ITEM - 1) throw erro;
+    }
+  }
+
+  throw new Error("Tentativas de ordenacao esgotadas.");
+}
 
 export type CriarNotaRecebimentoResult = { status: "success"; nota: NotaRecebimentoDTO } | { status: "error"; message: string };
 
@@ -184,15 +213,12 @@ export async function adicionarItemRecebimento(input: AdicionarItemRecebimentoIn
 
   const nota = await prisma.recebimentoNota.findUnique({
     where: { id: parsed.data.notaId },
-    include: { _count: { select: { itens: true } } },
   });
   if (!nota) {
     return { status: "error", message: "Nota não encontrada." };
   }
 
-  const item = await prisma.recebimentoItem.create({
-    data: { notaId: parsed.data.notaId, produto: parsed.data.produto, ordem: nota._count.itens },
-  });
+  const item = await criarItemComOrdem(parsed.data.notaId, parsed.data.produto);
 
   await audit({
     actor: { id: guarda.userId, email: guarda.email },

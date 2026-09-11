@@ -1,5 +1,19 @@
 # SESSION_LOG — vital-ops
-## 2026-09-11 - Seguranca de Recebimento e deploy de preview
+
+## 2026-09-11 - Robustez de Recebimento
+
+### Resumo
+- `theme-init.js` agora registra no console quando localStorage estiver indisponivel, sem aplicar valores fora da lista permitida nem impedir o carregamento.
+- A inclusao de produto calcula `max(ordem) + 1` dentro de transacao serializavel e repete conflito P2034 ate tres vezes. Isso preserva a ordem apos exclusoes e em inclusoes simultaneas, sem mudar Prisma schema ou migration.
+- Recebimento agora pagina 50 notas por pagina com ordenacao estavel. O proximo link busca sob demanda e a tabela recebe key da pagina para nao reter as notas da navegacao anterior.
+- Proxy, pagina e todas as actions mantem o mesmo guard `canViewRecebimento`; nenhuma rota privada foi tornada publica.
+
+### Validacao
+- 56 testes focados verdes, incluindo ordem apos lacuna, retry P2034, pagina limitada/estavel, troca de pagina, rota privada e erro de storage.
+- `npx.cmd tsc --noEmit`, `npm.cmd run lint`, `npm.cmd run build` e `git diff --check` verdes.
+
+### Pendencias / proximos passos
+- Nenhuma para estes achados. Schema e migration Prisma foram preservados conforme pedido do Joao.## 2026-09-11 - Seguranca de Recebimento e deploy de preview
 
 ### Resumo
 - O inicializador de tema saiu de `dangerouslySetInnerHTML` no RootLayout. Agora `public/theme-init.js` so aceita os valores esperados de localStorage e e carregado por `next/script` com nonce antes da interacao, preservando CSP e sem o aviso de hidratacao.

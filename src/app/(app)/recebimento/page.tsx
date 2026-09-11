@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Forbidden } from "@/components/Forbidden";
 import { RecebimentoClient } from "@/components/recebimento/RecebimentoClient";
 import { auth } from "@/lib/auth";
@@ -7,18 +9,38 @@ import { canViewRecebimento } from "@/lib/rbac";
 
 export const metadata = { title: "Recebimento de NF — Vital Ops" };
 
-export default async function RecebimentoPage() {
+const NOTAS_POR_PAGINA = 50;
+const MAXIMA_PAGINA = 10_000;
+
+function paginaValida(valor: string | string[] | undefined): number {
+  const texto = Array.isArray(valor) ? valor[0] : valor;
+  if (!texto || !/^[1-9]\d*$/.test(texto)) return 1;
+
+  const pagina = Number(texto);
+  return Number.isSafeInteger(pagina) && pagina <= MAXIMA_PAGINA ? pagina : 1;
+}
+
+export default async function RecebimentoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ pagina?: string | string[] }>;
+}) {
+  const pagina = paginaValida((await searchParams).pagina);
   const session = await auth();
   const permissions = await getRolePermissionsMap();
 
-  if (!canViewRecebimento(session!.user.role, permissions)) {
+  if (!session?.user?.role || !canViewRecebimento(session.user.role, permissions)) {
     return <Forbidden message="Você não tem permissão para acessar o Recebimento de NF." />;
   }
 
-  const notas = await prisma.recebimentoNota.findMany({
-    orderBy: { dataEmissao: "desc" },
-    include: { itens: { orderBy: { ordem: "asc" } } },
+  const notasComFolga = await prisma.recebimentoNota.findMany({
+    skip: (pagina - 1) * NOTAS_POR_PAGINA,
+    take: NOTAS_POR_PAGINA + 1,
+    orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
+    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
   });
+  const temProximaPagina = notasComFolga.length > NOTAS_POR_PAGINA;
+  const notas = notasComFolga.slice(0, NOTAS_POR_PAGINA);
 
   return (
     <div className="flex flex-col gap-8">
@@ -32,6 +54,7 @@ export default async function RecebimentoPage() {
       </header>
 
       <RecebimentoClient
+        key={pagina}
         notasIniciais={notas.map((nota) => ({
           id: nota.id,
           numero: nota.numero,
@@ -47,6 +70,23 @@ export default async function RecebimentoPage() {
           })),
         }))}
       />
+      <nav className="flex items-center justify-between gap-3" aria-label="Paginação das notas fiscais">
+        {pagina > 1 ? (
+          <Link href={pagina === 2 ? "/recebimento" : `/recebimento?pagina=${pagina - 1}`} className="text-sm text-primary hover:underline">
+            Notas mais recentes
+          </Link>
+        ) : (
+          <span />
+        )}
+        <span className="text-sm text-muted-foreground">Página {pagina}</span>
+        {temProximaPagina ? (
+          <Link href={`/recebimento?pagina=${pagina + 1}`} className="text-sm text-primary hover:underline">
+            Notas anteriores
+          </Link>
+        ) : (
+          <span />
+        )}
+      </nav>
     </div>
   );
 }

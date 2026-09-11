@@ -7,5 +7,7 @@
     if (localStorage.getItem("vs-sparkle") === "on") {
       document.documentElement.setAttribute("data-sparkle", "on");
     }
-  } catch {}
+  } catch {
+    console.warn("[theme-init] localStorage indisponivel; mantendo o tema do sistema.");
+  }
 })();
