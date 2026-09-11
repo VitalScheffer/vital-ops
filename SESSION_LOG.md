@@ -1,5 +1,48 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-09 — Recebimento: Excel alinhado ao PDF
+
+### Resumo
+- 2026-09-11: Cabecalhos Excel e PDF ajustados conforme a captura de referencia. Excel: B = 22, C = 10, D = 26, logo 145 x 66 px no inicio de B e Vital Ops em C com a base alinhada ao logo. PDF: faixa de 74 pt, logo de 40 pt e assinatura alinhada pela base. Foram geradas amostras em `outputs/recebimento-layout-reference`; 5 testes, `tsc --noEmit` e `git diff --check` passaram.
+- 2026-09-11: Larguras das colunas C e D da planilha de Recebimento foram invertidas: C = 10 e D = 26.
+- 2026-09-11: Vital Ops foi aproximado do SVG com uma folga visual de 24 px nos cabecalhos Excel e PDF; mantido no eixo vertical central da marca.
+- 2026-09-11: Por pedido do João, a assinatura Vital Ops deixou o eixo vertical central e passou a ter a base alinhada à de "Vital Scheffer". Excel: uma linha vazia adicional no cabeçalho. PDF: coordenada calculada a partir da base real do wordmark dentro do PNG. Validação: 5 testes de exportação, `tsc --noEmit` e `git diff --check` verdes.
+- 2026-09-11: Refinamento do cabeçalho: logo centralizado horizontalmente na coluna B; coluna C ampliada de 10 para 14; Vital Ops sem quebras e sem wrap. No PDF, a coordenada Y foi corrigida para converter a base do PNG, medida de cima para baixo, para o sistema cartesiano do PDF, medido de baixo para cima.
+- 2026-09-11: Após esclarecimento do João, o logo do Excel foi centralizado também no eixo vertical da faixa de 92 pt, com offset calculado a partir da altura proporcional da imagem.
+- 2026-09-11: No PDF, o conjunto formado pelo logotipo e por Vital Ops foi descido e centralizado verticalmente na faixa petróleo de 74 pt; a base entre a assinatura e o wordmark continua vinculada.
+- 2026-09-11: Correção após conferência visual: o cálculo geométrico de centralização do logo no Excel o deixava baixo no arquivo aberto. O offset vertical voltou para 0,11, subindo apenas o logo da planilha. PDF preservado sem mudanças.
+- 2026-09-11: Diagnóstico do Docker: Desktop 4.86.0, cliente/Engine 29.7.2 e Compose 5.3.1. Não há container nem configuração Docker para vital-ops neste checkout; os containers ativos são do nextstep e usam os mesmos IDs das imagens `latest` locais.
+- 2026-09-11: Corrigido o aviso de hidratação do script de tema no `RootLayout`: o navegador esconde o valor do atributo `nonce`, fazendo o React comparar o nonce do servidor com string vazia. `suppressHydrationWarning` foi aplicado diretamente ao `<script>`, preservando o nonce e a CSP estrita.
+- 2026-09-11: Compatibilidade do logo do XLSX com Google Planilhas: os offsets fracionários da imagem foram removidos. Uma variante de 159 x 123 px incorpora margens transparentes e é ancorada diretamente em B1, preservando o alinhamento visual aprovado em importadores diferentes. PDF não foi alterado. Validação: 5 testes, `tsc --noEmit`, ESLint dos arquivos envolvidos e `git diff --check` verdes.
+- 2026-09-11: Downloads de Recebimento ganharam nomes específicos com número(s) de NF e data/hora da extração em São Paulo, tanto no XLSX quanto no PDF. Exemplo: `recebimento-nf-12345-extraido-em-2026-09-11_10-25-07.xlsx`. Lotes exibem até quatro números e a quantidade restante. Validação: 7 testes, `tsc --noEmit`, ESLint e `git diff --check` verdes.
+- 2026-09-10: "Vital Ops" foi movido para ao lado direito do SVG no cabecalho do Excel e no cabecalho principal do PDF. Validacao: 5 testes, `tsc --noEmit` e `git diff --check` verdes.
+- 2026-09-10: Normalizacao do worktree: 7.806 itens temporarios de `scratchpad/artifact-runtime` e previews de `outputs/recebimento-brand-preview` foram removidos. Foram mantidos somente 13 novos arquivos funcionais de marca, fonte e exportacao; `.gitignore` agora cobre esses artefatos temporarios.
+- 2026-09-10: O cabecalho de PDF e Excel recebeu o lockup completo da referencia `Logo_Vital Scheffer_Vetor_nova (1).svg`, convertido para branco com transparencia e preservando a proporcao. Vital Ops ficou abaixo da coluna tipografica da marca, com folga adicional.
+- 2026-09-10: O header Excel usa uma imagem unica de 145 x 71 px e o PDF usa a mesma marca em escala proporcional nos cabecalhos principal e secundario. Validacao: 5 testes verdes, `tsc --noEmit` e `git diff --check` concluidos.
+- 2026-09-10: O cabecalho do PDF passou a incorporar diretamente `Sora-VariableFont_wght.ttf` enviado por Joao; as versoes WOFF2 intermediarias e a dependencia `@fontsource/sora` foram removidas.
+- 2026-09-10: No Excel, `Vital Ops` subiu visualmente para perto do wordmark mantendo uma linha de folga; no PDF, o wordmark e o icone agora usam a mesma coordenada vertical, sem mudar a proporcao do SVG.
+- 2026-09-10: Validacao: `npx.cmd vitest run src/lib/recebimento/planilha.test.ts src/lib/recebimento/pdf.test.ts` (5 testes verdes), `npx.cmd tsc --noEmit` e `git diff --check` concluidos.
+- Cabecalho do Excel condensado na primeira linha: titulo e data sao rich text no mesmo bloco, com a data abaixo. A segunda linha agora tem somente 14 pt de respiro e o conteudo inicia na terceira. Wordmark do Excel voltou a 102 x 58 px para manter a proporcao do SVG; no PDF, Vital Ops foi reposicionado abaixo dele com folga.
+- Wordmark Vital Scheffer trocado pelo SVG fornecido por Joao, convertido em PNG branco com transparencia para compatibilidade de ExcelJS e pdf-lib. O icone continua separado, e PDF/Excel preservam as caixas e posicoes anteriores do wordmark.
+- Peso Sora do PDF ajustado: textos regulares do cabecalho agora usam SemiBold (600) e titulos/Vital Ops permanecem em Bold (700), removendo a variante 400 que parecia extra-fina.
+- Investigacao da fonte do PDF: nenhuma familia Sora foi encontrada instalada no Windows. O PDF usa a distribuicao local oficial, mas a fonte efetivamente renderizada pelo Excel pode ser um fallback; para igualdade visual exata, falta o arquivo ou a origem da fonte usada pelo Excel.
+- Margens laterais refinadas para aproximadamente 42 px, com largura 5.3 nas colunas A e I.
+- Margens laterais da planilha ampliadas de aproximadamente 12 px para 72 px, usando largura 9.5 nas colunas A e I e preservando a cor contextual das faixas.
+- Espacos laterais da planilha agora seguem a cor do vizinho: as faixas coloridas se estendem pelas margens A e I, enquanto as linhas brancas mantem essas margens brancas.
+- O cabecalho do PDF passou a usar Sora localmente incorporada, com variantes regular e bold para `Gerado em`, `Vital Ops` e o titulo.
+- Margens visuais laterais de aproximadamente 12 px foram criadas com as colunas A e I vazias; o conteudo, a faixa do cabecalho e as bordas agora ocupam B:H.
+- Texto `Gerado em [data]` reduzido de 14 pt para 12 pt, mantendo a fonte Sora e o alinhamento a direita.
+- Icone do cabecalho Excel ampliado para 72 x 90 px e alinhado ao topo do wordmark, cobrindo visualmente ate a base de `Vital Ops`.
+- Ajuste fino conforme referencia visual: faixa petroleo limitada as linhas 1 e 2, linha 3 branca como respiro e conteudo iniciado em A4. Titulo e data receberam recuo direito maior na ultima coluna.
+- Logo do cabecalho Excel reduzido proporcionalmente: icone em 46 x 58 px e wordmark em 144 x 61 px, mantendo `Vital Ops` abaixo do wordmark na primeira linha.
+- A exportação Excel de Recebimento de NF foi redesenhada para acompanhar o PDF: faixa petróleo com a marca Vital Scheffer/Vital Ops, título e data de geração, seções semanais e um bloco por NF com produtos e checks centralizados.
+- A planilha agora é um relatório de conferência (não uma tabela plana), preservando a geração integral no navegador. Para impressão, usa A4 vertical, uma página de largura, margens compactas e grade oculta.
+- O texto “Vital Ops” foi deslocado para baixo do wordmark, em Sora, enquanto a data permaneceu alinhada à direita.
+- O cabeçalho foi reestruturado em sete colunas internas: produto segue como bloco mesclado, mas ícone, wordmark e assinatura possuem posições próprias. `Vital Ops` agora começa em B2, alinhado sob `Vital Scheffer`, em Sora.
+- O lockup de marca do Excel passou a ser duas imagens independentes: ícone e wordmark. Isso fixa o `Vital Ops` abaixo do wordmark, ao lado do ícone, sem depender de uma imagem composta.
+- `Vital Ops` foi movido para B1: aparece abaixo do wordmark e ao lado do ícone já na primeira linha da planilha. O título ocupa D1:G1 e a linha foi elevada para evitar qualquer sobreposição.
+- Validação: `npx.cmd vitest run src/lib/recebimento/planilha.test.ts src/lib/recebimento/pdf.test.ts` (4 testes verdes), `npx.cmd tsc --noEmit` e `npx.cmd next build` concluídos.
+
 ## 2026-09-08 — Nova tela: Recebimento de NF (checklist manual por semana)
 
 ### Resumo

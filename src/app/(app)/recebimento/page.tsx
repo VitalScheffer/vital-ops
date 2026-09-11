@@ -25,8 +25,9 @@ export default async function RecebimentoPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Recebimento de NF</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Checklist manual por semana: marque produto a produto o que já foi recebido, tem OC, teve a OC aprovada e
-          teve a NF-e lançada no financeiro. Nada aqui conversa com o Omie — é você quem marca.
+          Acompanhe semana a semana o recebimento das notas fiscais de fornecedor: marque, produto a produto, o que
+          já foi recebido, se há Ordem de Compra (OC), se a OC foi aprovada e se a NF-e foi lançada no financeiro. O
+          preenchimento é manual — esta tela não se integra ao Omie.
         </p>
       </header>
 
