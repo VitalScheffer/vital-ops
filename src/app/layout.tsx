@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import Script from "next/script";
 
 import "./globals.css";
 
@@ -11,7 +12,6 @@ export const metadata: Metadata = {
 // Aplica o tema salvo (claro/escuro forçado no botão) e o modo brilho (easter
 // egg da logo) ANTES do primeiro paint, pra não piscar. Sem valor salvo, nada
 // é setado e o app segue o sistema.
-const THEME_INIT = `(function(){try{var t=localStorage.getItem('vs-theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}if(localStorage.getItem('vs-sparkle')==='on'){document.documentElement.setAttribute('data-sparkle','on');}}catch(e){}})();`;
 
 export default async function RootLayout({
   children,
@@ -26,7 +26,7 @@ export default async function RootLayout({
   return (
     <html lang="pt-BR" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
-        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        <Script nonce={nonce} src="/theme-init.js" strategy="beforeInteractive" />
         {children}
       </body>
     </html>

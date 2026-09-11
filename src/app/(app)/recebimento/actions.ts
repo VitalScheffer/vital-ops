@@ -26,6 +26,7 @@ import { prisma } from "@/lib/db";
 import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewRecebimento } from "@/lib/rbac";
+import { dataEmissaoSaoPaulo } from "@/lib/recebimento/dataEmissao";
 import { requestHeaders } from "@/lib/request";
 
 interface Guarda {
@@ -70,7 +71,7 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
   if (!parsed.success) {
     return { status: "error", message: "Preencha número, fornecedor e data da NF." };
   }
-  const dataEmissao = new Date(`${parsed.data.dataEmissao}T00:00:00`);
+  const dataEmissao = dataEmissaoSaoPaulo(parsed.data.dataEmissao);
   if (Number.isNaN(dataEmissao.getTime())) {
     return { status: "error", message: "Data de emissão inválida." };
   }
@@ -110,7 +111,7 @@ export async function editarNotaRecebimento(input: EditarNotaRecebimentoInput): 
   if (!parsed.success) {
     return { status: "error", message: "Preencha número, fornecedor e data da NF." };
   }
-  const dataEmissao = new Date(`${parsed.data.dataEmissao}T00:00:00`);
+  const dataEmissao = dataEmissaoSaoPaulo(parsed.data.dataEmissao);
   if (Number.isNaN(dataEmissao.getTime())) {
     return { status: "error", message: "Data de emissão inválida." };
   }

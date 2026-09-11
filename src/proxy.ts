@@ -69,6 +69,6 @@ export const config = {
   // atualização do arquivo. Preço igual ao das fotos: o script fica legível por
   // quem tiver a URL, mas não tem segredo nenhum dentro dele.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|glb|mjs)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|theme-init\\.js|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|glb|mjs)$).*)",
   ],
 };

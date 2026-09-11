@@ -18,6 +18,7 @@ import { RECEBIMENTO_EVENTOS, type ItemRecebimentoDTO, type NotaRecebimentoDTO, 
 import { nomeArquivoRecebimento } from "@/lib/recebimento/nomeArquivo";
 import { gerarRecebimentoPdf } from "@/lib/recebimento/pdf";
 import { gerarRecebimentoXlsx } from "@/lib/recebimento/planilha";
+import { dataEmissaoSaoPaulo, dataEmissaoSaoPauloDoIso, hojeSaoPaulo } from "@/lib/recebimento/dataEmissao";
 import { agruparPorSemana } from "@/lib/recebimento/semanas";
 
 const EVENTO_LABEL: Record<RecebimentoEvento, string> = {
@@ -44,11 +45,11 @@ const botaoPerigo =
   "inline-flex items-center gap-1.5 rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50";
 
 function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return hojeSaoPaulo();
 }
 
 function dataBr(iso: string): string {
-  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(dataEmissaoSaoPauloDoIso(iso));
 }
 
 interface RecebimentoClientProps {
@@ -77,7 +78,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
   const [confirmando, setConfirmando] = useState<string | null>(null);
 
   const grupos = useMemo(() => {
-    return agruparPorSemana(notas, (nota) => new Date(nota.dataEmissao)).map((grupo) => ({
+    return agruparPorSemana(notas, (nota) => dataEmissaoSaoPauloDoIso(nota.dataEmissao)).map((grupo) => ({
       ...grupo,
       itens: [...grupo.itens].sort((a, b) => new Date(b.dataEmissao).getTime() - new Date(a.dataEmissao).getTime()),
     }));
@@ -110,7 +111,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
     setEditandoId(nota.id);
     setEdNumero(nota.numero);
     setEdFornecedor(nota.fornecedor);
-    setEdData(nota.dataEmissao.slice(0, 10));
+    setEdData(dataEmissaoSaoPauloDoIso(nota.dataEmissao).toISOString().slice(0, 10));
     setErro(null);
   }
 
@@ -131,7 +132,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
         return;
       }
       setNotas((atual) =>
-        atual.map((n) => (n.id === id ? { ...n, numero, fornecedor, dataEmissao: `${edData}T00:00:00.000Z` } : n)),
+        atual.map((n) => (n.id === id ? { ...n, numero, fornecedor, dataEmissao: dataEmissaoSaoPaulo(edData).toISOString() } : n)),
       );
       setEditandoId(null);
     });
@@ -211,7 +212,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
     const dados = notas.map((n) => ({
       numero: n.numero,
       fornecedor: n.fornecedor,
-      dataEmissao: new Date(n.dataEmissao),
+      dataEmissao: dataEmissaoSaoPauloDoIso(n.dataEmissao),
       itens: n.itens,
     }));
     const extraidoEm = new Date();

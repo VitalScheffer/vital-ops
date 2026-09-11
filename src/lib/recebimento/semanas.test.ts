@@ -42,4 +42,12 @@ describe("agruparPorSemana", () => {
     expect(grupos[0].itens[0].id).toBe("semana2");
     expect(grupos[1].itens[0].id).toBe("semana1");
   });
+
+  it("usa o calendario de Sao Paulo para uma segunda-feira", () => {
+    const grupos = agruparPorSemana([{ id: "segunda", data: new Date("2026-09-14T03:00:00.000Z") }], (item) => item.data);
+
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0].chave).toBe("2026-09-14");
+    expect(grupos[0].rotulo).toBe("Setembro 14-20");
+  });
 });

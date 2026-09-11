@@ -90,6 +90,7 @@ describe("liberação da rota no proxy", () => {
     expect(isServiceApiPath("/api/pcpx/configuracoes")).toBe(false);
     expect(isPublicPath("/api/pcpx/configuracoes")).toBe(false);
     expect(isPublicPath("/api/requisicoes")).toBe(false);
+    expect(isPublicPath("/recebimento")).toBe(false);
     expect(isPublicPath("/projetos")).toBe(false);
     expect(isPublicPath("/")).toBe(false);
   });

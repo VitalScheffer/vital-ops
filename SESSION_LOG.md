@@ -1,4 +1,19 @@
 # SESSION_LOG — vital-ops
+## 2026-09-11 - Seguranca de Recebimento e deploy de preview
+
+### Resumo
+- O inicializador de tema saiu de `dangerouslySetInnerHTML` no RootLayout. Agora `public/theme-init.js` so aceita os valores esperados de localStorage e e carregado por `next/script` com nonce antes da interacao, preservando CSP e sem o aviso de hidratacao.
+- O acesso a `/recebimento` continuou privado: a rota permanece fora de `isPublicPath`, passa pelo proxy e pagina/actions continuam usando `canViewRecebimento`. Foram adicionados testes diretos para a permissao e para a rota nao publica.
+- Datas de emissao agora usam a data civil de Sao Paulo ao criar, editar, exibir, exportar e agrupar por semana. Notas legadas gravadas a meia-noite UTC tambem preservam o dia informado. Datas inexistentes nao sao normalizadas silenciosamente.
+- A PR #3 falhava no preview da Vercel com P1001 porque nao havia `DATABASE_URL` nesse ambiente e o Prisma usava `localhost`. `vercel-build` agora pula `migrate deploy` somente em Preview; em producao continua aplicando migrations antes do Next build. O build local com `VERCEL_ENV=preview` criou `.next/BUILD_ID` sem P1001.
+
+### Validacao
+- `npx.cmd vitest run src/app/layout.test.ts src/lib/recebimento/dataEmissao.test.ts src/lib/recebimento/semanas.test.ts src/lib/csp.test.ts src/lib/rbac.test.ts src/lib/permissions.test.ts src/lib/navigation.test.ts src/app/api/pcp/configuracoes/route.test.ts` - 87 testes verdes.
+- O teste de semanas tambem passou com `TZ=America/Los_Angeles`; `npm.cmd run lint`, `npx.cmd tsc --noEmit` e `git diff --check` verdes.
+- `VERCEL_ENV=preview npm.cmd run vercel-build` passou pela geracao do Prisma, pulou migracoes e concluiu o build Next.
+
+### Pendencias / proximos passos
+- Para usar rotas que leem o banco no deployment de preview, configurar um `DATABASE_URL` de banco de preview isolado na Vercel; nao reutilizar o banco de producao.
 
 ## 2026-09-09 — Recebimento: Excel alinhado ao PDF
 
