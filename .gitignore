@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/scratchpad/
+/outputs/recebimento-brand-preview/
+/outputs/recebimento-layout-reference/
 
 # next.js
 /.next/

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_ROLE_PERMISSIONS, type RolePermissionsMap } from "@/lib/permissions";
-import { canEditUser, canManageUsers, canViewAudit, canViewPranchas, wouldRemoveLastAdmin } from "@/lib/rbac";
+import { canEditUser, canManageUsers, canViewAudit, canViewPranchas, canViewRecebimento, wouldRemoveLastAdmin } from "@/lib/rbac";
 
 const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 
@@ -65,6 +65,23 @@ describe("canViewPranchas (configurável por RolePermission)", () => {
       GESTOR: { ...DEFAULT.GESTOR, pranchas: false },
     };
     expect(canViewPranchas("GESTOR", semPranchas)).toBe(false);
+  });
+});
+
+describe("canViewRecebimento", () => {
+  it("libera somente os papéis com o módulo Recebimento", () => {
+    expect(canViewRecebimento("ADMIN", DEFAULT)).toBe(true);
+    expect(canViewRecebimento("FUNCIONARIO", DEFAULT)).toBe(true);
+    expect(canViewRecebimento("FABRICA", DEFAULT)).toBe(false);
+  });
+
+  it("nega a tela quando a permissão for revogada", () => {
+    const semRecebimento: RolePermissionsMap = {
+      ...DEFAULT,
+      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, recebimento: false },
+    };
+
+    expect(canViewRecebimento("FUNCIONARIO", semRecebimento)).toBe(false);
   });
 });
 

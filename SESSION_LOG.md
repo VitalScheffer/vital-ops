@@ -1,5 +1,177 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-14 - Pre-scan sem falsos positivos de Auth
+
+### Resumo
+- O pre-scan deixou de criar achados Moderado apenas porque proxy, RBAC ou permissoes foram alterados. Essa regra nao tinha evidencia de defeito e contrariava a exigencia do revisor de apontar linha e impacto concretos.
+- Bypasses reais continuam cobertos pelas regras de conteudo e pela revisao contextual da IA. A mudanca nao altera rotas, sessoes ou permissoes da aplicacao.
+- O literal `dangerouslySetInnerHTML` em arquivo de teste agora e ignorado pelo detector, mas permanece detectado em codigo de producao.
+
+### Validacao
+- 32 testes Node do pre-scan e ESLint verdes.
+- Simulacao sobre o diff integral da PR retorna somente os dois avisos de Schema preservados por solicitacao explicita.
+
+### Pendencias / proximos passos
+- Nenhuma para Auth. Schema e migration continuam sem alteracoes.
+## 2026-09-14 - Estado do revisor automatico do PR
+
+### Resumo
+- O `CHANGES_REQUESTED` permanecia mesmo apos remover o achado PERIGO: o bot publicava `COMMENT` para o veredito ATENCAO, e esse evento nao substitui uma solicitacao anterior de mudancas no GitHub.
+- O GitHub nao permite que o token de Actions aprove pull requests (HTTP 422). O bot continua publicando `COMMENT` para ATENCAO; a solicitacao historica de mudancas foi dispensada por mantenedor apos validar o conserto.
+- Os testes do pre-scan Django foram isolados do stack detectado pelo Vital Ops, que nao inclui Django. Isso torna a suite deterministica sem reduzir regras de seguranca.
+
+### Validacao
+- 31 testes Node do pre-scan verdes; ESLint e `git diff --check` verdes.
+
+### Pendencias / proximos passos
+- Nenhuma para Auth. Os alertas de schema continuam visiveis por escolha explicita de nao alterar schema ou migration.
+## 2026-09-14 - Auditoria de permissoes do Recebimento
+
+### Resumo
+- Confirmado que `/recebimento` nao e rota publica: `isPublicPath` nao a inclui e o proxy redireciona visitantes sem sessao para `/login`.
+- `recebimento` e um modulo proprio. ADMIN, GESTOR e FUNCIONARIO recebem o padrao permitido; FABRICA e FABRICA_GESTOR permanecem negados; perfis customizados iniciam negados.
+- A pagina e as sete Server Actions aplicam `canViewRecebimento`, alem da protecao de sessao no proxy. O unico ajuste no matcher do proxy foi excluir o arquivo publico `theme-init.js`.
+
+### Validacao
+- 75 testes focados verdes para rota publica, permissoes, RBAC, navegacao, pagina e actions.
+
+### Pendencias / proximos passos
+- Nenhuma para os tres achados de Auth; schema e migration continuam sem mudancas.
+## 2026-09-14 - Verificacao do guard de Recebimento
+
+### Resumo
+- A alegacao de bypass por `guardar()` retornar erro estruturado nao se reproduziu. As sete Server Actions retornam imediatamente antes de Prisma, auditoria e revalidacao quando a sessao ou permissao falha.
+- O retorno estruturado foi preservado porque o cliente testa `status === "error"` antes de atualizar o estado. Lancar excecao quebraria esse contrato e a mensagem inline.
+- Foram acrescentados testes de regressao para ausencia de sessao e permissao revogada nas sete actions.
+
+### Validacao
+- 52 testes focados verdes; `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `git diff --check` verdes.
+- Schema e migration Prisma permaneceram sem mudancas conforme solicitado.
+
+### Pendencias / proximos passos
+- Nenhuma para o achado de autorizacao; o PR pode ser reavaliado com esta evidencia.
+## 2026-09-11 - Robustez de Recebimento
+
+### Resumo
+- `theme-init.js` agora registra no console quando localStorage estiver indisponivel, sem aplicar valores fora da lista permitida nem impedir o carregamento.
+- A inclusao de produto calcula `max(ordem) + 1` dentro de transacao serializavel e repete conflito P2034 ate tres vezes. Isso preserva a ordem apos exclusoes e em inclusoes simultaneas, sem mudar Prisma schema ou migration.
+- Recebimento agora pagina 50 notas por pagina com ordenacao estavel. O proximo link busca sob demanda e a tabela recebe key da pagina para nao reter as notas da navegacao anterior.
+- Proxy, pagina e todas as actions mantem o mesmo guard `canViewRecebimento`; nenhuma rota privada foi tornada publica.
+
+### Validacao
+- 56 testes focados verdes, incluindo ordem apos lacuna, retry P2034, pagina limitada/estavel, troca de pagina, rota privada e erro de storage.
+- `npx.cmd tsc --noEmit`, `npm.cmd run lint`, `npm.cmd run build` e `git diff --check` verdes.
+
+### Pendencias / proximos passos
+- Nenhuma para estes achados. Schema e migration Prisma foram preservados conforme pedido do Joao.## 2026-09-11 - Seguranca de Recebimento e deploy de preview
+
+### Resumo
+- O inicializador de tema saiu de `dangerouslySetInnerHTML` no RootLayout. Agora `public/theme-init.js` so aceita os valores esperados de localStorage e e carregado por `next/script` com nonce antes da interacao, preservando CSP e sem o aviso de hidratacao.
+- O acesso a `/recebimento` continuou privado: a rota permanece fora de `isPublicPath`, passa pelo proxy e pagina/actions continuam usando `canViewRecebimento`. Foram adicionados testes diretos para a permissao e para a rota nao publica.
+- Datas de emissao agora usam a data civil de Sao Paulo ao criar, editar, exibir, exportar e agrupar por semana. Notas legadas gravadas a meia-noite UTC tambem preservam o dia informado. Datas inexistentes nao sao normalizadas silenciosamente.
+- A PR #3 falhava no preview da Vercel com P1001 porque nao havia `DATABASE_URL` nesse ambiente e o Prisma usava `localhost`. `vercel-build` agora pula `migrate deploy` somente em Preview; em producao continua aplicando migrations antes do Next build. O build local com `VERCEL_ENV=preview` criou `.next/BUILD_ID` sem P1001.
+
+### Validacao
+- `npx.cmd vitest run src/app/layout.test.ts src/lib/recebimento/dataEmissao.test.ts src/lib/recebimento/semanas.test.ts src/lib/csp.test.ts src/lib/rbac.test.ts src/lib/permissions.test.ts src/lib/navigation.test.ts src/app/api/pcp/configuracoes/route.test.ts` - 87 testes verdes.
+- O teste de semanas tambem passou com `TZ=America/Los_Angeles`; `npm.cmd run lint`, `npx.cmd tsc --noEmit` e `git diff --check` verdes.
+- `VERCEL_ENV=preview npm.cmd run vercel-build` passou pela geracao do Prisma, pulou migracoes e concluiu o build Next.
+
+### Pendencias / proximos passos
+- Para usar rotas que leem o banco no deployment de preview, configurar um `DATABASE_URL` de banco de preview isolado na Vercel; nao reutilizar o banco de producao.
+
+## 2026-09-09 — Recebimento: Excel alinhado ao PDF
+
+### Resumo
+- 2026-09-11: Cabecalhos Excel e PDF ajustados conforme a captura de referencia. Excel: B = 22, C = 10, D = 26, logo 145 x 66 px no inicio de B e Vital Ops em C com a base alinhada ao logo. PDF: faixa de 74 pt, logo de 40 pt e assinatura alinhada pela base. Foram geradas amostras em `outputs/recebimento-layout-reference`; 5 testes, `tsc --noEmit` e `git diff --check` passaram.
+- 2026-09-11: Larguras das colunas C e D da planilha de Recebimento foram invertidas: C = 10 e D = 26.
+- 2026-09-11: Vital Ops foi aproximado do SVG com uma folga visual de 24 px nos cabecalhos Excel e PDF; mantido no eixo vertical central da marca.
+- 2026-09-11: Por pedido do João, a assinatura Vital Ops deixou o eixo vertical central e passou a ter a base alinhada à de "Vital Scheffer". Excel: uma linha vazia adicional no cabeçalho. PDF: coordenada calculada a partir da base real do wordmark dentro do PNG. Validação: 5 testes de exportação, `tsc --noEmit` e `git diff --check` verdes.
+- 2026-09-11: Refinamento do cabeçalho: logo centralizado horizontalmente na coluna B; coluna C ampliada de 10 para 14; Vital Ops sem quebras e sem wrap. No PDF, a coordenada Y foi corrigida para converter a base do PNG, medida de cima para baixo, para o sistema cartesiano do PDF, medido de baixo para cima.
+- 2026-09-11: Após esclarecimento do João, o logo do Excel foi centralizado também no eixo vertical da faixa de 92 pt, com offset calculado a partir da altura proporcional da imagem.
+- 2026-09-11: No PDF, o conjunto formado pelo logotipo e por Vital Ops foi descido e centralizado verticalmente na faixa petróleo de 74 pt; a base entre a assinatura e o wordmark continua vinculada.
+- 2026-09-11: Correção após conferência visual: o cálculo geométrico de centralização do logo no Excel o deixava baixo no arquivo aberto. O offset vertical voltou para 0,11, subindo apenas o logo da planilha. PDF preservado sem mudanças.
+- 2026-09-11: Diagnóstico do Docker: Desktop 4.86.0, cliente/Engine 29.7.2 e Compose 5.3.1. Não há container nem configuração Docker para vital-ops neste checkout; os containers ativos são do nextstep e usam os mesmos IDs das imagens `latest` locais.
+- 2026-09-11: Corrigido o aviso de hidratação do script de tema no `RootLayout`: o navegador esconde o valor do atributo `nonce`, fazendo o React comparar o nonce do servidor com string vazia. `suppressHydrationWarning` foi aplicado diretamente ao `<script>`, preservando o nonce e a CSP estrita.
+- 2026-09-11: Compatibilidade do logo do XLSX com Google Planilhas: os offsets fracionários da imagem foram removidos. Uma variante de 159 x 123 px incorpora margens transparentes e é ancorada diretamente em B1, preservando o alinhamento visual aprovado em importadores diferentes. PDF não foi alterado. Validação: 5 testes, `tsc --noEmit`, ESLint dos arquivos envolvidos e `git diff --check` verdes.
+- 2026-09-11: Downloads de Recebimento ganharam nomes específicos com número(s) de NF e data/hora da extração em São Paulo, tanto no XLSX quanto no PDF. Exemplo: `recebimento-nf-12345-extraido-em-2026-09-11_10-25-07.xlsx`. Lotes exibem até quatro números e a quantidade restante. Validação: 7 testes, `tsc --noEmit`, ESLint e `git diff --check` verdes.
+- 2026-09-10: "Vital Ops" foi movido para ao lado direito do SVG no cabecalho do Excel e no cabecalho principal do PDF. Validacao: 5 testes, `tsc --noEmit` e `git diff --check` verdes.
+- 2026-09-10: Normalizacao do worktree: 7.806 itens temporarios de `scratchpad/artifact-runtime` e previews de `outputs/recebimento-brand-preview` foram removidos. Foram mantidos somente 13 novos arquivos funcionais de marca, fonte e exportacao; `.gitignore` agora cobre esses artefatos temporarios.
+- 2026-09-10: O cabecalho de PDF e Excel recebeu o lockup completo da referencia `Logo_Vital Scheffer_Vetor_nova (1).svg`, convertido para branco com transparencia e preservando a proporcao. Vital Ops ficou abaixo da coluna tipografica da marca, com folga adicional.
+- 2026-09-10: O header Excel usa uma imagem unica de 145 x 71 px e o PDF usa a mesma marca em escala proporcional nos cabecalhos principal e secundario. Validacao: 5 testes verdes, `tsc --noEmit` e `git diff --check` concluidos.
+- 2026-09-10: O cabecalho do PDF passou a incorporar diretamente `Sora-VariableFont_wght.ttf` enviado por Joao; as versoes WOFF2 intermediarias e a dependencia `@fontsource/sora` foram removidas.
+- 2026-09-10: No Excel, `Vital Ops` subiu visualmente para perto do wordmark mantendo uma linha de folga; no PDF, o wordmark e o icone agora usam a mesma coordenada vertical, sem mudar a proporcao do SVG.
+- 2026-09-10: Validacao: `npx.cmd vitest run src/lib/recebimento/planilha.test.ts src/lib/recebimento/pdf.test.ts` (5 testes verdes), `npx.cmd tsc --noEmit` e `git diff --check` concluidos.
+- Cabecalho do Excel condensado na primeira linha: titulo e data sao rich text no mesmo bloco, com a data abaixo. A segunda linha agora tem somente 14 pt de respiro e o conteudo inicia na terceira. Wordmark do Excel voltou a 102 x 58 px para manter a proporcao do SVG; no PDF, Vital Ops foi reposicionado abaixo dele com folga.
+- Wordmark Vital Scheffer trocado pelo SVG fornecido por Joao, convertido em PNG branco com transparencia para compatibilidade de ExcelJS e pdf-lib. O icone continua separado, e PDF/Excel preservam as caixas e posicoes anteriores do wordmark.
+- Peso Sora do PDF ajustado: textos regulares do cabecalho agora usam SemiBold (600) e titulos/Vital Ops permanecem em Bold (700), removendo a variante 400 que parecia extra-fina.
+- Investigacao da fonte do PDF: nenhuma familia Sora foi encontrada instalada no Windows. O PDF usa a distribuicao local oficial, mas a fonte efetivamente renderizada pelo Excel pode ser um fallback; para igualdade visual exata, falta o arquivo ou a origem da fonte usada pelo Excel.
+- Margens laterais refinadas para aproximadamente 42 px, com largura 5.3 nas colunas A e I.
+- Margens laterais da planilha ampliadas de aproximadamente 12 px para 72 px, usando largura 9.5 nas colunas A e I e preservando a cor contextual das faixas.
+- Espacos laterais da planilha agora seguem a cor do vizinho: as faixas coloridas se estendem pelas margens A e I, enquanto as linhas brancas mantem essas margens brancas.
+- O cabecalho do PDF passou a usar Sora localmente incorporada, com variantes regular e bold para `Gerado em`, `Vital Ops` e o titulo.
+- Margens visuais laterais de aproximadamente 12 px foram criadas com as colunas A e I vazias; o conteudo, a faixa do cabecalho e as bordas agora ocupam B:H.
+- Texto `Gerado em [data]` reduzido de 14 pt para 12 pt, mantendo a fonte Sora e o alinhamento a direita.
+- Icone do cabecalho Excel ampliado para 72 x 90 px e alinhado ao topo do wordmark, cobrindo visualmente ate a base de `Vital Ops`.
+- Ajuste fino conforme referencia visual: faixa petroleo limitada as linhas 1 e 2, linha 3 branca como respiro e conteudo iniciado em A4. Titulo e data receberam recuo direito maior na ultima coluna.
+- Logo do cabecalho Excel reduzido proporcionalmente: icone em 46 x 58 px e wordmark em 144 x 61 px, mantendo `Vital Ops` abaixo do wordmark na primeira linha.
+- A exportação Excel de Recebimento de NF foi redesenhada para acompanhar o PDF: faixa petróleo com a marca Vital Scheffer/Vital Ops, título e data de geração, seções semanais e um bloco por NF com produtos e checks centralizados.
+- A planilha agora é um relatório de conferência (não uma tabela plana), preservando a geração integral no navegador. Para impressão, usa A4 vertical, uma página de largura, margens compactas e grade oculta.
+- O texto “Vital Ops” foi deslocado para baixo do wordmark, em Sora, enquanto a data permaneceu alinhada à direita.
+- O cabeçalho foi reestruturado em sete colunas internas: produto segue como bloco mesclado, mas ícone, wordmark e assinatura possuem posições próprias. `Vital Ops` agora começa em B2, alinhado sob `Vital Scheffer`, em Sora.
+- O lockup de marca do Excel passou a ser duas imagens independentes: ícone e wordmark. Isso fixa o `Vital Ops` abaixo do wordmark, ao lado do ícone, sem depender de uma imagem composta.
+- `Vital Ops` foi movido para B1: aparece abaixo do wordmark e ao lado do ícone já na primeira linha da planilha. O título ocupa D1:G1 e a linha foi elevada para evitar qualquer sobreposição.
+- Validação: `npx.cmd vitest run src/lib/recebimento/planilha.test.ts src/lib/recebimento/pdf.test.ts` (4 testes verdes), `npx.cmd tsc --noEmit` e `npx.cmd next build` concluídos.
+
+## 2026-09-08 — Nova tela: Recebimento de NF (checklist manual por semana)
+
+### Resumo
+Pedido do dono do repo (croqui em papel, fotografado): uma tela nova pra
+acompanhar semanalmente as NFs recebidas de fornecedor, com checklist por
+produto — sem nenhuma integração com o Omie, é o usuário quem marca.
+
+### O que foi decidido no brainstorm
+- Cada NF pode ter vários produtos; os 4 checks (**Material recebido**, **Tem
+  OC**, **OC Aprovado**, **NF-e lançada**) são por PRODUTO, não por NF inteira.
+- "Tem OC" é checkbox simples (não guarda o número do pedido).
+- Agrupamento por semana (segunda–domingo) é **automático**, calculado a partir
+  da Data de Emissão — não fica persistido, só calculado na leitura.
+- Sem integração com Omie, sem import de planilha — só export (Excel/PDF) sob
+  demanda, gerado no navegador a partir do que já está na tela.
+- Acesso: módulo novo `recebimento` no sistema de permissões existente (mesma
+  matriz Papel × Módulo de `/configuracoes`). Default: ADMIN/GESTOR/FUNCIONARIO
+  habilitados, FABRICA/FABRICA_GESTOR não (mesmo padrão dos módulos operacionais).
+- Usuário pediu pra pular o spec formal ("é só uma planilha interativa") —
+  fomos direto pra implementação com TDD na lógica pura.
+
+### Implementado
+- Prisma: `RecebimentoNota` (cabeçalho) + `RecebimentoItem` (produto + 4
+  booleans), migration `20260908170755_recebimento_nf`.
+- `src/lib/recebimento/semanas.ts` — agrupamento/rótulo de semana (TDD).
+- `src/lib/recebimento/planilha.ts` — export Excel, uma linha por produto (TDD).
+- `src/lib/recebimento/pdf.ts` — export PDF com o mesmo visual de marca do
+  resto do app (TDD, baseado em `baixas/consumoPdf.ts`).
+- `src/app/(app)/recebimento/actions.ts` + `page.tsx` +
+  `src/components/recebimento/RecebimentoClient.tsx` — CRUD de NF/produto,
+  checkbox individual e "marcar/desmarcar todos" por coluna (otimista no
+  cliente), tudo auditado via `audit()`.
+- Módulo `recebimento` registrado em `permissions.ts`, `rbac.ts`,
+  `navigation.ts`, `seed.ts` e nos rótulos de `PermissionsMatrixForm.tsx`/ícones
+  do `AppShell.tsx`.
+
+### Testado manualmente (Chrome, localhost:3000, login ADMIN)
+Criar NF → adicionar 2 produtos → marcar checks individuais → "marcar todos"
+numa coluna → editar NF → remover produto → remover NF → conferido que o
+módulo aparece certo em `/configuracoes`. Tudo funcionando; único erro de
+console foi um hydration mismatch de `nonce` no `<script>` do layout raiz,
+pré-existente e sem relação com esta tela.
+
+### Observação de ambiente
+`.env` deste checkout aponta pro Neon com host `ep-shiny-smoke-...` — o
+usuário confirmou que é o banco real (não um dev isolado) e autorizou testar
+direto nele. `db:seed` roda com `upsert` no ADMIN/GESTOR (reseta a senha
+desses dois logins pro padrão `vital123` toda vez que roda) — o usuário
+confirmou que a senha real já era essa, sem incidente.
+
 ## 2026-09-01 — De/Para: fator de conversão, busca direta e aposentadoria do código antigo
 
 ### Resumo

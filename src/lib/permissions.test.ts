@@ -25,6 +25,7 @@ describe("buildRolePermissionsMap", () => {
       baixas: true,
       movimentacoes: true,
       depara: true,
+      recebimento: true,
       users: true,
       audit: false,
     });
@@ -41,6 +42,7 @@ describe("buildRolePermissionsMap", () => {
       baixas: false,
       movimentacoes: false,
       depara: false,
+      recebimento: false,
       users: false,
       audit: false,
     });
@@ -79,6 +81,7 @@ describe("buildRolePermissionsMap", () => {
       baixas: false,
       movimentacoes: false,
       depara: false,
+      recebimento: false,
       users: false,
       audit: false,
     });
@@ -108,6 +111,7 @@ describe("buildRolePermissionsMap", () => {
       baixas: true,
       movimentacoes: true,
       depara: true,
+      recebimento: true,
       users: true,
       audit: true,
     });

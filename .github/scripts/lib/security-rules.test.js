@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { escanear, escanearDiff, escanearCaminhos, montarRegras } = require('./security-rules');
+const REGRAS_DJANGO = montarRegras(['django']);
 
 function diffAdd(arquivo, linhas) {
   const corpo = linhas.map((l) => `+${l}`).join('\n');
@@ -22,17 +23,17 @@ test('auto-login (o caso real) vira PERIGO e NÃO passa', () => {
 });
 
 test('DEBUG = True vira PERIGO', () => {
-  const achados = escanearDiff(diffAdd('config/settings.py', ['DEBUG = True']));
+  const achados = escanearDiff(diffAdd('config/settings.py', ['DEBUG = True']), REGRAS_DJANGO);
   assert.ok(temPerigo(achados, 'Config'));
 });
 
 test('permission_classes = [] vira PERIGO', () => {
-  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = []']));
+  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = []']), REGRAS_DJANGO);
   assert.ok(temPerigo(achados, 'Auth'));
 });
 
 test('AllowAny vira PERIGO', () => {
-  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = [AllowAny]']));
+  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = [AllowAny]']), REGRAS_DJANGO);
   assert.ok(temPerigo(achados, 'Auth'));
 });
 
@@ -68,7 +69,7 @@ test('linhas removidas/contexto são ignoradas', () => {
 
 test('except: pass vira MODERADO (falha silenciosa)', () => {
   const diff = diffAdd('apps/x.py', ['    try:', '        faz()', '    except Exception:', '        pass']);
-  const achados = escanearDiff(diff);
+  const achados = escanearDiff(diff, REGRAS_DJANGO);
   assert.ok(achados.some((a) => a.id === 'sec-falha-silenciosa' && a.severidade === 'MODERADO'));
 });
 
@@ -82,7 +83,7 @@ test('mexer em workflow de deploy vira MODERADO (path rule)', () => {
 });
 
 test('nova migration vira MODERADO (path rule)', () => {
-  const achados = escanearCaminhos(['apps/leads/migrations/0007_add_field.py']);
+  const achados = escanearCaminhos(['apps/leads/migrations/0007_add_field.py'], REGRAS_DJANGO);
   assert.ok(achados.some((a) => a.severidade === 'MODERADO' && a.categoria === 'Schema'));
 });
 
@@ -96,13 +97,13 @@ test('reporta o número da linha (a partir do cabeçalho de hunk)', () => {
     '+DEBUG = True',
     ' contexto2',
   ].join('\n');
-  const debug = escanearDiff(diff).find((a) => a.id === 'config-debug-true');
+  const debug = escanearDiff(diff, REGRAS_DJANGO).find((a) => a.id === 'config-debug-true');
   assert.equal(debug.linha, 11);
 });
 
 test('dedup: mesma regra no mesmo arquivo conta uma vez', () => {
   const diff = diffAdd('config/settings.py', ['DEBUG = True', 'DEBUG = True']);
-  const achados = escanear(diff, ['config/settings.py']);
+  const achados = escanear(diff, ['config/settings.py'], { stacks: ['django'] });
   assert.equal(achados.filter((a) => a.id === 'config-debug-true').length, 1);
 });
 
@@ -161,6 +162,15 @@ test('FP: prosa em markdown nao e codigo', () => {
     'Nunca use DEBUG = True em producao.',
   ]);
   assert.equal(escanearDiff(diff).length, 0);
+});
+
+test('FP: dangerouslySetInnerHTML em teste nao gera achado', () => {
+  const r = montarRegras(['next']);
+  const teste = escanearDiff(diffAdd('src/app/layout.test.ts', ['expect(teste).not.toContain("dangerouslySetInnerHTML")']), r);
+  const producao = escanearDiff(diffAdd('src/app/layout.tsx', ['<script dangerouslySetInnerHTML={{ __html: conteudo }} />']), r);
+
+  assert.equal(teste.filter((a) => a.id === 'sec-dangerous-html').length, 0);
+  assert.ok(producao.some((a) => a.id === 'sec-dangerous-html'));
 });
 
 test('composicao: regra de stack so entra quando a stack existe', () => {
@@ -228,13 +238,10 @@ test('regra recuperada: config central do vital-ops volta a ser vigiada', () => 
   assert.equal(escanearCaminhos(['src/lib/texto.ts'], r).length, 0, 'arquivo comum nao pode acusar');
 });
 
-test('regra recuperada: arquivos de RBAC e o proxy do Next 16', () => {
+test('FP: arquivo de RBAC ou proxy sem defeito concreto nao gera achado', () => {
   const r = montarRegras(['next']);
   for (const arq of ['src/proxy.ts', 'src/lib/rbac.ts', 'src/lib/permissions.ts', 'middleware.ts']) {
-    assert.ok(
-      escanearCaminhos([arq], r).some((x) => x.id === 'next-arquivo-de-autorizacao'),
-      arq + ' deveria ser vigiado'
-    );
+    assert.equal(escanearCaminhos([arq], r).length, 0, arq + ' nao deve gerar achado sem defeito concreto');
   }
 });
 

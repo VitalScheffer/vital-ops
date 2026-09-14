@@ -13,13 +13,15 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build"
+    "vercel-build": "prisma generate && node scripts/vercel-migrate.mjs && next build"
   },
   "dependencies": {
     "@google/model-viewer": "^4.3.1",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.3",
+    "exceljs": "^4.4.0",
     "fflate": "^0.8.3",
     "lucide-react": "^1.23.0",
     "next": "16.2.11",
