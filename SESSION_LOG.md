@@ -1,5 +1,18 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-14 - Verificacao do guard de Recebimento
+
+### Resumo
+- A alegacao de bypass por `guardar()` retornar erro estruturado nao se reproduziu. As sete Server Actions retornam imediatamente antes de Prisma, auditoria e revalidacao quando a sessao ou permissao falha.
+- O retorno estruturado foi preservado porque o cliente testa `status === "error"` antes de atualizar o estado. Lancar excecao quebraria esse contrato e a mensagem inline.
+- Foram acrescentados testes de regressao para ausencia de sessao e permissao revogada nas sete actions.
+
+### Validacao
+- 52 testes focados verdes; `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `git diff --check` verdes.
+- Schema e migration Prisma permaneceram sem mudancas conforme solicitado.
+
+### Pendencias / proximos passos
+- Nenhuma para o achado de autorizacao; o PR pode ser reavaliado com esta evidencia.
 ## 2026-09-11 - Robustez de Recebimento
 
 ### Resumo

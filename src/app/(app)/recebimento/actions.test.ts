@@ -27,7 +27,15 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/audit", () => ({ audit: mocks.audit }));
 vi.mock("@/lib/request", () => ({ requestHeaders: mocks.requestHeaders }));
 
-import { adicionarItemRecebimento } from "./actions";
+import {
+  adicionarItemRecebimento,
+  criarNotaRecebimento,
+  editarNotaRecebimento,
+  marcarCheckRecebimento,
+  marcarColunaRecebimento,
+  removerItemRecebimento,
+  removerNotaRecebimento,
+} from "./actions";
 
 describe("adicionarItemRecebimento", () => {
   beforeEach(() => {
@@ -72,5 +80,54 @@ describe("adicionarItemRecebimento", () => {
 
     expect(mocks.transaction).toHaveBeenCalledTimes(2);
     expect(mocks.create).toHaveBeenCalledWith({ data: { notaId: "nota-1", produto: "Produto novo", ordem: 3 } });
+  });
+});
+
+describe("guard de Recebimento", () => {
+  const chamadas = [
+    () => criarNotaRecebimento({ numero: "123", fornecedor: "Fornecedor", dataEmissao: "2026-09-14" }),
+    () => editarNotaRecebimento({ id: "nota-1", numero: "123", fornecedor: "Fornecedor", dataEmissao: "2026-09-14" }),
+    () => removerNotaRecebimento({ id: "nota-1" }),
+    () => adicionarItemRecebimento({ notaId: "nota-1", produto: "Produto" }),
+    () => removerItemRecebimento({ id: "item-1" }),
+    () => marcarCheckRecebimento({ itemId: "item-1", evento: "temOC", marcado: true }),
+    () => marcarColunaRecebimento({ notaId: "nota-1", evento: "temOC", marcado: true }),
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.auth.mockResolvedValue({ user: { id: "user-1", name: "Ana", email: "ana@vitalscheffer.com.br", role: "FUNCIONARIO" } });
+    mocks.getRolePermissionsMap.mockResolvedValue({});
+    mocks.canViewRecebimento.mockReturnValue(true);
+  });
+
+  it("rejeita todas as actions sem sessao antes de acessar o banco", async () => {
+    mocks.auth.mockResolvedValue(null);
+
+    const resultados = await Promise.all(chamadas.map((chamar) => chamar()));
+
+    resultados.forEach((resultado) => expect(resultado).toMatchObject({ status: "error", message: expect.any(String) }));
+    expect(mocks.getRolePermissionsMap).not.toHaveBeenCalled();
+    expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.aggregate).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejeita todas as actions quando a permissao de Recebimento estiver revogada", async () => {
+    mocks.canViewRecebimento.mockReturnValue(false);
+
+    const resultados = await Promise.all(chamadas.map((chamar) => chamar()));
+
+    resultados.forEach((resultado) => expect(resultado).toMatchObject({ status: "error", message: expect.any(String) }));
+    expect(mocks.getRolePermissionsMap).toHaveBeenCalledTimes(chamadas.length);
+    expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.aggregate).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });
