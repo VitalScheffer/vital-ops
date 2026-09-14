@@ -6073,3 +6073,21 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 
 ### Pendências / próximos passos
 - Validar no navegador de produção com um lote real de PDFs e planilhas.
+
+## 2026-09-14 — Consulta de NF-e no Omie para Recebimento
+
+### Resumo
+- Consulta somente de leitura ao serviço `RecebimentoNFe/ListarRecebimentos` da API Omie; nenhum registro foi criado ou alterado.
+- O serviço retornou 61.925 recebimentos. A página mais recente continha cinco NF-e em etapa `40`, emitidas em 14/09/2026, com número, fornecedor e data de emissão compatíveis com a tela de Recebimento.
+- Cruzamento por número e data com a tabela local `RecebimentoNota`: não há registro local para nenhuma das cinco notas.
+
+### Candidatas encontradas
+- NF-e 261070230 — DELIAN PEREIRA CARVALHO — 14/09/2026 — R$ 34,09.
+- NF-e 261003207 — CYNTIA MAYARA GOMES DOS SANTOS — 14/09/2026 — R$ 45,31.
+- NF-e 261043215 — SILVANA ANTUNES NOGUEIRA — 14/09/2026 — R$ 43,75.
+- NF-e 000074947 — BOLD PARTICIPACOES S.A. — 14/09/2026 — R$ 8.514,89.
+- NF-e 000378364 — ACO CEARENSE COMERCIAL LTDA — 14/09/2026 — R$ 82.115,14.
+
+### Comandos relevantes
+- Consulta Omie: `ListarRecebimentos` em `https://app.omie.com.br/api/v1/produtos/recebimentonfe/`.
+- Cruzamento local: consulta parametrizada em `RecebimentoNota` por `numero`.
