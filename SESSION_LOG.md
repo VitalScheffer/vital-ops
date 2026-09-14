@@ -6091,3 +6091,8 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 ### Comandos relevantes
 - Consulta Omie: `ListarRecebimentos` em `https://app.omie.com.br/api/v1/produtos/recebimentonfe/`.
 - Cruzamento local: consulta parametrizada em `RecebimentoNota` por `numero`.
+
+### Categoria separada — Vendas (propostas e pedidos)
+- Consulta somente de leitura ao serviço `PedidoVendaProduto/ListarPedidos`; ela é independente de Recebimento de NF-e e não cria nem altera pedidos.
+- Sem os critérios ativos da tela, há 46.310 pedidos no Omie: Proposta (00) 251; A Produzir (10) 31; Produzindo (20) 10; Em Produção (50) 108; Concluído (60) 4.150; Em Expedição (70) 2.665; Armazenado (80) 39.095. As etapas 15, 30 e 40 não tinham pedidos.
+- A captura do Omie apresenta filtros ativos; portanto, suas contagens por coluna não precisam coincidir com a consulta ampla da API.
