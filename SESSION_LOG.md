@@ -6078,7 +6078,7 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 
 ### Resumo
 - Consulta somente de leitura ao serviço `RecebimentoNFe/ListarRecebimentos` da API Omie; nenhum registro foi criado ou alterado.
-- O serviço retornou 61.925 recebimentos. A página mais recente continha cinco NF-e em etapa `40`, emitidas em 14/09/2026, com número, fornecedor e data de emissão compatíveis com a tela de Recebimento.
+- O serviço retornou 61.925 recebimentos. O filtro da etapa `40` retornou 826 NF-e; as cinco listadas abaixo são a amostra mais recente, emitida em 14/09/2026, com número, fornecedor e data de emissão compatíveis com a tela de Recebimento.
 - Cruzamento por número e data com a tabela local `RecebimentoNota`: não há registro local para nenhuma das cinco notas.
 
 ### Candidatas encontradas
