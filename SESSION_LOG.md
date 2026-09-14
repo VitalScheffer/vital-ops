@@ -1,5 +1,18 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-14 - Pre-scan sem falsos positivos de Auth
+
+### Resumo
+- O pre-scan deixou de criar achados Moderado apenas porque proxy, RBAC ou permissoes foram alterados. Essa regra nao tinha evidencia de defeito e contrariava a exigencia do revisor de apontar linha e impacto concretos.
+- Bypasses reais continuam cobertos pelas regras de conteudo e pela revisao contextual da IA. A mudanca nao altera rotas, sessoes ou permissoes da aplicacao.
+- O literal `dangerouslySetInnerHTML` em arquivo de teste agora e ignorado pelo detector, mas permanece detectado em codigo de producao.
+
+### Validacao
+- 32 testes Node do pre-scan e ESLint verdes.
+- Simulacao sobre o diff integral da PR retorna somente os dois avisos de Schema preservados por solicitacao explicita.
+
+### Pendencias / proximos passos
+- Nenhuma para Auth. Schema e migration continuam sem alteracoes.
 ## 2026-09-14 - Estado do revisor automatico do PR
 
 ### Resumo

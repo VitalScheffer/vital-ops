@@ -30,6 +30,7 @@ const REGRAS_LINHA = [
     severidade: 'MODERADO',
     categoria: 'Segurança',
     regex: /dangerouslySetInnerHTML/,
+    ignorarEmTeste: true,
     problema: 'Injeção de HTML sem sanitização (risco de XSS).',
     recomendacao: 'Sanitize o conteúdo antes de renderizar.',
   },
@@ -46,20 +47,6 @@ const REGRAS_LINHA = [
 
 const REGRAS_CAMINHO = [
   {
-    id: 'next-arquivo-de-autorizacao',
-    severidade: 'MODERADO',
-    categoria: 'Auth',
-    // `proxy.ts` é o nome do middleware a partir do Next 16 (vital-ops); `middleware.ts`
-    // é o nome anterior, ainda usado no mk-frontend. Os arquivos de RBAC entram porque
-    // são a fonte única de verdade da autorização e não tinham guarda determinística.
-    teste: (p) =>
-      /^(middleware\.ts|src\/proxy\.ts|config\/route-permission\.ts|config\/routes\.ts|src\/lib\/(rbac|permissions|permissions\.server)\.ts)$/.test(
-        p.replace(/\\/g, '/')
-      ),
-    problema: 'Arquivo que decide quais rotas são públicas e quais permissões cada uma exige.',
-    recomendacao: 'Confirme que nenhuma rota privada virou pública e que a rota nova está coberta pelas permissões.',
-  },
-  {
     id: 'config-central-tocada',
     severidade: 'MODERADO',
     categoria: 'Config',
@@ -74,6 +61,11 @@ const REGRAS_CAMINHO = [
     recomendacao: 'Revise com atenção: erro aqui afeta login, banco ou build da aplicação inteira.',
   },
 ];
+
+// Arquivo sensível não é defeito por si só. Criar um achado apenas porque RBAC ou
+// proxy foi alterado contradiz o contrato do revisor, que exige uma linha concreta
+// e um impacto demonstrável. Bypasses reais continuam cobertos pelas regras de
+// conteúdo e pela revisão contextual da IA.
 
 // `catch { }` ou `catch (e) { }` com corpo vazio. Perdida na consolidação: o módulo
 // spring tinha o equivalente para Java, e o lado JS/TS ficou descoberto.

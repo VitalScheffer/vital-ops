@@ -142,6 +142,7 @@ function escanearDiff(diff, regras = montarRegras(detectarStacks())) {
       if (regra.soArquivo && !(arquivo && regra.soArquivo.test(arquivo))) continue;
       if (regra.naoArquivo && arquivo && regra.naoArquivo.test(arquivo)) continue;
       if (regra.guard && regra.guard.test(conteudo)) continue;
+      if (emTeste && regra.ignorarEmTeste) continue;
       if (!regra.regex.test(conteudo)) continue;
 
       // Credencial em fixture/seed quase sempre é valor de mentira. Rebaixar em vez

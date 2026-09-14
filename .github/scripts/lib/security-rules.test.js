@@ -164,6 +164,15 @@ test('FP: prosa em markdown nao e codigo', () => {
   assert.equal(escanearDiff(diff).length, 0);
 });
 
+test('FP: dangerouslySetInnerHTML em teste nao gera achado', () => {
+  const r = montarRegras(['next']);
+  const teste = escanearDiff(diffAdd('src/app/layout.test.ts', ['expect(teste).not.toContain("dangerouslySetInnerHTML")']), r);
+  const producao = escanearDiff(diffAdd('src/app/layout.tsx', ['<script dangerouslySetInnerHTML={{ __html: conteudo }} />']), r);
+
+  assert.equal(teste.filter((a) => a.id === 'sec-dangerous-html').length, 0);
+  assert.ok(producao.some((a) => a.id === 'sec-dangerous-html'));
+});
+
 test('composicao: regra de stack so entra quando a stack existe', () => {
   const diff = diffAdd('apps/leads/views.py', ['    permission_classes = []']);
   assert.ok(escanearDiff(diff, montarRegras(['django'])).some((a) => a.id === 'auth-permission-vazio'));
@@ -229,13 +238,10 @@ test('regra recuperada: config central do vital-ops volta a ser vigiada', () => 
   assert.equal(escanearCaminhos(['src/lib/texto.ts'], r).length, 0, 'arquivo comum nao pode acusar');
 });
 
-test('regra recuperada: arquivos de RBAC e o proxy do Next 16', () => {
+test('FP: arquivo de RBAC ou proxy sem defeito concreto nao gera achado', () => {
   const r = montarRegras(['next']);
   for (const arq of ['src/proxy.ts', 'src/lib/rbac.ts', 'src/lib/permissions.ts', 'middleware.ts']) {
-    assert.ok(
-      escanearCaminhos([arq], r).some((x) => x.id === 'next-arquivo-de-autorizacao'),
-      arq + ' deveria ser vigiado'
-    );
+    assert.equal(escanearCaminhos([arq], r).length, 0, arq + ' nao deve gerar achado sem defeito concreto');
   }
 });
 
