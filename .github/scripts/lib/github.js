@@ -81,7 +81,10 @@ async function aplicarLabelVeredito({ repo, prNumber, veredito }) {
 // Mapeia o veredito num evento de review do GitHub e no estado que ele gera.
 const REVIEW = {
   BLOQUEAR: { evento: 'REQUEST_CHANGES', estado: 'CHANGES_REQUESTED' },
-  ATENCAO: { evento: 'COMMENT', estado: 'COMMENTED' },
+  // Atenção mantém o comentário e o rótulo, mas não é bloqueio. Aprovar aqui
+  // também substitui um REQUEST_CHANGES antigo do bot depois que o PERIGO foi
+  // corrigido; COMMENT não altera o reviewDecision do GitHub.
+  ATENCAO: { evento: 'APPROVE', estado: 'APPROVED' },
   OK: { evento: 'APPROVE', estado: 'APPROVED' },
 };
 
@@ -103,4 +106,4 @@ async function sincronizarReview({ repo, prNumber, veredito, corpo }) {
   if (!res.ok) console.error(`Falha ao submeter review ${alvo.evento} (HTTP ${res.status}):`, await res.text().catch(() => ''));
 }
 
-module.exports = { buscarComentarioSticky, postarOuAtualizarComentario, aplicarLabelVeredito, sincronizarReview, MARCADOR, LABELS };
+module.exports = { buscarComentarioSticky, postarOuAtualizarComentario, aplicarLabelVeredito, sincronizarReview, MARCADOR, LABELS, REVIEW };

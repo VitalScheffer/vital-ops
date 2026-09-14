@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { escanear, escanearDiff, escanearCaminhos, montarRegras } = require('./security-rules');
+const REGRAS_DJANGO = montarRegras(['django']);
 
 function diffAdd(arquivo, linhas) {
   const corpo = linhas.map((l) => `+${l}`).join('\n');
@@ -22,17 +23,17 @@ test('auto-login (o caso real) vira PERIGO e NÃO passa', () => {
 });
 
 test('DEBUG = True vira PERIGO', () => {
-  const achados = escanearDiff(diffAdd('config/settings.py', ['DEBUG = True']));
+  const achados = escanearDiff(diffAdd('config/settings.py', ['DEBUG = True']), REGRAS_DJANGO);
   assert.ok(temPerigo(achados, 'Config'));
 });
 
 test('permission_classes = [] vira PERIGO', () => {
-  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = []']));
+  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = []']), REGRAS_DJANGO);
   assert.ok(temPerigo(achados, 'Auth'));
 });
 
 test('AllowAny vira PERIGO', () => {
-  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = [AllowAny]']));
+  const achados = escanearDiff(diffAdd('apps/leads/views.py', ['    permission_classes = [AllowAny]']), REGRAS_DJANGO);
   assert.ok(temPerigo(achados, 'Auth'));
 });
 
@@ -68,7 +69,7 @@ test('linhas removidas/contexto são ignoradas', () => {
 
 test('except: pass vira MODERADO (falha silenciosa)', () => {
   const diff = diffAdd('apps/x.py', ['    try:', '        faz()', '    except Exception:', '        pass']);
-  const achados = escanearDiff(diff);
+  const achados = escanearDiff(diff, REGRAS_DJANGO);
   assert.ok(achados.some((a) => a.id === 'sec-falha-silenciosa' && a.severidade === 'MODERADO'));
 });
 
@@ -82,7 +83,7 @@ test('mexer em workflow de deploy vira MODERADO (path rule)', () => {
 });
 
 test('nova migration vira MODERADO (path rule)', () => {
-  const achados = escanearCaminhos(['apps/leads/migrations/0007_add_field.py']);
+  const achados = escanearCaminhos(['apps/leads/migrations/0007_add_field.py'], REGRAS_DJANGO);
   assert.ok(achados.some((a) => a.severidade === 'MODERADO' && a.categoria === 'Schema'));
 });
 
@@ -96,13 +97,13 @@ test('reporta o número da linha (a partir do cabeçalho de hunk)', () => {
     '+DEBUG = True',
     ' contexto2',
   ].join('\n');
-  const debug = escanearDiff(diff).find((a) => a.id === 'config-debug-true');
+  const debug = escanearDiff(diff, REGRAS_DJANGO).find((a) => a.id === 'config-debug-true');
   assert.equal(debug.linha, 11);
 });
 
 test('dedup: mesma regra no mesmo arquivo conta uma vez', () => {
   const diff = diffAdd('config/settings.py', ['DEBUG = True', 'DEBUG = True']);
-  const achados = escanear(diff, ['config/settings.py']);
+  const achados = escanear(diff, ['config/settings.py'], { stacks: ['django'] });
   assert.equal(achados.filter((a) => a.id === 'config-debug-true').length, 1);
 });
 
