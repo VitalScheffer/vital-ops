@@ -1,5 +1,17 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-14 - Auditoria de permissoes do Recebimento
+
+### Resumo
+- Confirmado que `/recebimento` nao e rota publica: `isPublicPath` nao a inclui e o proxy redireciona visitantes sem sessao para `/login`.
+- `recebimento` e um modulo proprio. ADMIN, GESTOR e FUNCIONARIO recebem o padrao permitido; FABRICA e FABRICA_GESTOR permanecem negados; perfis customizados iniciam negados.
+- A pagina e as sete Server Actions aplicam `canViewRecebimento`, alem da protecao de sessao no proxy. O unico ajuste no matcher do proxy foi excluir o arquivo publico `theme-init.js`.
+
+### Validacao
+- 75 testes focados verdes para rota publica, permissoes, RBAC, navegacao, pagina e actions.
+
+### Pendencias / proximos passos
+- Nenhuma para os tres achados de Auth; schema e migration continuam sem mudancas.
 ## 2026-09-14 - Verificacao do guard de Recebimento
 
 ### Resumo
