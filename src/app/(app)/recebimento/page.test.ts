@@ -5,14 +5,14 @@ const mocks = vi.hoisted(() => ({
   getRolePermissionsMap: vi.fn(),
   canViewRecebimento: vi.fn(),
   findMany: vi.fn(),
-  listarVendasOmie: vi.fn(),
+  listarNotasOmie: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/permissions.server", () => ({ getRolePermissionsMap: mocks.getRolePermissionsMap }));
 vi.mock("@/lib/rbac", () => ({ canViewRecebimento: mocks.canViewRecebimento }));
 vi.mock("@/lib/db", () => ({ prisma: { recebimentoNota: { findMany: mocks.findMany } } }));
-vi.mock("@/lib/recebimento/vendasOmie", () => ({ listarVendasOmie: mocks.listarVendasOmie }));
+vi.mock("@/lib/recebimento/notasOmie", () => ({ listarNotasOmie: mocks.listarNotasOmie }));
 
 import RecebimentoPage from "./page";
 
@@ -23,7 +23,7 @@ describe("RecebimentoPage", () => {
     mocks.getRolePermissionsMap.mockResolvedValue({});
     mocks.canViewRecebimento.mockReturnValue(true);
     mocks.findMany.mockResolvedValue([]);
-    mocks.listarVendasOmie.mockResolvedValue({ status: "ok", total: 0, pedidos: [], atualizadoEm: "2026-09-15T12:00:00.000Z" });
+    mocks.listarNotasOmie.mockResolvedValue({ status: "ok", totalEntradas: 0, totalVendas: 0, notas: [], atualizadoEm: "2026-09-15T12:00:00.000Z" });
   });
 
   it("busca uma pagina limitada com ordenacao estavel", async () => {
@@ -50,6 +50,6 @@ describe("RecebimentoPage", () => {
     await RecebimentoPage({ searchParams: Promise.resolve({}) });
 
     expect(mocks.findMany).not.toHaveBeenCalled();
-    expect(mocks.listarVendasOmie).not.toHaveBeenCalled();
+    expect(mocks.listarNotasOmie).not.toHaveBeenCalled();
   });
 });

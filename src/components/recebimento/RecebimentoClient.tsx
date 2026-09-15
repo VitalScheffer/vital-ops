@@ -1,6 +1,6 @@
 "use client";
 
-import { EyeOff, FileDown, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
+import { FileDown, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 
 import {
@@ -20,7 +20,7 @@ import { gerarRecebimentoPdf } from "@/lib/recebimento/pdf";
 import { gerarRecebimentoXlsx } from "@/lib/recebimento/planilha";
 import { dataEmissaoSaoPaulo, dataEmissaoSaoPauloDoIso, hojeSaoPaulo } from "@/lib/recebimento/dataEmissao";
 import { agruparPorSemana } from "@/lib/recebimento/semanas";
-import type { VendasOmieDTO } from "@/lib/recebimento/vendasOmie";
+import type { NotasOmieDTO } from "@/lib/recebimento/notasOmie";
 
 const EVENTO_LABEL: Record<RecebimentoEvento, string> = {
   materialRecebido: "Material recebido",
@@ -55,14 +55,14 @@ function dataBr(iso: string): string {
 
 interface RecebimentoClientProps {
   notasIniciais: NotaRecebimentoDTO[];
-  vendasOmie: VendasOmieDTO;
+  notasOmie: NotasOmieDTO;
 }
 
-// Checklist manual de NF de entrada: quem marca é o próprio usuário. A
-// categoria de Vendas é somente leitura. Notas ficam em `useState` e todas as mutações atualizam o
+// Checklist manual de NF de entrada: quem marca é o próprio usuário. As notas
+// do Omie são apenas leitura. Notas ficam em `useState` e todas as mutações atualizam o
 // estado local direto (otimista nos checkboxes) — não dependemos do
 // `revalidatePath` da action pra a UI refletir a mudança na hora.
-export function RecebimentoClient({ notasIniciais, vendasOmie }: RecebimentoClientProps) {
+export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClientProps) {
   const [notas, setNotas] = useState(notasIniciais);
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
@@ -78,7 +78,6 @@ export function RecebimentoClient({ notasIniciais, vendasOmie }: RecebimentoClie
 
   const [novoProduto, setNovoProduto] = useState<Record<string, string>>({});
   const [confirmando, setConfirmando] = useState<string | null>(null);
-  const [vendasVisiveis, setVendasVisiveis] = useState(true);
 
   const grupos = useMemo(() => {
     return agruparPorSemana(notas, (nota) => dataEmissaoSaoPauloDoIso(nota.dataEmissao)).map((grupo) => ({
@@ -245,52 +244,41 @@ export function RecebimentoClient({ notasIniciais, vendasOmie }: RecebimentoClie
 
   return (
     <div className="flex flex-col gap-8">
-      {vendasVisiveis ? (
-        <Panel
-          title={vendasOmie.status === "ok" ? `Vendas Omie (${vendasOmie.total})` : "Vendas Omie"}
-          description={
-            vendasOmie.status === "ok"
-              ? "Categoria separada, somente para consulta de pedidos de venda. Ela não altera o Omie e não entra no checklist nem nas exportações de NF de entrada."
-              : vendasOmie.message
-          }
-          action={
-            <button type="button" onClick={() => setVendasVisiveis(false)} className={botaoSecundario}>
-              <EyeOff className="h-3.5 w-3.5" /> Ocultar categoria
-            </button>
-          }
-        >
-          {vendasOmie.status === "ok" && (
-            <>
-              {vendasOmie.pedidos.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhum pedido de venda retornado pelo Omie.</p>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {vendasOmie.pedidos.map((pedido) => (
-                    <div key={pedido.id} className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                      <p className="font-semibold text-card-foreground">Pedido Nº {pedido.numero}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{pedido.etapa}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {pedido.dataPrevisao ? `Previsão: ${pedido.dataPrevisao}` : "Sem previsão"}
-                        {pedido.quantidadeItens !== null ? ` · ${pedido.quantidadeItens} item(ns)` : ""}
-                        {pedido.origem ? ` · ${pedido.origem}` : ""}
-                      </p>
+      <Panel
+        title={notasOmie.status === "ok" ? `Notas do Omie (${notasOmie.notas.length})` : "Notas do Omie"}
+        description={
+          notasOmie.status === "ok"
+            ? `${notasOmie.totalEntradas} NF-e de entrada e ${notasOmie.totalVendas} NF-e de venda encontradas. Cada nota mostra sua origem.`
+            : notasOmie.message
+        }
+      >
+        {notasOmie.status === "ok" && (
+          <>
+            {notasOmie.notas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma nota retornada pelo Omie.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {notasOmie.notas.map((nota) => (
+                  <div key={nota.id} className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-card-foreground">NF-e Nº {nota.numero}</p>
+                      <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">{nota.tipo}</span>
                     </div>
-                  ))}
-                </div>
-              )}
-              <p className="mt-3 text-xs text-muted-foreground">
-                Atualizado em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(vendasOmie.atualizadoEm))}.
-              </p>
-            </>
-          )}
-        </Panel>
-      ) : (
-        <div>
-          <button type="button" onClick={() => setVendasVisiveis(true)} className={botaoSecundario}>
-            Mostrar Vendas Omie
-          </button>
-        </div>
-      )}
+                    <p className="mt-1 truncate text-xs text-muted-foreground" title={nota.parceiro}>{nota.parceiro}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {nota.dataEmissao ? `Emissão: ${nota.dataEmissao}` : "Sem data de emissão"}
+                      {nota.valor !== null ? ` · ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(nota.valor)}` : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-muted-foreground">
+              Atualizado em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(notasOmie.atualizadoEm))}.
+            </p>
+          </>
+        )}
+      </Panel>
 
       <Panel
         title="Nova NF"
