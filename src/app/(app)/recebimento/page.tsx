@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewRecebimento } from "@/lib/rbac";
+import { listarVendasOmie } from "@/lib/recebimento/vendasOmie";
 
 export const metadata = { title: "Recebimento de NF — Vital Ops" };
 
@@ -33,12 +34,15 @@ export default async function RecebimentoPage({
     return <Forbidden message="Você não tem permissão para acessar o Recebimento de NF." />;
   }
 
-  const notasComFolga = await prisma.recebimentoNota.findMany({
-    skip: (pagina - 1) * NOTAS_POR_PAGINA,
-    take: NOTAS_POR_PAGINA + 1,
-    orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
-    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
-  });
+  const [notasComFolga, vendasOmie] = await Promise.all([
+    prisma.recebimentoNota.findMany({
+      skip: (pagina - 1) * NOTAS_POR_PAGINA,
+      take: NOTAS_POR_PAGINA + 1,
+      orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
+      include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
+    }),
+    listarVendasOmie(),
+  ]);
   const temProximaPagina = notasComFolga.length > NOTAS_POR_PAGINA;
   const notas = notasComFolga.slice(0, NOTAS_POR_PAGINA);
 
@@ -49,7 +53,7 @@ export default async function RecebimentoPage({
         <p className="mt-1 text-sm text-muted-foreground">
           Acompanhe semana a semana o recebimento das notas fiscais de fornecedor: marque, produto a produto, o que
           já foi recebido, se há Ordem de Compra (OC), se a OC foi aprovada e se a NF-e foi lançada no financeiro. O
-          preenchimento é manual — esta tela não se integra ao Omie.
+          O checklist é manual. A categoria Vendas Omie exibe pedidos de clientes somente para consulta e não altera estas notas.
         </p>
       </header>
 
@@ -69,6 +73,7 @@ export default async function RecebimentoPage({
             nfeLancada: item.nfeLancada,
           })),
         }))}
+        vendasOmie={vendasOmie}
       />
       <nav className="flex items-center justify-between gap-3" aria-label="Paginação das notas fiscais">
         {pagina > 1 ? (

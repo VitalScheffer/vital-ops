@@ -6096,3 +6096,19 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 - Consulta somente de leitura ao serviço `PedidoVendaProduto/ListarPedidos`; ela é independente de Recebimento de NF-e e não cria nem altera pedidos.
 - Sem os critérios ativos da tela, há 46.310 pedidos no Omie: Proposta (00) 251; A Produzir (10) 31; Produzindo (20) 10; Em Produção (50) 108; Concluído (60) 4.150; Em Expedição (70) 2.665; Armazenado (80) 39.095. As etapas 15, 30 e 40 não tinham pedidos.
 - A captura do Omie apresenta filtros ativos; portanto, suas contagens por coluna não precisam coincidir com a consulta ampla da API.
+
+## 2026-09-15 — Categoria Vendas Omie no Recebimento
+
+### Resumo
+- Adicionada a categoria visual **Vendas Omie** à rota `/recebimento`, separada do checklist manual de NF-e de entrada.
+- A categoria consulta apenas `ListarEtapasFaturamento` e `ListarPedidos` do Omie, mostra o total e os 50 pedidos mais recentes retornados, e pode ser ocultada na sessão pelo botão `Ocultar categoria`.
+- Nenhum pedido de venda é gravado no banco, alterado no Omie ou incluído nas exportações de Excel/PDF do Recebimento. A remoção definitiva da categoria não exige migration.
+
+### Arquivos alterados
+- `src/lib/recebimento/vendasOmie.ts` e teste — leitura cacheada, mapeamento de etapas e degradação segura quando o Omie estiver indisponível.
+- `src/app/(app)/recebimento/page.tsx` e teste — carrega a categoria somente depois da autorização do Recebimento.
+- `src/components/recebimento/RecebimentoClient.tsx` — painel separado, somente leitura e ocultável.
+
+### Validação
+- `npx.cmd vitest run src/lib/recebimento/vendasOmie.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts"` — 9 testes verdes.
+- `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `npm.cmd run build` — concluídos sem erros.
