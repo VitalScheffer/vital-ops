@@ -52,8 +52,8 @@ export default async function RecebimentoPage({
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Recebimento de NF</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Acompanhe semana a semana o recebimento das notas fiscais de fornecedor: marque, produto a produto, o que
-          já foi recebido, se há Ordem de Compra (OC), se a OC foi aprovada e se a NF-e foi lançada no financeiro. O
-          O checklist é manual. A categoria Vendas Omie exibe pedidos de clientes somente para consulta e não altera estas notas.
+          já foi recebido, se há Ordem de Compra (OC), se a OC foi aprovada e se a NF-e foi lançada no financeiro.
+          O checklist é manual. As notas do Omie exibem NF-e de entrada e de venda somente para consulta e não alteram estas notas.
         </p>
       </header>
 

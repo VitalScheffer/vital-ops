@@ -6124,3 +6124,15 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 ### Validação
 - `npx.cmd vitest run src/lib/recebimento/notasOmie.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts"` — 9 testes verdes.
 - `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `npm.cmd run build` — concluídos sem erros; `/recebimento` presente no build.
+
+## 2026-09-15 — Validação local das notas Omie
+
+### Resultado
+- A rota `http://localhost:3000/recebimento` foi atualizada e validada no navegador local.
+- O painel **Notas do Omie** mostrou as NF-e de entrada e de venda com o identificador da origem em cada cartão.
+- A consulta é somente leitura: o checklist manual local continuou com `Notas (0)` e nenhum registro foi criado, atualizado ou substituído no banco local.
+- Corrigida a descrição do cabeçalho para remover a referência antiga a `Vendas Omie` e explicar a listagem única.
+
+### Validação
+- `npx.cmd vitest run "src/app/(app)/recebimento/page.test.ts"` — 3 testes verdes.
+- Atualização visual em `localhost:3000/recebimento` confirmada no navegador.
