@@ -6150,3 +6150,17 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 ### Validação
 - `npx.cmd tsc --noEmit`, `npx.cmd vitest run src/lib/recebimento/notasOmie.test.ts "src/app/(app)/recebimento/actions.test.ts" "src/app/(app)/recebimento/page.test.ts"`, `npm.cmd run lint` e `npm.cmd run build` concluídos sem erros.
 - Navegador local: filtros, rótulos Cliente/Fornecedor, produtos e formulário com somente Nº da NF confirmados; nenhuma nota foi criada ou alterada na validação.
+
+## 2026-09-15 — Busca sob demanda e correção de hidratação
+
+### Resumo
+- A página de Recebimento não consulta nem mostra as notas do Omie ao abrir. O card **Buscar notas no Omie** consulta somente após uma pessoa autorizada pesquisar por número, parceiro ou produto.
+- O card separado **Nova NF** foi removido. O resultado de uma NF-e de entrada tem o botão **Adicionar ao checklist**, que cria a nota local com fornecedor, emissão e produtos vindos do Omie. NF-e de venda fica somente para consulta.
+- A busca mantém filtros por Entrada e Venda e mostra a quantidade encontrada para o termo atual.
+
+### Hidratação
+- Corrigido o mismatch de nonce no `RootLayout`: `next/script` com `beforeInteractive` gerava um script interno que o cliente reconstruía sem nonce. O tema agora usa o arquivo externo `theme-init.js` em uma tag nativa com nonce do servidor e `suppressHydrationWarning` apenas nela. O console ficou sem novos erros de hidratação após recarregar a página local.
+
+### Validação
+- `npx.cmd tsc --noEmit`, `npx.cmd vitest run src/app/layout.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts" src/lib/recebimento/notasOmie.test.ts`, `npm.cmd run lint` e `npm.cmd run build` concluídos sem erros.
+- Navegador local confirmou a tela inicial sem cartões do Omie e a pesquisa da NF-e 000153030 retornou a entrada com itens e o botão de adicionar; nenhum checklist foi criado durante a validação.

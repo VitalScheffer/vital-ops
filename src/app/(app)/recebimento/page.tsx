@@ -6,7 +6,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewRecebimento } from "@/lib/rbac";
-import { listarNotasOmie } from "@/lib/recebimento/notasOmie";
 
 export const metadata = { title: "Recebimento de NF — Vital Ops" };
 
@@ -34,15 +33,12 @@ export default async function RecebimentoPage({
     return <Forbidden message="Você não tem permissão para acessar o Recebimento de NF." />;
   }
 
-  const [notasComFolga, notasOmie] = await Promise.all([
-    prisma.recebimentoNota.findMany({
-      skip: (pagina - 1) * NOTAS_POR_PAGINA,
-      take: NOTAS_POR_PAGINA + 1,
-      orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
-      include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
-    }),
-    listarNotasOmie(),
-  ]);
+  const notasComFolga = await prisma.recebimentoNota.findMany({
+    skip: (pagina - 1) * NOTAS_POR_PAGINA,
+    take: NOTAS_POR_PAGINA + 1,
+    orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
+    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
+  });
   const temProximaPagina = notasComFolga.length > NOTAS_POR_PAGINA;
   const notas = notasComFolga.slice(0, NOTAS_POR_PAGINA);
 
@@ -73,7 +69,6 @@ export default async function RecebimentoPage({
             nfeLancada: item.nfeLancada,
           })),
         }))}
-        notasOmie={notasOmie}
       />
       <nav className="flex items-center justify-between gap-3" aria-label="Paginação das notas fiscais">
         {pagina > 1 ? (

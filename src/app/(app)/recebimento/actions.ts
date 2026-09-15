@@ -28,7 +28,7 @@ import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewRecebimento } from "@/lib/rbac";
 import { dataEmissaoSaoPaulo } from "@/lib/recebimento/dataEmissao";
-import { localizarNotaEntradaOmie } from "@/lib/recebimento/notasOmie";
+import { listarNotasOmie, localizarNotaEntradaOmie, type NotasOmieDTO } from "@/lib/recebimento/notasOmie";
 import { requestHeaders } from "@/lib/request";
 
 interface Guarda {
@@ -92,6 +92,13 @@ async function criarItemComOrdem(notaId: string, produto: string) {
 }
 
 export type CriarNotaRecebimentoResult = { status: "success"; nota: NotaRecebimentoDTO } | { status: "error"; message: string };
+
+export async function buscarNotasOmieRecebimento(): Promise<NotasOmieDTO> {
+  const guarda = await guardar();
+  if (!ehGuarda(guarda)) return guarda;
+
+  return listarNotasOmie();
+}
 
 function dataOmieParaSaoPaulo(data: string | null): Date {
   const partes = data ? /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(data) : null;

@@ -25,6 +25,7 @@ describe("inicializador de tema", () => {
 
     expect(layout).not.toContain("dangerouslySetInnerHTML");
     expect(layout).toContain('src="/theme-init.js"');
+    expect(layout).toContain("suppressHydrationWarning");
   });
 
   it("aplica somente os valores de tema permitidos", async () => {
