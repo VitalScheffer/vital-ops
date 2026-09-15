@@ -18,7 +18,7 @@ import { RECEBIMENTO_EVENTOS, type ItemRecebimentoDTO, type NotaRecebimentoDTO, 
 import { nomeArquivoRecebimento } from "@/lib/recebimento/nomeArquivo";
 import { gerarRecebimentoPdf } from "@/lib/recebimento/pdf";
 import { gerarRecebimentoXlsx } from "@/lib/recebimento/planilha";
-import { dataEmissaoSaoPaulo, dataEmissaoSaoPauloDoIso, hojeSaoPaulo } from "@/lib/recebimento/dataEmissao";
+import { dataEmissaoSaoPauloDoIso } from "@/lib/recebimento/dataEmissao";
 import { agruparPorSemana } from "@/lib/recebimento/semanas";
 import type { NotasOmieDTO } from "@/lib/recebimento/notasOmie";
 
@@ -45,10 +45,6 @@ const botaoPrimario =
 const botaoPerigo =
   "inline-flex items-center gap-1.5 rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50";
 
-function hojeISO(): string {
-  return hojeSaoPaulo();
-}
-
 function dataBr(iso: string): string {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(dataEmissaoSaoPauloDoIso(iso));
 }
@@ -68,13 +64,10 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
   const [erro, setErro] = useState<string | null>(null);
 
   const [novoNumero, setNovoNumero] = useState("");
-  const [novoFornecedor, setNovoFornecedor] = useState("");
-  const [novaData, setNovaData] = useState(hojeISO());
+  const [filtroOmie, setFiltroOmie] = useState<"Todas" | "Entrada" | "Venda">("Todas");
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [edNumero, setEdNumero] = useState("");
-  const [edFornecedor, setEdFornecedor] = useState("");
-  const [edData, setEdData] = useState("");
 
   const [novoProduto, setNovoProduto] = useState<Record<string, string>>({});
   const [confirmando, setConfirmando] = useState<string | null>(null);
@@ -86,17 +79,20 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
     }));
   }, [notas]);
 
+  const notasOmieFiltradas = useMemo(() => {
+    if (notasOmie.status !== "ok") return [];
+    return filtroOmie === "Todas" ? notasOmie.notas : notasOmie.notas.filter((nota) => nota.tipo === filtroOmie);
+  }, [filtroOmie, notasOmie]);
+
   function criar() {
-    if (!novoNumero.trim() || !novoFornecedor.trim() || !novaData) {
-      setErro("Preencha número, fornecedor e data da NF.");
+    if (!novoNumero.trim()) {
+      setErro("Informe o número da NF.");
       return;
     }
     setErro(null);
     startTransition(async () => {
       const resultado = await criarNotaRecebimento({
         numero: novoNumero.trim(),
-        fornecedor: novoFornecedor.trim(),
-        dataEmissao: novaData,
       });
       if (resultado.status === "error") {
         setErro(resultado.message ?? "Não consegui criar a NF.");
@@ -104,37 +100,32 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
       }
       setNotas((atual) => [...atual, resultado.nota]);
       setNovoNumero("");
-      setNovoFornecedor("");
-      setNovaData(hojeISO());
     });
   }
 
   function iniciarEdicao(nota: NotaRecebimentoDTO) {
     setEditandoId(nota.id);
     setEdNumero(nota.numero);
-    setEdFornecedor(nota.fornecedor);
-    setEdData(dataEmissaoSaoPauloDoIso(nota.dataEmissao).toISOString().slice(0, 10));
     setErro(null);
   }
 
   function salvarEdicao() {
     if (!editandoId) return;
-    if (!edNumero.trim() || !edFornecedor.trim() || !edData) {
-      setErro("Preencha número, fornecedor e data da NF.");
+    if (!edNumero.trim()) {
+      setErro("Informe o número da NF.");
       return;
     }
     const id = editandoId;
     const numero = edNumero.trim();
-    const fornecedor = edFornecedor.trim();
     setErro(null);
     startTransition(async () => {
-      const resultado = await editarNotaRecebimento({ id, numero, fornecedor, dataEmissao: edData });
+      const resultado = await editarNotaRecebimento({ id, numero });
       if (resultado.status === "error") {
         setErro(resultado.message ?? "Não consegui salvar a NF.");
         return;
       }
       setNotas((atual) =>
-        atual.map((n) => (n.id === id ? { ...n, numero, fornecedor, dataEmissao: dataEmissaoSaoPaulo(edData).toISOString() } : n)),
+        atual.map((n) => (n.id === id ? { ...n, numero } : n)),
       );
       setEditandoId(null);
     });
@@ -254,21 +245,54 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
       >
         {notasOmie.status === "ok" && (
           <>
-            {notasOmie.notas.length === 0 ? (
+            <div className="mb-4 flex flex-wrap gap-2" aria-label="Filtrar notas do Omie">
+              {(["Todas", "Entrada", "Venda"] as const).map((tipo) => {
+                const total = tipo === "Todas" ? notasOmie.notas.length : notasOmie.notas.filter((nota) => nota.tipo === tipo).length;
+                return (
+                  <button
+                    key={tipo}
+                    type="button"
+                    onClick={() => setFiltroOmie(tipo)}
+                    aria-pressed={filtroOmie === tipo}
+                    className={filtroOmie === tipo ? botaoPrimario : botaoSecundario}
+                  >
+                    {tipo} ({total})
+                  </button>
+                );
+              })}
+            </div>
+            {notasOmieFiltradas.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhuma nota retornada pelo Omie.</p>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {notasOmie.notas.map((nota) => (
+                {notasOmieFiltradas.map((nota) => (
                   <div key={nota.id} className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-semibold text-card-foreground">NF-e Nº {nota.numero}</p>
                       <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">{nota.tipo}</span>
                     </div>
-                    <p className="mt-1 truncate text-xs text-muted-foreground" title={nota.parceiro}>{nota.parceiro}</p>
+                    <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{nota.rotuloParceiro}</p>
+                    <p className="truncate text-xs text-muted-foreground" title={nota.parceiro}>{nota.parceiro}</p>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {nota.dataEmissao ? `Emissão: ${nota.dataEmissao}` : "Sem data de emissão"}
                       {nota.valor !== null ? ` · ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(nota.valor)}` : ""}
                     </p>
+                    {nota.produtos.length === 0 ? (
+                      <p className="mt-3 text-xs text-muted-foreground">Sem produtos informados no Omie.</p>
+                    ) : (
+                      <ul className="mt-3 divide-y divide-border border-t border-border text-xs text-card-foreground">
+                        {nota.produtos.map((produto, indice) => (
+                          <li key={`${nota.id}:${indice}`} className="py-2">
+                            <p>{produto.descricao}</p>
+                            {produto.quantidade !== null ? (
+                              <p className="mt-0.5 text-muted-foreground">
+                                {new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(produto.quantidade)}{produto.unidade ? ` ${produto.unidade}` : ""}
+                              </p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 ))}
               </div>
@@ -282,25 +306,12 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
 
       <Panel
         title="Nova NF"
-        description="Informe o número, o fornecedor e a data de emissão para começar o checklist desta nota."
+        description="Informe o número de uma NF-e de entrada exibida acima. Fornecedor, data e produtos são preenchidos pelo Omie."
       >
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Nº da NF
             <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} className={inputClass} placeholder="Ex.: 12345" />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Fornecedor
-            <input
-              value={novoFornecedor}
-              onChange={(e) => setNovoFornecedor(e.target.value)}
-              className={inputClass}
-              placeholder="Nome do fornecedor"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Data de emissão
-            <input type="date" value={novaData} onChange={(e) => setNovaData(e.target.value)} className={inputClass} />
           </label>
           <button type="button" onClick={criar} disabled={pending} className={botaoPrimario}>
             <Plus className="h-4 w-4" /> Adicionar NF
@@ -338,14 +349,6 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
                         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                           Nº da NF
                           <input value={edNumero} onChange={(e) => setEdNumero(e.target.value)} className={inputClass} />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          Fornecedor
-                          <input value={edFornecedor} onChange={(e) => setEdFornecedor(e.target.value)} className={inputClass} />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          Data de emissão
-                          <input type="date" value={edData} onChange={(e) => setEdData(e.target.value)} className={inputClass} />
                         </label>
                         <button type="button" onClick={salvarEdicao} disabled={pending} className={botaoPrimario}>
                           Salvar

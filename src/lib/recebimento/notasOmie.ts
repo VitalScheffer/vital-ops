@@ -6,10 +6,18 @@ const CACHE_SECONDS = 5 * 60;
 export interface NotaOmieDTO {
   id: string;
   tipo: "Entrada" | "Venda";
+  rotuloParceiro: "Fornecedor" | "Cliente";
   numero: string;
   parceiro: string;
   dataEmissao: string | null;
   valor: number | null;
+  produtos: ProdutoOmieDTO[];
+}
+
+export interface ProdutoOmieDTO {
+  descricao: string;
+  quantidade: number | null;
+  unidade: string | null;
 }
 
 export type NotasOmieDTO =
@@ -39,6 +47,39 @@ function inteiro(valor: unknown): number | null {
   return valorNumerico === null ? null : Math.trunc(valorNumerico);
 }
 
+function lista(valor: unknown): unknown[] {
+  return Array.isArray(valor) ? valor : [];
+}
+
+function produtosEntrada(recebimento: unknown): ProdutoOmieDTO[] {
+  return lista(comoObjeto(recebimento)?.itensRecebimento).flatMap((item) => {
+    const cabecalho = comoObjeto(comoObjeto(item)?.itensCabec);
+    const ajustes = comoObjeto(comoObjeto(item)?.itensAjustes);
+    const descricao = texto(cabecalho?.cDescricaoProduto);
+    if (!descricao) return [];
+
+    return [{
+      descricao,
+      quantidade: numero(cabecalho?.nQtdeNFe) ?? numero(ajustes?.nQtdeRecebida),
+      unidade: texto(cabecalho?.cUnidadeNfe) ?? texto(ajustes?.cUnidade),
+    }];
+  });
+}
+
+function produtosVenda(nota: OmiePayload): ProdutoOmieDTO[] {
+  return lista(nota.det).flatMap((item) => {
+    const produto = comoObjeto(comoObjeto(item)?.prod);
+    const descricao = texto(produto?.xProd);
+    if (!descricao) return [];
+
+    return [{
+      descricao,
+      quantidade: numero(produto?.qCom),
+      unidade: texto(produto?.uCom),
+    }];
+  });
+}
+
 function dataParaOrdem(data: string | null): number {
   if (!data || !/^\d{2}\/\d{2}\/\d{4}$/.test(data)) return 0;
   const [dia, mes, ano] = data.split("/").map(Number);
@@ -57,10 +98,12 @@ function entradasDaResposta(resposta: OmiePayload | null): NotaOmieDTO[] {
     return [{
       id: `entrada:${id}`,
       tipo: "Entrada" as const,
+      rotuloParceiro: "Fornecedor" as const,
       numero: numeroNf,
       parceiro: texto(cabecalho?.cRazaoSocial) ?? texto(cabecalho?.cNome) ?? "Fornecedor não informado",
       dataEmissao: texto(cabecalho?.dEmissaoNFe),
       valor: numero(cabecalho?.nValorNFe),
+      produtos: produtosEntrada(recebimento),
     }];
   });
 }
@@ -70,6 +113,7 @@ function vendasDaResposta(resposta: OmiePayload | null): NotaOmieDTO[] {
 
   return resposta.nfCadastro.flatMap((nf) => {
     const nota = comoObjeto(nf);
+    if (!nota) return [];
     const ide = comoObjeto(nota?.ide);
     const complementar = comoObjeto(nota?.compl);
     const destinatario = comoObjeto(nota?.nfDestInt);
@@ -81,10 +125,12 @@ function vendasDaResposta(resposta: OmiePayload | null): NotaOmieDTO[] {
     return [{
       id: `venda:${id}`,
       tipo: "Venda" as const,
+      rotuloParceiro: "Cliente" as const,
       numero: numeroNf,
       parceiro: texto(destinatario?.cRazao) ?? "Cliente não informado",
       dataEmissao: texto(ide?.dEmi),
       valor: numero(totalIcms?.vNF),
+      produtos: produtosVenda(nota),
     }];
   });
 }
@@ -97,13 +143,13 @@ export async function listarNotasOmie(): Promise<NotasOmieDTO> {
       chamar(
         "produtos/recebimentonfe",
         "ListarRecebimentos",
-        { nPagina: 1, nRegistrosPorPagina: 1, cEtapa: "40" },
+        { nPagina: 1, nRegistrosPorPagina: NOTAS_POR_ORIGEM, cEtapa: "40" },
         { ttlSeconds: CACHE_SECONDS },
       ),
       chamar(
         "produtos/nfconsultar",
         "ListarNF",
-        { pagina: 1, registros_por_pagina: NOTAS_POR_ORIGEM, ordenar_por: "CODIGO", ordem_decrescente: "S", tpNF: "1", filtrar_por_status: "N", cApenasResumo: "S" },
+        { pagina: 1, registros_por_pagina: NOTAS_POR_ORIGEM, ordenar_por: "CODIGO", ordem_decrescente: "S", tpNF: "1", filtrar_por_status: "N", cApenasResumo: "N" },
         { ttlSeconds: CACHE_SECONDS },
       ),
     ]);
@@ -113,7 +159,7 @@ export async function listarNotasOmie(): Promise<NotasOmieDTO> {
     const respostaEntradas = await chamar(
       "produtos/recebimentonfe",
       "ListarRecebimentos",
-      { nPagina: paginaFinalEntradas, nRegistrosPorPagina: NOTAS_POR_ORIGEM, cEtapa: "40" },
+      { nPagina: paginaFinalEntradas, nRegistrosPorPagina: NOTAS_POR_ORIGEM, cEtapa: "40", cExibirDetalhes: "S" },
       { ttlSeconds: CACHE_SECONDS },
     );
 
@@ -130,4 +176,11 @@ export async function listarNotasOmie(): Promise<NotasOmieDTO> {
     console.warn("[recebimento] Não foi possível consultar notas no Omie.", erro);
     return { status: "error", message: "Não foi possível consultar as notas no Omie agora." };
   }
+}
+
+export async function localizarNotaEntradaOmie(numero: string): Promise<NotaOmieDTO | null> {
+  const resposta = await listarNotasOmie();
+  if (resposta.status === "error") return null;
+
+  return resposta.notas.find((nota) => nota.tipo === "Entrada" && nota.numero === numero) ?? null;
 }

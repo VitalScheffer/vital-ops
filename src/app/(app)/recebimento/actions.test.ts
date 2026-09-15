@@ -4,7 +4,9 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   getRolePermissionsMap: vi.fn(),
   canViewRecebimento: vi.fn(),
+  localizarNotaEntradaOmie: vi.fn(),
   findUnique: vi.fn(),
+  criarNota: vi.fn(),
   aggregate: vi.fn(),
   create: vi.fn(),
   transaction: vi.fn(),
@@ -20,12 +22,13 @@ vi.mock("@/lib/rbac", () => ({ canViewRecebimento: mocks.canViewRecebimento }));
 vi.mock("@/lib/db", () => ({
   prisma: {
     $transaction: mocks.transaction,
-    recebimentoNota: { findUnique: mocks.findUnique },
+    recebimentoNota: { findUnique: mocks.findUnique, create: mocks.criarNota },
     recebimentoItem: { aggregate: mocks.aggregate, create: mocks.create },
   },
 }));
 vi.mock("@/lib/audit", () => ({ audit: mocks.audit }));
 vi.mock("@/lib/request", () => ({ requestHeaders: mocks.requestHeaders }));
+vi.mock("@/lib/recebimento/notasOmie", () => ({ localizarNotaEntradaOmie: mocks.localizarNotaEntradaOmie }));
 
 import {
   adicionarItemRecebimento,
@@ -85,8 +88,8 @@ describe("adicionarItemRecebimento", () => {
 
 describe("guard de Recebimento", () => {
   const chamadas = [
-    () => criarNotaRecebimento({ numero: "123", fornecedor: "Fornecedor", dataEmissao: "2026-09-14" }),
-    () => editarNotaRecebimento({ id: "nota-1", numero: "123", fornecedor: "Fornecedor", dataEmissao: "2026-09-14" }),
+    () => criarNotaRecebimento({ numero: "123" }),
+    () => editarNotaRecebimento({ id: "nota-1", numero: "123" }),
     () => removerNotaRecebimento({ id: "nota-1" }),
     () => adicionarItemRecebimento({ notaId: "nota-1", produto: "Produto" }),
     () => removerItemRecebimento({ id: "item-1" }),
@@ -129,5 +132,54 @@ describe("guard de Recebimento", () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.audit).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("criarNotaRecebimento", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.auth.mockResolvedValue({ user: { id: "user-1", name: "Ana", email: "ana@vitalscheffer.com.br", role: "FUNCIONARIO" } });
+    mocks.getRolePermissionsMap.mockResolvedValue({});
+    mocks.canViewRecebimento.mockReturnValue(true);
+    mocks.localizarNotaEntradaOmie.mockResolvedValue({
+      id: "entrada:10",
+      tipo: "Entrada",
+      rotuloParceiro: "Fornecedor",
+      numero: "123",
+      parceiro: "Fornecedor Omie",
+      dataEmissao: "14/09/2026",
+      valor: 100,
+      produtos: [{ descricao: "Produto vindo do Omie", quantidade: 2, unidade: "UN" }],
+    });
+    mocks.criarNota.mockResolvedValue({
+      id: "nota-1",
+      numero: "123",
+      fornecedor: "Fornecedor Omie",
+      dataEmissao: new Date("2026-09-14T03:00:00.000Z"),
+      itens: [{ id: "item-1", produto: "Produto vindo do Omie", materialRecebido: false, temOC: false, ocAprovado: false, nfeLancada: false }],
+    });
+    mocks.audit.mockResolvedValue(undefined);
+    mocks.requestHeaders.mockResolvedValue(new Headers());
+  });
+
+  it("busca a NF de entrada no Omie e persiste seus dados e produtos", async () => {
+    const resultado = await criarNotaRecebimento({ numero: "123" });
+
+    expect(mocks.localizarNotaEntradaOmie).toHaveBeenCalledWith("123");
+    expect(mocks.criarNota).toHaveBeenCalledWith({
+      data: {
+        numero: "123",
+        fornecedor: "Fornecedor Omie",
+        dataEmissao: new Date("2026-09-14T03:00:00.000Z"),
+        criadoPorId: "user-1",
+        criadoPorNome: "Ana",
+        itens: { create: [{ produto: "Produto vindo do Omie", ordem: 0 }] },
+      },
+      include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
+    });
+    expect(resultado).toMatchObject({
+      status: "success",
+      nota: { id: "nota-1", itens: [{ id: "item-1", produto: "Produto vindo do Omie" }] },
+    });
   });
 });

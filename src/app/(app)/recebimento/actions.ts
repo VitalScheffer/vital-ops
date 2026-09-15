@@ -28,6 +28,7 @@ import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewRecebimento } from "@/lib/rbac";
 import { dataEmissaoSaoPaulo } from "@/lib/recebimento/dataEmissao";
+import { localizarNotaEntradaOmie } from "@/lib/recebimento/notasOmie";
 import { requestHeaders } from "@/lib/request";
 
 interface Guarda {
@@ -92,27 +93,38 @@ async function criarItemComOrdem(notaId: string, produto: string) {
 
 export type CriarNotaRecebimentoResult = { status: "success"; nota: NotaRecebimentoDTO } | { status: "error"; message: string };
 
+function dataOmieParaSaoPaulo(data: string | null): Date {
+  const partes = data ? /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(data) : null;
+  return partes ? dataEmissaoSaoPaulo(`${partes[3]}-${partes[2]}-${partes[1]}`) : new Date(Number.NaN);
+}
+
 export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Promise<CriarNotaRecebimentoResult> {
   const guarda = await guardar();
   if (!ehGuarda(guarda)) return guarda;
 
   const parsed = criarNotaRecebimentoSchema.safeParse(input);
   if (!parsed.success) {
-    return { status: "error", message: "Preencha número, fornecedor e data da NF." };
+    return { status: "error", message: "Informe o número da NF." };
   }
-  const dataEmissao = dataEmissaoSaoPaulo(parsed.data.dataEmissao);
+  const notaOmie = await localizarNotaEntradaOmie(parsed.data.numero);
+  if (!notaOmie) {
+    return { status: "error", message: "NF-e de entrada não encontrada entre as notas atuais do Omie." };
+  }
+  const dataEmissao = dataOmieParaSaoPaulo(notaOmie.dataEmissao);
   if (Number.isNaN(dataEmissao.getTime())) {
-    return { status: "error", message: "Data de emissão inválida." };
+    return { status: "error", message: "A NF-e do Omie não tem uma data de emissão válida." };
   }
 
   const nota = await prisma.recebimentoNota.create({
     data: {
-      numero: parsed.data.numero,
-      fornecedor: parsed.data.fornecedor,
+      numero: notaOmie.numero,
+      fornecedor: notaOmie.parceiro,
       dataEmissao,
       criadoPorId: guarda.userId,
       criadoPorNome: guarda.nome,
+      itens: { create: notaOmie.produtos.map((produto, ordem) => ({ produto: produto.descricao, ordem })) },
     },
+    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
   });
 
   await audit({
@@ -120,7 +132,7 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
     action: "recebimento.criarNota",
     entity: "RecebimentoNota",
     entityId: nota.id,
-    summary: `Criou a NF ${nota.numero} (${nota.fornecedor}) no checklist de Recebimento.`,
+    summary: `Criou a NF ${nota.numero} (${nota.fornecedor}) a partir da NF-e de entrada no Omie.`,
     after: nota,
     req: await requestHeaders(),
   });
@@ -128,7 +140,20 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
   revalidatePath(REVALIDAR);
   return {
     status: "success",
-    nota: { id: nota.id, numero: nota.numero, fornecedor: nota.fornecedor, dataEmissao: nota.dataEmissao.toISOString(), itens: [] },
+    nota: {
+      id: nota.id,
+      numero: nota.numero,
+      fornecedor: nota.fornecedor,
+      dataEmissao: nota.dataEmissao.toISOString(),
+      itens: nota.itens.map((item) => ({
+        id: item.id,
+        produto: item.produto,
+        materialRecebido: item.materialRecebido,
+        temOC: item.temOC,
+        ocAprovado: item.ocAprovado,
+        nfeLancada: item.nfeLancada,
+      })),
+    },
   };
 }
 
@@ -138,11 +163,7 @@ export async function editarNotaRecebimento(input: EditarNotaRecebimentoInput): 
 
   const parsed = editarNotaRecebimentoSchema.safeParse(input);
   if (!parsed.success) {
-    return { status: "error", message: "Preencha número, fornecedor e data da NF." };
-  }
-  const dataEmissao = dataEmissaoSaoPaulo(parsed.data.dataEmissao);
-  if (Number.isNaN(dataEmissao.getTime())) {
-    return { status: "error", message: "Data de emissão inválida." };
+    return { status: "error", message: "Informe o número da NF." };
   }
 
   const antes = await prisma.recebimentoNota.findUnique({ where: { id: parsed.data.id } });
@@ -152,7 +173,7 @@ export async function editarNotaRecebimento(input: EditarNotaRecebimentoInput): 
 
   const nota = await prisma.recebimentoNota.update({
     where: { id: parsed.data.id },
-    data: { numero: parsed.data.numero, fornecedor: parsed.data.fornecedor, dataEmissao },
+    data: { numero: parsed.data.numero },
   });
 
   await audit({

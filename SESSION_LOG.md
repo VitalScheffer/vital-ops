@@ -6136,3 +6136,17 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 ### Validação
 - `npx.cmd vitest run "src/app/(app)/recebimento/page.test.ts"` — 3 testes verdes.
 - Atualização visual em `localhost:3000/recebimento` confirmada no navegador.
+
+## 2026-09-15 — Produtos, origem e filtro das notas Omie
+
+### Resumo
+- Os cartões de **Entrada** agora mostram fornecedor e os itens de `itensRecebimento`; os de **Venda** mostram cliente e os itens de `det.prod` da NF-e.
+- A tela tem filtros **Todas**, **Entrada** e **Venda**. A consulta atual apresentou 5 entradas e 25 vendas, com produto, quantidade e unidade quando a origem os informa.
+- A criação de checklist aceita somente o número de uma NF-e de entrada listada. Fornecedor, emissão e produtos vêm do Omie; ao editar, somente o número fica disponível.
+
+### Correção de paginação
+- `ListarRecebimentos` passou a usar 25 registros também na consulta que determina `nTotalPaginas`. A API calcula o total de páginas a partir desse tamanho: com 1 registro retornava 805 páginas, levando a uma página inexistente; com 25 retorna 33 e a última página contém as entradas recentes.
+
+### Validação
+- `npx.cmd tsc --noEmit`, `npx.cmd vitest run src/lib/recebimento/notasOmie.test.ts "src/app/(app)/recebimento/actions.test.ts" "src/app/(app)/recebimento/page.test.ts"`, `npm.cmd run lint` e `npm.cmd run build` concluídos sem erros.
+- Navegador local: filtros, rótulos Cliente/Fornecedor, produtos e formulário com somente Nº da NF confirmados; nenhuma nota foi criada ou alterada na validação.
