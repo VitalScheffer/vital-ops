@@ -6112,3 +6112,15 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 ### Validação
 - `npx.cmd vitest run src/lib/recebimento/vendasOmie.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts"` — 9 testes verdes.
 - `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `npm.cmd run build` — concluídos sem erros.
+
+## 2026-09-15 — Notas fiscais unificadas do Omie
+
+### Correção de escopo
+- Substituído o painel separado `Vendas Omie` por uma única listagem **Notas do Omie**.
+- A listagem reúne duas origens fiscais: `RecebimentoNFe/ListarRecebimentos` para NF-e de **Entrada** e `NFConsultar/ListarNF` com `tpNF: "1"` para NF-e de **Venda**.
+- Cada cartão identifica explicitamente `Entrada` ou `Venda`, mostra número, fornecedor/cliente, emissão e valor. Não há categoria de Vendas separada, nem botão de ocultação.
+- Continua sendo leitura: nenhuma nota é persistida, alterada ou exportada pelo checklist manual.
+
+### Validação
+- `npx.cmd vitest run src/lib/recebimento/notasOmie.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts"` — 9 testes verdes.
+- `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `npm.cmd run build` — concluídos sem erros; `/recebimento` presente no build.
