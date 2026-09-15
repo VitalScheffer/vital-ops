@@ -1,6 +1,67 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-15 (parte 2) — Correção: o total da OP é por PRODUTO, não por tipo
+
+### Resumo
+O Vitor testou a entrega da parte 1 e o total estava errado: eu tinha feito
+**total por TIPO em KG**, que somava 466,803 (tubo Ø19,05) + 365,544 (tubo
+Ø15,88) + 12,15 (tubo Ø12,70) + chapas num número só. Tubo com tubo de outra
+bitola não é a mesma coisa, e a unidade estava chumbada em KG.
+
+Antes de refazer, rodei um **dump de leitura** da OP 2026/00802 direto no Omie
+para parar de supor. O que ela tem:
+
+```
+25 linhas em itensDetalhes, 23 produtos distintos
+MATTB RD190 12I43 [KG]  263,745 + 203,058 = 466,803  (mesmo nIdProdutoMalha)
+MATTB RD158 12I43 [KG]   79,866 + 285,678 = 365,544  (mesmo nIdProdutoMalha)
+unidades: UN em 18 produtos, KG em 5
+```
+
+Formato novo, escolhido pelo Vitor: as linhas saem **como saem na OP** e a linha
+de `TOTAL <código>` vem logo abaixo das linhas daquele produto, na unidade e no
+tipo dele. Produto que entra uma vez só não ganha linha de total.
+
+### Arquivos alterados/criados
+- `src/lib/multiplicador/opPlanilha.ts` — `totaisEmKgPorTipo` saiu; entrou
+  `agruparPorProduto`, que junta as linhas do mesmo código preservando a ordem
+  da primeira aparição e devolve o total na unidade do produto.
+  `linhasDaPlanilha` passou a emitir as linhas do produto seguidas do total.
+- `src/app/(app)/multiplicador/actions.ts` — **parou de chamar `agregarItens`**:
+  no Multiplicador as linhas vão como a OP sai, e quem soma é a planilha. A
+  Movimentação por OP continua agregando antes, porque lá duas linhas do mesmo
+  SKU virariam duas movimentações. `buscarProdutosPorId` agora recebe ids sem
+  repetição, e a resposta leva `produtosDistintos`.
+- `src/components/multiplicador/MultiplicadorClient.tsx` — aviso diz linhas e
+  produtos ("25 linhas, 23 produtos") e explica o total por produto.
+- `src/lib/multiplicador/opPlanilha.test.ts` — fixture espelhando a OP real (o
+  mesmo tubo em duas linhas NÃO adjacentes) e teste de ida e volta
+  `planilhaDaOp` -> `multiplicarPlanilha` -> ler, que era o ponto cego: o
+  cabeçalho ganhou colunas e é o `localizarColunas` que decide qual o fator pega.
+- `src/lib/changelog.ts` — entrada corrigida.
+
+### Decisões importantes
+- **Somar só o mesmo produto.** Total por tipo mistura cadastros com unidades
+  diferentes; o número não significa nada para quem separa material.
+- **Total na unidade do produto**, nunca em KG chumbado: nessa OP são 18
+  produtos em UN contra 5 em KG.
+- **Manter as linhas da OP.** O Vitor quer enxergar de onde veio cada parcela
+  (263,745 de uma peça, 203,058 de outra) com o total junto, não só o resultado.
+- **A linha de total fica na coluna QTD e é multiplicada pelo fator.** Coberto
+  por teste: com fator 2 as parcelas viram 527,49 e 406,116 e o total 933,606.
+
+### Comandos relevantes
+- `npx tsx <scratchpad>/dump-op.mts 2026/00802` — dump de leitura da OP no Omie.
+- `npx tsc --noEmit`, `npm run lint`, `npx vitest run` (769 testes), `npm run build`.
+
+### Pendências / próximos passos
+- Conferir na tela com a OP 2026/00802: as duas linhas do `MATTB RD190 12I43` e
+  o `TOTAL MATTB RD190 12I43` = 466,803 logo abaixo.
+
 ## 2026-09-15 — Multiplicador: módulo próprio nas Configurações e total em KG por tipo na OP
+
+> Corrigido na parte 2 (acima): o total por tipo em KG foi substituído por total
+> por produto, na unidade do produto.
 
 ### Resumo
 Pedido do Vitor, em duas partes:

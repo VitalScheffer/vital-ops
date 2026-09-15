@@ -29,27 +29,49 @@ export const COLUNAS_OP = ["CÓDIGO", "DESCRIÇÃO", "TIPO", "UNIDADE", "QTD"] a
 
 const TIPO_PADRAO: GrupoItem = "OUTRO";
 
+export interface GrupoProduto {
+  codigo: string;
+  unidade: string;
+  tipo: GrupoItem;
+  /** As linhas do produto, na ordem em que saem da OP. */
+  itens: LinhaOpPlanilha[];
+  /** Soma das linhas, na unidade do próprio produto. */
+  total: number;
+}
+
 /**
- * Totais em KG por TIPO, na ordem em que o tipo aparece na lista.
+ * Junta as linhas do MESMO produto, preservando a ordem da primeira aparição.
  *
- * O Omie já repete o mesmo item uma vez por peça que o consome e a soma por
- * CÓDIGO acontece antes daqui (`agregarItens`), então o tubo chega numa linha
- * só. O que faltava era a leitura de cima: quanto de tubo (e de chapa, e de
- * comprado) essa OP puxa NO TOTAL, sem a pessoa ter que somar na calculadora.
+ * O Omie repete o item uma vez por peça que o consome: na OP 2026/00802 o
+ * `MATTB RD190 12I43` sai com 263,745 e depois com 203,058, porque entra em
+ * duas peças diferentes. A planilha continua mostrando as duas linhas (é como a
+ * OP sai), e o total do produto vai logo abaixo delas.
  *
- * Só entra linha em KG: somar KG com UN ou M daria um número que não significa
- * nada. Tipo sem nenhuma linha em KG simplesmente não ganha total.
+ * A soma é SEMPRE por produto, nunca por tipo: somar tubos e chapas diferentes
+ * num "total MAT" daria um número que não significa nada, porque cada cadastro
+ * tem a sua unidade. Por isso o total sai na unidade do próprio produto.
  */
-export function totaisEmKgPorTipo(itens: readonly LinhaOpPlanilha[]): { tipo: GrupoItem; kg: number }[] {
-  const somados = new Map<GrupoItem, number>();
+export function agruparPorProduto(itens: readonly LinhaOpPlanilha[]): GrupoProduto[] {
+  const grupos = new Map<string, GrupoProduto>();
   for (const item of itens) {
-    if (String(item.unidade ?? "").trim().toUpperCase() !== "KG") continue;
-    const tipo = item.grupo ?? TIPO_PADRAO;
-    somados.set(tipo, (somados.get(tipo) ?? 0) + item.quantidade);
+    const atual = grupos.get(item.codigo);
+    if (atual) {
+      atual.itens.push(item);
+      atual.total += item.quantidade;
+      continue;
+    }
+    grupos.set(item.codigo, {
+      codigo: item.codigo,
+      unidade: item.unidade,
+      tipo: item.grupo ?? TIPO_PADRAO,
+      itens: [item],
+      total: item.quantidade,
+    });
   }
   // Mesmo cuidado do agregarItens: 0,1 + 0,2 vira 0,30000000000000004 e isso ia
   // parar na planilha que a fábrica lê.
-  return [...somados.entries()].map(([tipo, kg]) => ({ tipo, kg: Number(kg.toFixed(4)) }));
+  for (const grupo of grupos.values()) grupo.total = Number(grupo.total.toFixed(4));
+  return [...grupos.values()];
 }
 
 /**
@@ -63,15 +85,18 @@ export function nomeDaOp(numeroOp: string): string {
 }
 
 export function linhasDaPlanilha(itens: readonly LinhaOpPlanilha[]): (string | number)[][] {
-  const totais = totaisEmKgPorTipo(itens);
-  return [
-    [...COLUNAS_OP],
-    ...itens.map((item) => [item.codigo, item.descricao, item.grupo ?? TIPO_PADRAO, item.unidade, item.quantidade]),
-    // Linha em branco separando o material dos totais: o multiplicador pula
-    // célula vazia, então ela não atrapalha o fator.
-    ...(totais.length > 0 ? [["", "", "", "", ""]] : []),
-    ...totais.map((total) => [`TOTAL ${total.tipo} (KG)`, "", total.tipo, "KG", total.kg]),
-  ];
+  const linhas: (string | number)[][] = [[...COLUNAS_OP]];
+  for (const grupo of agruparPorProduto(itens)) {
+    for (const item of grupo.itens) {
+      linhas.push([item.codigo, item.descricao, item.grupo ?? TIPO_PADRAO, item.unidade, item.quantidade]);
+    }
+    // Produto que só entra uma vez não ganha linha de total: ela repetiria o
+    // número logo acima e só atrapalharia a leitura.
+    if (grupo.itens.length > 1) {
+      linhas.push([`TOTAL ${grupo.codigo}`, "", grupo.tipo, grupo.unidade, grupo.total]);
+    }
+  }
+  return linhas;
 }
 
 /**
@@ -79,8 +104,10 @@ export function linhasDaPlanilha(itens: readonly LinhaOpPlanilha[]): (string | n
  * Multiplicador. Quantidade sai como NÚMERO (não texto): é ela que o fator
  * multiplica, e número guardado como texto vira erro na hora da multiplicação.
  *
- * No fim vão os totais em KG por tipo. Eles também são multiplicados pelo fator
- * (estão na coluna QTD), o que é o certo: o total de uma OP dobrada é o dobro.
+ * As linhas saem como a OP sai (o mesmo produto pode aparecer mais de uma vez),
+ * com o total do produto logo abaixo das linhas dele. O total está na coluna
+ * QTD e por isso também é multiplicado pelo fator, o que é o certo: o total de
+ * uma OP dobrada é o dobro.
  */
 export function planilhaDaOp(
   numeroOp: string,

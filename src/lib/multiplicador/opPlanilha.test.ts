@@ -2,18 +2,46 @@ import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 
 import { localizarColunas } from "./celulas";
-import { linhasDaPlanilha, nomeDaOp, planilhaDaOp, totaisEmKgPorTipo } from "./opPlanilha";
+import { agruparPorProduto, linhasDaPlanilha, nomeDaOp, planilhaDaOp } from "./opPlanilha";
 
+// Espelha a OP 2026/00802 conferida no Omie: o mesmo tubo entra em duas peças
+// diferentes e sai em duas linhas (263,745 e 203,058), separadas por outros
+// itens. A unidade é do CADASTRO: tubo em KG, peça e comprado em UN.
 const ITENS = [
-  { codigo: "MATCH 00060 IN430", descricao: "CHAPA ESP 0,60 AÇO INOX 430", unidade: "KG", quantidade: 21.6566, grupo: "MAT" as const },
-  { codigo: "MATTB RD190 15I43", descricao: "TUBO REDONDO Ø19,05x1,5", unidade: "KG", quantidade: 466.803, grupo: "MAT" as const },
-  { codigo: "COMBC PI019 E0635", descricao: "BUCHA PLASTICA P. TUBO 19.05", unidade: "UN", quantidade: 40, grupo: "COM" as const },
-  { codigo: "CREHS SM001 I0POL", descricao: "CONJUNTO BASE INF.", unidade: "UN", quantidade: 10, grupo: "SBM" as const },
+  { codigo: "MATTB RD190 12I43", descricao: "TUBO REDONDO Ø19,05x1,2", unidade: "KG", quantidade: 263.745, grupo: "MAT" as const },
+  { codigo: "MSMDH PC006 ITPOL", descricao: "TUBO FIX. HASTE", unidade: "UN", quantidade: 450, grupo: "PECA" as const },
+  { codigo: "MATTB RD190 12I43", descricao: "TUBO REDONDO Ø19,05x1,2", unidade: "KG", quantidade: 203.058, grupo: "MAT" as const },
+  { codigo: "COMBC PI019 E0635", descricao: "BUCHA PLASTICA P. TUBO 19.05", unidade: "UN", quantidade: 1350, grupo: "COM" as const },
 ];
 
 describe("nomeDaOp", () => {
   it("troca a barra do cNumOP por hífen (nome de arquivo e de aba não aceitam barra)", () => {
     expect(nomeDaOp("2026/00802")).toBe("OP 2026-00802");
+  });
+});
+
+describe("agruparPorProduto", () => {
+  it("soma só o MESMO produto, na unidade dele", () => {
+    const grupos = agruparPorProduto(ITENS);
+    expect(grupos.map((g) => g.codigo)).toEqual(["MATTB RD190 12I43", "MSMDH PC006 ITPOL", "COMBC PI019 E0635"]);
+
+    const tubo = grupos[0];
+    expect(tubo.itens).toHaveLength(2);
+    expect(tubo.total).toBe(466.803);
+    expect(tubo.unidade).toBe("KG");
+    expect(tubo.tipo).toBe("MAT");
+
+    // Peça em UN não entra na conta do tubo em KG: a soma é por produto, nunca
+    // por tipo nem por unidade.
+    expect(grupos[1].total).toBe(450);
+  });
+
+  it("não deixa o ponto flutuante vazar para a planilha", () => {
+    const grupos = agruparPorProduto([
+      { codigo: "A", descricao: "", unidade: "KG", quantidade: 0.1, grupo: "MAT" },
+      { codigo: "A", descricao: "", unidade: "KG", quantidade: 0.2, grupo: "MAT" },
+    ]);
+    expect(grupos[0].total).toBe(0.3);
   });
 });
 
@@ -26,37 +54,21 @@ describe("linhasDaPlanilha", () => {
     expect(colunas.quantidade).toBe(4);
   });
 
-  it("fecha com o total em KG por tipo, depois de uma linha em branco", () => {
-    const linhas = linhasDaPlanilha(ITENS);
-    // cabeçalho + 4 itens + branco + 1 total (só MAT tem linha em KG)
-    expect(linhas).toHaveLength(7);
-    expect(linhas[5]).toEqual(["", "", "", "", ""]);
-    expect(linhas[6]).toEqual(["TOTAL MAT (KG)", "", "MAT", "KG", 488.4596]);
-  });
-
-  it("traz o TIPO de cada item na terceira coluna", () => {
-    const linhas = linhasDaPlanilha(ITENS);
-    expect(linhas[0][2]).toBe("TIPO");
-    expect(linhas[1][2]).toBe("MAT");
-    expect(linhas[3][2]).toBe("COM");
-  });
-});
-
-describe("totaisEmKgPorTipo", () => {
-  it("soma o KG do tipo inteiro, não importa em quantas linhas ele veio", () => {
-    expect(totaisEmKgPorTipo(ITENS)).toEqual([{ tipo: "MAT", kg: 488.4596 }]);
-  });
-
-  it("ignora o que não está em KG (somar KG com UN não significa nada)", () => {
-    expect(totaisEmKgPorTipo([ITENS[2], ITENS[3]])).toEqual([]);
-  });
-
-  it("não deixa o ponto flutuante vazar para a planilha", () => {
-    const kg = totaisEmKgPorTipo([
-      { codigo: "A", descricao: "", unidade: "kg", quantidade: 0.1, grupo: "MAT" },
-      { codigo: "B", descricao: "", unidade: "KG", quantidade: 0.2, grupo: "MAT" },
+  it("mantém as linhas da OP e põe o total do produto logo abaixo delas", () => {
+    expect(linhasDaPlanilha(ITENS)).toEqual([
+      ["CÓDIGO", "DESCRIÇÃO", "TIPO", "UNIDADE", "QTD"],
+      ["MATTB RD190 12I43", "TUBO REDONDO Ø19,05x1,2", "MAT", "KG", 263.745],
+      ["MATTB RD190 12I43", "TUBO REDONDO Ø19,05x1,2", "MAT", "KG", 203.058],
+      ["TOTAL MATTB RD190 12I43", "", "MAT", "KG", 466.803],
+      ["MSMDH PC006 ITPOL", "TUBO FIX. HASTE", "PECA", "UN", 450],
+      ["COMBC PI019 E0635", "BUCHA PLASTICA P. TUBO 19.05", "COM", "UN", 1350],
     ]);
-    expect(kg).toEqual([{ tipo: "MAT", kg: 0.3 }]);
+  });
+
+  it("produto que entra uma vez só não ganha linha de total repetindo o número", () => {
+    const linhas = linhasDaPlanilha([ITENS[1]]);
+    expect(linhas).toHaveLength(2);
+    expect(linhas[1][0]).toBe("MSMDH PC006 ITPOL");
   });
 });
 
@@ -70,19 +82,47 @@ describe("planilhaDaOp", () => {
     const linhas = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
 
     expect(workbook.SheetNames[0]).toBe("OP 2026-00802");
-    expect(linhas[0].CÓDIGO).toBe("MATCH 00060 IN430");
+    expect(linhas[0].CÓDIGO).toBe("MATTB RD190 12I43");
     expect(linhas[0].TIPO).toBe("MAT");
-    expect(linhas[0].QTD).toBe(21.6566);
+    expect(linhas[0].QTD).toBe(263.745);
     expect(typeof linhas[0].QTD).toBe("number");
 
     const total = linhas.find((linha) => String(linha.CÓDIGO ?? "").startsWith("TOTAL"));
-    expect(total?.CÓDIGO).toBe("TOTAL MAT (KG)");
-    expect(total?.QTD).toBe(488.4596);
+    expect(total?.CÓDIGO).toBe("TOTAL MATTB RD190 12I43");
+    expect(total?.UNIDADE).toBe("KG");
+    expect(total?.QTD).toBe(466.803);
   });
 
   it("corta o nome da aba no limite de 31 caracteres do Excel", () => {
     const { bytes } = planilhaDaOp("2026/00802-um-numero-absurdamente-longo", ITENS);
     const workbook = XLSX.read(bytes, { type: "array" });
     expect(workbook.SheetNames[0].length).toBeLessThanOrEqual(31);
+  });
+});
+
+// A planilha da OP existe para ser multiplicada. Este teste fecha o ciclo
+// inteiro (gerar -> multiplicar -> ler) porque o cabeçalho ganhou colunas novas
+// e é o `localizarColunas` que decide qual delas o fator pega.
+describe("planilha da OP passando pelo multiplicador", () => {
+  it("multiplica a QTD de todas as linhas, o total do produto junto", async () => {
+    const { multiplicarPlanilha } = await import("./planilha");
+    const { nome, bytes } = planilhaDaOp("2026/00802", ITENS);
+    const file = new File([bytes as BlobPart], nome, {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    const resultado = await multiplicarPlanilha(file, { fator: 2, quantidade: true, peso: false });
+    const workbook = XLSX.read(resultado.bytes, { type: "array" });
+    const linhas = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[0]]);
+
+    expect(linhas[0].QTD).toBe(527.49);
+    expect(linhas[1].QTD).toBe(406.116);
+    // O total continua sendo a soma das linhas depois de multiplicado.
+    expect(linhas[2].CÓDIGO).toBe("TOTAL MATTB RD190 12I43");
+    expect(linhas[2].QTD).toBeCloseTo(933.606, 4);
+    expect(linhas[3].QTD).toBe(900);
+    // As colunas de texto não podem ter sido tocadas.
+    expect(linhas[0].UNIDADE).toBe("KG");
+    expect(linhas[0].TIPO).toBe("MAT");
   });
 });

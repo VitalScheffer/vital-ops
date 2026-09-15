@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { puxarOpSchema, type PuxarOpInput } from "@/lib/contracts";
 import {
   acharOrdem,
-  agregarItens,
   buscarProdutosPorId,
   listarOrdensProducao,
   type GrupoItem,
@@ -19,8 +18,8 @@ import { canViewMultiplicador } from "@/lib/rbac";
 // o Multiplicador continuar sendo o que ele é (processamento local) — daqui sai
 // só a lista de itens.
 //
-// A permissão é a mesma da tela (`pranchas`): quem já pode compilar prancha e
-// multiplicar BOM não ganha poder novo por ler uma ordem de produção.
+// A permissão é a da própria tela (`multiplicador`): ler uma ordem de produção
+// não dá poder novo nenhum, é a mesma lista de material que a tela mostra.
 
 export interface ItemOpPlanilha {
   codigo: string;
@@ -38,6 +37,8 @@ export interface ResultadoPuxarOp {
   produtoCodigo?: string;
   produtoDescricao?: string;
   quantidadeOp?: number;
+  /** Quantos produtos DISTINTOS a OP tem (as linhas podem repetir o mesmo). */
+  produtosDistintos?: number;
   itens: ItemOpPlanilha[];
 }
 
@@ -79,9 +80,15 @@ export async function puxarOp(input: PuxarOpInput): Promise<ResultadoPuxarOp> {
       };
     }
 
-    const itens = agregarItens(ordem.itens);
+    // Aqui as linhas saem COMO A OP SAI: o Omie repete o item uma vez por peça
+    // que o consome, e é isso que a fábrica enxerga na ordem. Quem soma é a
+    // planilha, numa linha de total por produto logo abaixo das linhas dele
+    // (`linhasDaPlanilha`). Diferente da Movimentação por OP, que precisa
+    // agregar antes porque ela MOVIMENTA: duas linhas do mesmo SKU virariam
+    // duas movimentações do mesmo material.
+    const itens = ordem.itens;
     const produtos = await buscarProdutosPorId(
-      [ordem.idProduto, ...itens.map((i) => i.idProd)].filter(Boolean),
+      [...new Set([ordem.idProduto, ...itens.map((i) => i.idProd)].filter(Boolean))],
       chamar,
     );
 
@@ -106,6 +113,7 @@ export async function puxarOp(input: PuxarOpInput): Promise<ResultadoPuxarOp> {
       produtoCodigo: produtoOp?.codigo,
       produtoDescricao: produtoOp?.descricao,
       quantidadeOp: ordem.quantidade,
+      produtosDistintos: new Set(linhas.map((linha) => linha.codigo)).size,
       itens: linhas,
     };
   } catch (erro) {

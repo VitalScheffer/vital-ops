@@ -28,9 +28,10 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     title: "Multiplicador: permissão própria e total em KG por tipo na OP",
     items: [
       "O Multiplicador virou um módulo próprio na tela de Configurações. Antes ele vinha junto de Pranchas e não tinha caixa para marcar, então não dava para liberar um sem o outro. Quem já enxergava o Multiplicador continua enxergando: enquanto o administrador não mexer na matriz, o Multiplicador segue o que estiver marcado em Pranchas.",
-      "A planilha que sai do \"Puxar OP\" ganhou a coluna TIPO (MAT, COM, SBM, PEÇA), tirada da família do cadastro no Omie.",
-      "No fim dessa planilha vêm os totais em KG por tipo. O tubo que entra em várias peças da OP aparece numa linha só, somado, e agora também entra no total do tipo — dá para ver de uma olhada quantos quilos de matéria-prima a ordem inteira puxa, sem somar na calculadora.",
-      "Só linha em KG entra no total: misturar KG com UN ou M daria um número sem significado. Os totais também são multiplicados pelo fator, então a OP dobrada mostra o dobro.",
+      "A planilha que sai do \"Puxar OP\" ganhou as colunas TIPO (MAT, COM, SBM, PEÇA) e UNIDADE, tiradas do cadastro do Omie.",
+      "As linhas agora saem como saem na OP: o tubo que entra em duas peças diferentes aparece nas duas linhas, com a quantidade de cada uma. Logo abaixo delas vem a linha TOTAL daquele produto, na unidade dele.",
+      "A soma é sempre do MESMO produto. Tubo com tubo de outra bitola, ou tubo com chapa, não entram no mesmo total: cada cadastro tem a sua unidade e o número não significaria nada.",
+      "Os totais também são multiplicados pelo fator, então a OP dobrada mostra o dobro.",
     ],
   },
   {
