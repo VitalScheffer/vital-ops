@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getRolePermissionsMap: vi.fn(),
   canViewRecebimento: vi.fn(),
   localizarNotaEntradaOmie: vi.fn(),
+  listarNotasOmie: vi.fn(),
   findUnique: vi.fn(),
   criarNota: vi.fn(),
   aggregate: vi.fn(),
@@ -28,10 +29,14 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/audit", () => ({ audit: mocks.audit }));
 vi.mock("@/lib/request", () => ({ requestHeaders: mocks.requestHeaders }));
-vi.mock("@/lib/recebimento/notasOmie", () => ({ localizarNotaEntradaOmie: mocks.localizarNotaEntradaOmie }));
+vi.mock("@/lib/recebimento/notasOmie", () => ({
+  localizarNotaEntradaOmie: mocks.localizarNotaEntradaOmie,
+  listarNotasOmie: mocks.listarNotasOmie,
+}));
 
 import {
   adicionarItemRecebimento,
+  buscarNotasOmieRecebimento,
   criarNotaRecebimento,
   editarNotaRecebimento,
   marcarCheckRecebimento,
@@ -88,6 +93,7 @@ describe("adicionarItemRecebimento", () => {
 
 describe("guard de Recebimento", () => {
   const chamadas = [
+    () => buscarNotasOmieRecebimento(),
     () => criarNotaRecebimento({ numero: "123" }),
     () => editarNotaRecebimento({ id: "nota-1", numero: "123" }),
     () => removerNotaRecebimento({ id: "nota-1" }),
@@ -114,6 +120,7 @@ describe("guard de Recebimento", () => {
     expect(mocks.findUnique).not.toHaveBeenCalled();
     expect(mocks.aggregate).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.listarNotasOmie).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.audit).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
@@ -129,6 +136,7 @@ describe("guard de Recebimento", () => {
     expect(mocks.findUnique).not.toHaveBeenCalled();
     expect(mocks.aggregate).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.listarNotasOmie).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.audit).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
@@ -181,5 +189,21 @@ describe("criarNotaRecebimento", () => {
       status: "success",
       nota: { id: "nota-1", itens: [{ id: "item-1", produto: "Produto vindo do Omie" }] },
     });
+  });
+});
+
+describe("buscarNotasOmieRecebimento", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.auth.mockResolvedValue({ user: { id: "user-1", name: "Ana", email: "ana@vitalscheffer.com.br", role: "FUNCIONARIO" } });
+    mocks.getRolePermissionsMap.mockResolvedValue({});
+    mocks.canViewRecebimento.mockReturnValue(true);
+    mocks.listarNotasOmie.mockResolvedValue({ status: "ok", totalEntradas: 1, totalVendas: 1, notas: [], atualizadoEm: "2026-09-15T17:00:00.000Z" });
+  });
+
+  it("consulta o Omie somente quando a pessoa autorizada pedir a busca", async () => {
+    await expect(buscarNotasOmieRecebimento()).resolves.toMatchObject({ status: "ok", totalEntradas: 1, totalVendas: 1 });
+
+    expect(mocks.listarNotasOmie).toHaveBeenCalledOnce();
   });
 });

@@ -5,6 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 
 import {
   adicionarItemRecebimento,
+  buscarNotasOmieRecebimento,
   criarNotaRecebimento,
   editarNotaRecebimento,
   marcarCheckRecebimento,
@@ -51,19 +52,23 @@ function dataBr(iso: string): string {
 
 interface RecebimentoClientProps {
   notasIniciais: NotaRecebimentoDTO[];
-  notasOmie: NotasOmieDTO;
 }
 
 // Checklist manual de NF de entrada: quem marca é o próprio usuário. As notas
 // do Omie são apenas leitura. Notas ficam em `useState` e todas as mutações atualizam o
 // estado local direto (otimista nos checkboxes) — não dependemos do
 // `revalidatePath` da action pra a UI refletir a mudança na hora.
-export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClientProps) {
+function textoParaBusca(valor: string): string {
+  return valor.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+}
+
+export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
   const [notas, setNotas] = useState(notasIniciais);
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
 
-  const [novoNumero, setNovoNumero] = useState("");
+  const [buscaOmie, setBuscaOmie] = useState("");
+  const [notasOmie, setNotasOmie] = useState<NotasOmieDTO | null>(null);
   const [filtroOmie, setFiltroOmie] = useState<"Todas" | "Entrada" | "Venda">("Todas");
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -79,27 +84,42 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
     }));
   }, [notas]);
 
-  const notasOmieFiltradas = useMemo(() => {
-    if (notasOmie.status !== "ok") return [];
-    return filtroOmie === "Todas" ? notasOmie.notas : notasOmie.notas.filter((nota) => nota.tipo === filtroOmie);
-  }, [filtroOmie, notasOmie]);
+  const notasOmieEncontradas = useMemo(() => {
+    if (!notasOmie || notasOmie.status !== "ok") return [];
+    const termo = textoParaBusca(buscaOmie.trim());
+    if (!termo) return [];
+    return notasOmie.notas.filter((nota) =>
+      [nota.numero, nota.parceiro, ...nota.produtos.map((produto) => produto.descricao)]
+        .some((campo) => textoParaBusca(campo).includes(termo)),
+    );
+  }, [buscaOmie, notasOmie]);
 
-  function criar() {
-    if (!novoNumero.trim()) {
-      setErro("Informe o número da NF.");
+  const notasOmieFiltradas = useMemo(
+    () => (filtroOmie === "Todas" ? notasOmieEncontradas : notasOmieEncontradas.filter((nota) => nota.tipo === filtroOmie)),
+    [filtroOmie, notasOmieEncontradas],
+  );
+
+  function buscarNotasOmie() {
+    if (!buscaOmie.trim()) {
+      setErro("Informe o número da NF, parceiro ou produto para pesquisar no Omie.");
       return;
     }
     setErro(null);
     startTransition(async () => {
-      const resultado = await criarNotaRecebimento({
-        numero: novoNumero.trim(),
-      });
+      const resultado = await buscarNotasOmieRecebimento();
+      setNotasOmie(resultado);
+    });
+  }
+
+  function adicionarNotaDoOmie(numero: string) {
+    setErro(null);
+    startTransition(async () => {
+      const resultado = await criarNotaRecebimento({ numero });
       if (resultado.status === "error") {
         setErro(resultado.message ?? "Não consegui criar a NF.");
         return;
       }
       setNotas((atual) => [...atual, resultado.nota]);
-      setNovoNumero("");
     });
   }
 
@@ -235,19 +255,33 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
 
   return (
     <div className="flex flex-col gap-8">
-      <Panel
-        title={notasOmie.status === "ok" ? `Notas do Omie (${notasOmie.notas.length})` : "Notas do Omie"}
-        description={
-          notasOmie.status === "ok"
-            ? `${notasOmie.totalEntradas} NF-e de entrada e ${notasOmie.totalVendas} NF-e de venda encontradas. Cada nota mostra sua origem.`
-            : notasOmie.message
-        }
-      >
-        {notasOmie.status === "ok" && (
+      <Panel title="Buscar notas no Omie" description="Pesquise pelo número da NF, fornecedor, cliente ou produto. Escolha uma NF-e de entrada para abrir seu checklist abaixo.">
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(evento) => {
+            evento.preventDefault();
+            buscarNotasOmie();
+          }}
+        >
+          <label className="flex min-w-64 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+            Pesquisar nota
+            <input
+              value={buscaOmie}
+              onChange={(evento) => setBuscaOmie(evento.target.value)}
+              className={inputClass}
+              placeholder="Nº da NF, fornecedor, cliente ou produto"
+            />
+          </label>
+          <button type="submit" disabled={pending} className={botaoPrimario}>
+            Buscar no Omie
+          </button>
+        </form>
+        {notasOmie?.status === "error" ? <p className="mt-4 text-sm text-danger">{notasOmie.message}</p> : null}
+        {notasOmie?.status === "ok" && (
           <>
             <div className="mb-4 flex flex-wrap gap-2" aria-label="Filtrar notas do Omie">
               {(["Todas", "Entrada", "Venda"] as const).map((tipo) => {
-                const total = tipo === "Todas" ? notasOmie.notas.length : notasOmie.notas.filter((nota) => nota.tipo === tipo).length;
+                const total = tipo === "Todas" ? notasOmieEncontradas.length : notasOmieEncontradas.filter((nota) => nota.tipo === tipo).length;
                 return (
                   <button
                     key={tipo}
@@ -262,7 +296,7 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
               })}
             </div>
             {notasOmieFiltradas.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhuma nota retornada pelo Omie.</p>
+              <p className="text-sm text-muted-foreground">Nenhuma nota encontrada para a pesquisa.</p>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {notasOmieFiltradas.map((nota) => (
@@ -293,6 +327,18 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
                         ))}
                       </ul>
                     )}
+                    {nota.tipo === "Entrada" ? (
+                      <button
+                        type="button"
+                        onClick={() => adicionarNotaDoOmie(nota.numero)}
+                        disabled={pending}
+                        className={`${botaoPrimario} mt-3`}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Adicionar ao checklist
+                      </button>
+                    ) : (
+                      <p className="mt-3 text-xs text-muted-foreground">NF-e de venda: somente consulta.</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -302,21 +348,6 @@ export function RecebimentoClient({ notasIniciais, notasOmie }: RecebimentoClien
             </p>
           </>
         )}
-      </Panel>
-
-      <Panel
-        title="Nova NF"
-        description="Informe o número de uma NF-e de entrada exibida acima. Fornecedor, data e produtos são preenchidos pelo Omie."
-      >
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Nº da NF
-            <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} className={inputClass} placeholder="Ex.: 12345" />
-          </label>
-          <button type="button" onClick={criar} disabled={pending} className={botaoPrimario}>
-            <Plus className="h-4 w-4" /> Adicionar NF
-          </button>
-        </div>
       </Panel>
 
       <Panel
