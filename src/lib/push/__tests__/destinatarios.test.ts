@@ -9,6 +9,7 @@ const permissions: RolePermissionsMap = {
   ADMIN: {
     products: true,
     pranchas: true,
+    multiplicador: true,
     configurador: true,
     projetos: true,
     requisicoes: true,
@@ -22,6 +23,7 @@ const permissions: RolePermissionsMap = {
   GESTOR: {
     products: true,
     pranchas: true,
+    multiplicador: true,
     configurador: true,
     projetos: true,
     requisicoes: true,
@@ -35,6 +37,7 @@ const permissions: RolePermissionsMap = {
   FUNCIONARIO: {
     products: true,
     pranchas: true,
+    multiplicador: true,
     configurador: true,
     projetos: false,
     requisicoes: true,
@@ -48,6 +51,7 @@ const permissions: RolePermissionsMap = {
   FABRICA_GESTOR: {
     products: false,
     pranchas: false,
+    multiplicador: false,
     configurador: false,
     projetos: false,
     requisicoes: true,

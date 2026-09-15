@@ -1,5 +1,76 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-15 — Multiplicador: módulo próprio nas Configurações e total em KG por tipo na OP
+
+### Resumo
+Pedido do Vitor, em duas partes:
+
+1. A tela do Multiplicador **não aparecia em Configurações** para ser liberada:
+   ela pegava carona no módulo `pranchas`, que é o único que tinha caixa na
+   matriz de permissões. Virou módulo próprio (`multiplicador`), com coluna na
+   matriz e guard próprio na página e na server action.
+2. Na planilha que sai do **Puxar OP**, considerar o TIPO do item e mostrar o
+   total em KG por tipo (o tubo que entra em várias peças da OP some numa linha
+   só e agora também entra no total do tipo).
+
+Entregue com `tsc`, `eslint`, `vitest` e `next build` verdes.
+
+### Arquivos alterados/criados
+- `src/lib/permissions.ts` — módulo `multiplicador` em `MODULES`, nos defaults dos
+  5 papéis fixos e no `moduloVazio`. Em `buildRolePermissionsMap`, quem ainda
+  **não tem linha própria** de `multiplicador` no banco herda o valor de
+  `pranchas`, para ninguém perder acesso na virada; a partir do primeiro salvar
+  da matriz a linha existe e manda sozinha.
+- `src/lib/rbac.ts` — novo `canViewMultiplicador`.
+- `src/lib/navigation.ts` — o item Multiplicador passa a usar `canViewMultiplicador`
+  em vez de `hasModuleAccess(..., "pranchas")`.
+- `src/app/(app)/multiplicador/page.tsx` e `actions.ts` — guard trocado de
+  `canViewPranchas` para `canViewMultiplicador`.
+- `src/components/configuracoes/PermissionsMatrixForm.tsx` — rótulo "Multiplicador"
+  na coluna nova da matriz.
+- `prisma/seed.ts` — linhas padrão do módulo novo, espelhando `pranchas`.
+- `src/lib/multiplicador/opPlanilha.ts` — coluna **TIPO** (MAT/COM/SBM/PECA/OUTRO)
+  na planilha da OP, nova função `totaisEmKgPorTipo` e bloco de totais no fim do
+  arquivo, separado por uma linha em branco.
+- `src/components/multiplicador/MultiplicadorClient.tsx` — textos citando o total
+  em KG por tipo.
+- `src/lib/changelog.ts` — entrada de 2026-09-15.
+- Testes: `src/lib/permissions.test.ts` (2 casos novos para a herança e para a
+  linha própria mandando), `src/lib/navigation.test.ts`,
+  `src/lib/push/__tests__/destinatarios.test.ts`,
+  `src/lib/multiplicador/opPlanilha.test.ts` (5 casos novos).
+
+### Decisões importantes
+- **Herança de `pranchas` só enquanto não houver linha própria.** A alternativa
+  seria uma migração escrevendo `multiplicador` para todo papel, mas isso mexe em
+  dados de produção para resolver um problema que o fallback já resolve, e
+  travaria o valor no que estivesse valendo no dia da migração.
+- **Perfis customizados também herdam.** Eles nascem com tudo desmarcado; sem a
+  herança, um perfil que hoje enxerga o Multiplicador via `pranchas` perderia a
+  tela no deploy.
+- **Só linha em KG entra no total.** Somar KG com UN ou M daria um número sem
+  significado (o catálogo MAT do Omie tem M, M2 e UN além de KG).
+- **Os totais ficam na coluna QTD e são multiplicados pelo fator.** É o
+  comportamento certo: o total de uma OP dobrada é o dobro. A linha em branco
+  antes do bloco não atrapalha porque o multiplicador pula célula vazia.
+- A soma por código já existia (`agregarItens` no `omieOp`, que junta o mesmo
+  produto repetido nas várias peças da OP). O que faltava era a leitura por tipo.
+
+### Comandos relevantes
+- `npx tsc --noEmit`
+- `npm run lint`
+- `npx vitest run`
+- `npm run build`
+- `git push origin master`
+
+### Pendências / próximos passos
+- Conferir na tela: entrar em Configurações como ADMIN e ver a coluna
+  "Multiplicador" na matriz; desmarcar para um papel e confirmar que o item some
+  do menu e que a página responde "sem permissão".
+- Puxar uma OP real (ex.: 2026/00802) e conferir o total em KG contra o que o
+  PCP enxerga no Omie.
+- O branch padrão deste repo é `master`, não `main`.
+
 ## 2026-09-14 - Pre-scan sem falsos positivos de Auth
 
 ### Resumo

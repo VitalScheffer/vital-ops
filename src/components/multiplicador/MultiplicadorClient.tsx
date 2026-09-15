@@ -107,7 +107,7 @@ export function MultiplicadorClient() {
       setAvisoOp(
         `OP ${resposta.numeroOp} (${resposta.produtoCodigo ?? "produto"}, ${resposta.quantidadeOp ?? 0} a produzir): ` +
           `${resposta.itens.length} itens. As quantidades já vêm multiplicadas pela quantidade da ordem; ` +
-          "o fator aqui multiplica em cima disso.",
+          "o fator aqui multiplica em cima disso. A planilha fecha com o total em KG por tipo.",
       );
     } catch {
       setErroOp("Não consegui puxar a OP agora. Tente novamente.");
@@ -243,7 +243,8 @@ export function MultiplicadorClient() {
             {puxando ? "Puxando..." : "Puxar OP"}
           </button>
           <p className="text-xs text-muted-foreground">
-            A lista de material vem direto do Omie e entra aqui como planilha, com a coluna QTD pronta para o fator.
+            A lista de material vem direto do Omie e entra aqui como planilha, com a coluna QTD pronta para o fator e o
+            total em KG por tipo no fim.
           </p>
         </div>
         {erroOp ? <p className="mt-3 rounded-lg bg-danger-dim px-3 py-2 text-sm text-danger">{erroOp}</p> : null}

@@ -12,7 +12,7 @@ import {
 import { chamar } from "@/lib/omie";
 import { OmieBlocked } from "@/lib/omie/errors";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
-import { canViewPranchas } from "@/lib/rbac";
+import { canViewMultiplicador } from "@/lib/rbac";
 
 // Puxar uma OP para dentro do Multiplicador. LEITURA pura: nada é escrito no
 // Omie e nada é gravado no banco. A planilha em si é montada no navegador, para
@@ -49,7 +49,7 @@ export async function puxarOp(input: PuxarOpInput): Promise<ResultadoPuxarOp> {
     return { ok: false, erro: "Sessão expirada. Entre novamente.", itens: VAZIO };
   }
   const permissions = await getRolePermissionsMap();
-  if (!canViewPranchas(session.user.role, permissions)) {
+  if (!canViewMultiplicador(session.user.role, permissions)) {
     return { ok: false, erro: "Você não tem permissão para usar o Multiplicador.", itens: VAZIO };
   }
   if (!process.env.OMIE_APP_KEY || !process.env.OMIE_APP_SECRET) {
