@@ -8,13 +8,12 @@ export type RecebimentoEvento = (typeof RECEBIMENTO_EVENTOS)[number];
 
 export const criarNotaRecebimentoSchema = z.object({
   numero: z.string().trim().min(1).max(60),
-  fornecedor: z.string().trim().min(1).max(160),
-  dataEmissao: z.string().trim().min(1), // yyyy-mm-dd (input[type=date])
 });
 export type CriarNotaRecebimentoInput = z.infer<typeof criarNotaRecebimentoSchema>;
 
-export const editarNotaRecebimentoSchema = criarNotaRecebimentoSchema.extend({
+export const editarNotaRecebimentoSchema = z.object({
   id: z.string().min(1),
+  numero: z.string().trim().min(1).max(60),
 });
 export type EditarNotaRecebimentoInput = z.infer<typeof editarNotaRecebimentoSchema>;
 
