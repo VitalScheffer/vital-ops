@@ -45,6 +45,9 @@ const botaoPrimario =
   "inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60";
 const botaoPerigo =
   "inline-flex items-center gap-1.5 rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50";
+const LIMITE_BUSCA_OMIE = 200;
+const LIMITE_NUMERO_NF = 60;
+const LIMITE_NOME_PRODUTO = 200;
 
 function dataBr(iso: string): string {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(dataEmissaoSaoPauloDoIso(iso));
@@ -326,6 +329,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
             <input
               value={buscaOmie}
               onChange={(evento) => setBuscaOmie(evento.target.value)}
+              maxLength={LIMITE_BUSCA_OMIE}
               className={inputClass}
               placeholder="Nº da NF, fornecedor ou produto"
             />
@@ -436,7 +440,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                           Nº da NF
-                          <input value={edNumero} onChange={(e) => setEdNumero(e.target.value)} className={inputClass} />
+                          <input value={edNumero} onChange={(e) => setEdNumero(e.target.value)} maxLength={LIMITE_NUMERO_NF} className={inputClass} />
                         </label>
                         <button type="button" onClick={salvarEdicao} disabled={pending} className={botaoPrimario}>
                           Salvar
@@ -585,6 +589,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                       <input
                         value={novoProduto[nota.id] ?? ""}
                         onChange={(e) => setNovoProduto((atual) => ({ ...atual, [nota.id]: e.target.value }))}
+                        maxLength={LIMITE_NOME_PRODUTO}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
