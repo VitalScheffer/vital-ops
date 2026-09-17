@@ -1,5 +1,54 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-16 — Omie somente com entradas e checklist compacto
+
+### Resultado
+- A consulta do Omie no Recebimento agora busca e exibe somente NF-e de entrada; a chamada e a apresentação de vendas foram removidas.
+- O checklist permanece com quatro campos: `Mat. Recebido`, `Tem OC`, `OC Aprov.` e `NF-e Lançada`. Os rótulos compactos possuem tooltip acessível com o texto completo, inclusive `Ordem de Compra Aprovada`.
+- A planilha exportada usa os nomes completos. Validações concluídas: TypeScript, ESLint, 16 testes focados e verificação visual em `localhost:3000`.
+
+## 2026-09-16 — Reversão da tentativa anterior e conexão local
+
+### Resultado
+- A alteração não commitada em `prisma/seed.ts` e o registro de sessão da tentativa anterior foram revertidos ao estado do branch.
+- O Vital Ops foi iniciado em `http://localhost:3000` com `npm.cmd run dev` e validado no navegador com uma sessão autenticada de Administrador.
+- O painel carregou os módulos do Vital Ops e o atalho integrado ao NextStep. Nenhuma migração, seed, alteração de banco ou operação `upsert` foi executada nesta sessão.
+
+## 2026-09-16 — Exportação contextual, semanas e paginação do Recebimento
+
+### Resultado
+- Os botões globais de PDF e Excel foram removidos. Cada NF e cada card semanal têm menu de três pontos com exportação individual em PDF ou Excel.
+- O menu semanal consulta todas as NFs incluídas naquela semana antes de gerar o arquivo; não fica limitado às NFs visíveis na página.
+- Os cards voltaram a representar a semana de inclusão, de segunda a sexta, com o título compacto `DD/MM/AAAA - DD/MM/AAAA`.
+- O filtro no começo da página permite escolher o mês de inclusão, inclusive meses anteriores. A Lista oferece 10, 25 ou 50 NFs por página e o navegador aparece somente quando existe outra página.
+
+### Validação
+- TypeScript, ESLint, `git diff --check` e 17 testes focados passaram.
+- Conferência em `localhost:3000/recebimento`: cards semanais, menus de exportação e paginação condicional verificados.
+
+## 2026-09-17 — Contraste do seletor Lista
+
+### Resultado
+- O seletor `Lista` do Recebimento usa fundo carvão (`#101b1e`) e `color-scheme: dark`, fazendo as opções nativas abrirem no tema escuro em vez do cinza de baixo contraste.
+- A tela foi conferida em `localhost:3000/recebimento`; TypeScript, ESLint e `git diff --check` passaram.
+
+## 2026-09-17 — Rodapé do período semanal removido
+
+### Resultado
+- Removido o rodapé `Data final` dos cards do Recebimento. O período continua claramente informado no título do card, no formato `DD/MM/AAAA - DD/MM/AAAA`.
+- TypeScript, ESLint e `git diff --check` passaram.
+
+## 2026-09-17 — Calendário mensal e filtro por emissão
+
+### Resultado
+- O campo nativo de mês foi substituído por um calendário com ícone, grade de 12 meses e setas explícitas para navegar entre anos.
+- O usuário pode alternar entre `Inclusão` e `Emissão da NF`. A opção de emissão filtra por `dataEmissao`; a inclusão continua filtrando por `criadoEm`.
+- O calendário de emissão bloqueia meses anteriores à NF de entrada mais antiga encontrada no Omie. A validação do servidor aplica o mesmo limite à URL.
+
+### Validação
+- TypeScript, ESLint, `git diff --check` e 19 testes focados passaram.
+- Em `localhost:3000/recebimento`, o seletor abriu com a grade mensal, navegação anual e indicou setembro de 2026 como o limite atual do Omie.
+
 ## 2026-09-14 - Pre-scan sem falsos positivos de Auth
 
 ### Resumo

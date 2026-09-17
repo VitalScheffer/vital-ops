@@ -22,10 +22,10 @@ export interface NotaRecebimentoExport {
 }
 
 const EVENTOS = [
-  { chave: "materialRecebido" as const, rotulo: "Material recebido" },
+  { chave: "materialRecebido" as const, rotulo: "Material Recebido" },
   { chave: "temOC" as const, rotulo: "Tem OC" },
-  { chave: "ocAprovado" as const, rotulo: "OC Aprovado" },
-  { chave: "nfeLancada" as const, rotulo: "NF-e lançada" },
+  { chave: "ocAprovado" as const, rotulo: "Ordem de Compra Aprovada" },
+  { chave: "nfeLancada" as const, rotulo: "NF-e Lançada" },
 ];
 const COL_INICIO = 2;
 const COL_PRODUTO = COL_INICIO;

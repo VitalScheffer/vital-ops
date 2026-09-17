@@ -9,6 +9,7 @@ import {
   adicionarItemRecebimentoSchema,
   criarNotaRecebimentoSchema,
   editarNotaRecebimentoSchema,
+  listarNotasRecebimentoParaExportacaoSchema,
   marcarCheckRecebimentoSchema,
   marcarColunaRecebimentoSchema,
   removerItemRecebimentoSchema,
@@ -17,6 +18,7 @@ import {
   type CriarNotaRecebimentoInput,
   type EditarNotaRecebimentoInput,
   type ItemRecebimentoDTO,
+  type ListarNotasRecebimentoParaExportacaoInput,
   type MarcarCheckRecebimentoInput,
   type MarcarColunaRecebimentoInput,
   type NotaRecebimentoDTO,
@@ -92,6 +94,70 @@ async function criarItemComOrdem(notaId: string, produto: string) {
 }
 
 export type CriarNotaRecebimentoResult = { status: "success"; nota: NotaRecebimentoDTO } | { status: "error"; message: string };
+export type ListarNotasRecebimentoParaExportacaoResult =
+  | { status: "success"; notas: NotaRecebimentoDTO[] }
+  | { status: "error"; message: string };
+
+function inicioDoDiaSaoPaulo(data: string): Date {
+  return new Date(`${data}T03:00:00.000Z`);
+}
+
+function paraNotaDTO(nota: {
+  id: string;
+  numero: string;
+  fornecedor: string;
+  dataEmissao: Date;
+  criadoEm: Date;
+  itens: Array<{
+    id: string;
+    produto: string;
+    materialRecebido: boolean;
+    temOC: boolean;
+    ocAprovado: boolean;
+    nfeLancada: boolean;
+  }>;
+}): NotaRecebimentoDTO {
+  return {
+    id: nota.id,
+    numero: nota.numero,
+    fornecedor: nota.fornecedor,
+    dataEmissao: nota.dataEmissao.toISOString(),
+    criadoEm: nota.criadoEm.toISOString(),
+    itens: nota.itens.map((item) => ({
+      id: item.id,
+      produto: item.produto,
+      materialRecebido: item.materialRecebido,
+      temOC: item.temOC,
+      ocAprovado: item.ocAprovado,
+      nfeLancada: item.nfeLancada,
+    })),
+  };
+}
+
+export async function listarNotasRecebimentoParaExportacao(
+  input: ListarNotasRecebimentoParaExportacaoInput,
+): Promise<ListarNotasRecebimentoParaExportacaoResult> {
+  const guarda = await guardar();
+  if (!ehGuarda(guarda)) return guarda;
+
+  const parsed = listarNotasRecebimentoParaExportacaoSchema.safeParse(input);
+  if (!parsed.success || parsed.data.inicio >= parsed.data.fim) {
+    return { status: "error", message: "Período de exportação inválido." };
+  }
+
+  const notas = await prisma.recebimentoNota.findMany({
+    where: {
+      criadoEm: {
+        gte: inicioDoDiaSaoPaulo(parsed.data.inicio),
+        lt: inicioDoDiaSaoPaulo(parsed.data.fim),
+      },
+    },
+    orderBy: [{ criadoEm: "desc" }, { id: "desc" }],
+    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
+  });
+
+  return { status: "success", notas: notas.map(paraNotaDTO) };
+}
 
 export async function buscarNotasOmieRecebimento(): Promise<NotasOmieDTO> {
   const guarda = await guardar();
@@ -147,20 +213,7 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
   revalidatePath(REVALIDAR);
   return {
     status: "success",
-    nota: {
-      id: nota.id,
-      numero: nota.numero,
-      fornecedor: nota.fornecedor,
-      dataEmissao: nota.dataEmissao.toISOString(),
-      itens: nota.itens.map((item) => ({
-        id: item.id,
-        produto: item.produto,
-        materialRecebido: item.materialRecebido,
-        temOC: item.temOC,
-        ocAprovado: item.ocAprovado,
-        nfeLancada: item.nfeLancada,
-      })),
-    },
+    nota: paraNotaDTO(nota),
   };
 }
 
