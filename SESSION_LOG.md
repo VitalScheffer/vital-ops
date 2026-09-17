@@ -1,5 +1,11 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-17 — Conflito da PR de Recebimento resolvido
+
+### Resultado
+- A branch `feat/planilha-interativa` foi atualizada com `master`; o único conflito, em `SESSION_LOG.md`, foi resolvido preservando os registros das duas branches.
+- TypeScript, ESLint, `git diff --check` e 60 testes focados de Recebimento, Multiplicador, permissões e navegação passaram após a integração.
+
 ## 2026-09-16 — Omie somente com entradas e checklist compacto
 
 ### Resultado
@@ -55,6 +61,137 @@
 - Commit `1d58b15` criado e enviado na branch `feat/planilha-interativa`.
 - PR aberto contra `master`: https://github.com/VitalScheffer/vital-ops/pull/4
 - O diff inclui apenas código, testes e documentação. Registros de NF e dados temporários de validação permanecem fora do Git.
+## 2026-09-15 (parte 2) — Correção: o total da OP é por PRODUTO, não por tipo
+
+### Resumo
+O Vitor testou a entrega da parte 1 e o total estava errado: eu tinha feito
+**total por TIPO em KG**, que somava 466,803 (tubo Ø19,05) + 365,544 (tubo
+Ø15,88) + 12,15 (tubo Ø12,70) + chapas num número só. Tubo com tubo de outra
+bitola não é a mesma coisa, e a unidade estava chumbada em KG.
+
+Antes de refazer, rodei um **dump de leitura** da OP 2026/00802 direto no Omie
+para parar de supor. O que ela tem:
+
+```
+25 linhas em itensDetalhes, 23 produtos distintos
+MATTB RD190 12I43 [KG]  263,745 + 203,058 = 466,803  (mesmo nIdProdutoMalha)
+MATTB RD158 12I43 [KG]   79,866 + 285,678 = 365,544  (mesmo nIdProdutoMalha)
+unidades: UN em 18 produtos, KG em 5
+```
+
+Formato novo, escolhido pelo Vitor: as linhas saem **como saem na OP** e a linha
+de `TOTAL <código>` vem logo abaixo das linhas daquele produto, na unidade e no
+tipo dele. Produto que entra uma vez só não ganha linha de total.
+
+### Arquivos alterados/criados
+- `src/lib/multiplicador/opPlanilha.ts` — `totaisEmKgPorTipo` saiu; entrou
+  `agruparPorProduto`, que junta as linhas do mesmo código preservando a ordem
+  da primeira aparição e devolve o total na unidade do produto.
+  `linhasDaPlanilha` passou a emitir as linhas do produto seguidas do total.
+- `src/app/(app)/multiplicador/actions.ts` — **parou de chamar `agregarItens`**:
+  no Multiplicador as linhas vão como a OP sai, e quem soma é a planilha. A
+  Movimentação por OP continua agregando antes, porque lá duas linhas do mesmo
+  SKU virariam duas movimentações. `buscarProdutosPorId` agora recebe ids sem
+  repetição, e a resposta leva `produtosDistintos`.
+- `src/components/multiplicador/MultiplicadorClient.tsx` — aviso diz linhas e
+  produtos ("25 linhas, 23 produtos") e explica o total por produto.
+- `src/lib/multiplicador/opPlanilha.test.ts` — fixture espelhando a OP real (o
+  mesmo tubo em duas linhas NÃO adjacentes) e teste de ida e volta
+  `planilhaDaOp` -> `multiplicarPlanilha` -> ler, que era o ponto cego: o
+  cabeçalho ganhou colunas e é o `localizarColunas` que decide qual o fator pega.
+- `src/lib/changelog.ts` — entrada corrigida.
+
+### Decisões importantes
+- **Somar só o mesmo produto.** Total por tipo mistura cadastros com unidades
+  diferentes; o número não significa nada para quem separa material.
+- **Total na unidade do produto**, nunca em KG chumbado: nessa OP são 18
+  produtos em UN contra 5 em KG.
+- **Manter as linhas da OP.** O Vitor quer enxergar de onde veio cada parcela
+  (263,745 de uma peça, 203,058 de outra) com o total junto, não só o resultado.
+- **A linha de total fica na coluna QTD e é multiplicada pelo fator.** Coberto
+  por teste: com fator 2 as parcelas viram 527,49 e 406,116 e o total 933,606.
+
+### Comandos relevantes
+- `npx tsx <scratchpad>/dump-op.mts 2026/00802` — dump de leitura da OP no Omie.
+- `npx tsc --noEmit`, `npm run lint`, `npx vitest run` (769 testes), `npm run build`.
+
+### Pendências / próximos passos
+- Conferir na tela com a OP 2026/00802: as duas linhas do `MATTB RD190 12I43` e
+  o `TOTAL MATTB RD190 12I43` = 466,803 logo abaixo.
+
+## 2026-09-15 — Multiplicador: módulo próprio nas Configurações e total em KG por tipo na OP
+
+> Corrigido na parte 2 (acima): o total por tipo em KG foi substituído por total
+> por produto, na unidade do produto.
+
+### Resumo
+Pedido do Vitor, em duas partes:
+
+1. A tela do Multiplicador **não aparecia em Configurações** para ser liberada:
+   ela pegava carona no módulo `pranchas`, que é o único que tinha caixa na
+   matriz de permissões. Virou módulo próprio (`multiplicador`), com coluna na
+   matriz e guard próprio na página e na server action.
+2. Na planilha que sai do **Puxar OP**, considerar o TIPO do item e mostrar o
+   total em KG por tipo (o tubo que entra em várias peças da OP some numa linha
+   só e agora também entra no total do tipo).
+
+Entregue com `tsc`, `eslint`, `vitest` e `next build` verdes.
+
+### Arquivos alterados/criados
+- `src/lib/permissions.ts` — módulo `multiplicador` em `MODULES`, nos defaults dos
+  5 papéis fixos e no `moduloVazio`. Em `buildRolePermissionsMap`, quem ainda
+  **não tem linha própria** de `multiplicador` no banco herda o valor de
+  `pranchas`, para ninguém perder acesso na virada; a partir do primeiro salvar
+  da matriz a linha existe e manda sozinha.
+- `src/lib/rbac.ts` — novo `canViewMultiplicador`.
+- `src/lib/navigation.ts` — o item Multiplicador passa a usar `canViewMultiplicador`
+  em vez de `hasModuleAccess(..., "pranchas")`.
+- `src/app/(app)/multiplicador/page.tsx` e `actions.ts` — guard trocado de
+  `canViewPranchas` para `canViewMultiplicador`.
+- `src/components/configuracoes/PermissionsMatrixForm.tsx` — rótulo "Multiplicador"
+  na coluna nova da matriz.
+- `prisma/seed.ts` — linhas padrão do módulo novo, espelhando `pranchas`.
+- `src/lib/multiplicador/opPlanilha.ts` — coluna **TIPO** (MAT/COM/SBM/PECA/OUTRO)
+  na planilha da OP, nova função `totaisEmKgPorTipo` e bloco de totais no fim do
+  arquivo, separado por uma linha em branco.
+- `src/components/multiplicador/MultiplicadorClient.tsx` — textos citando o total
+  em KG por tipo.
+- `src/lib/changelog.ts` — entrada de 2026-09-15.
+- Testes: `src/lib/permissions.test.ts` (2 casos novos para a herança e para a
+  linha própria mandando), `src/lib/navigation.test.ts`,
+  `src/lib/push/__tests__/destinatarios.test.ts`,
+  `src/lib/multiplicador/opPlanilha.test.ts` (5 casos novos).
+
+### Decisões importantes
+- **Herança de `pranchas` só enquanto não houver linha própria.** A alternativa
+  seria uma migração escrevendo `multiplicador` para todo papel, mas isso mexe em
+  dados de produção para resolver um problema que o fallback já resolve, e
+  travaria o valor no que estivesse valendo no dia da migração.
+- **Perfis customizados também herdam.** Eles nascem com tudo desmarcado; sem a
+  herança, um perfil que hoje enxerga o Multiplicador via `pranchas` perderia a
+  tela no deploy.
+- **Só linha em KG entra no total.** Somar KG com UN ou M daria um número sem
+  significado (o catálogo MAT do Omie tem M, M2 e UN além de KG).
+- **Os totais ficam na coluna QTD e são multiplicados pelo fator.** É o
+  comportamento certo: o total de uma OP dobrada é o dobro. A linha em branco
+  antes do bloco não atrapalha porque o multiplicador pula célula vazia.
+- A soma por código já existia (`agregarItens` no `omieOp`, que junta o mesmo
+  produto repetido nas várias peças da OP). O que faltava era a leitura por tipo.
+
+### Comandos relevantes
+- `npx tsc --noEmit`
+- `npm run lint`
+- `npx vitest run`
+- `npm run build`
+- `git push origin master`
+
+### Pendências / próximos passos
+- Conferir na tela: entrar em Configurações como ADMIN e ver a coluna
+  "Multiplicador" na matriz; desmarcar para um papel e confirmar que o item some
+  do menu e que a página responde "sem permissão".
+- Puxar uma OP real (ex.: 2026/00802) e conferir o total em KG contra o que o
+  PCP enxerga no Omie.
+- O branch padrão deste repo é `master`, não `main`.
 
 ## 2026-09-14 - Pre-scan sem falsos positivos de Auth
 

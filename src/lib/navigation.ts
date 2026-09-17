@@ -7,6 +7,7 @@ import {
   canViewConfigurador,
   canViewDePara,
   canViewMovimentacoes,
+  canViewMultiplicador,
   canViewProjetos,
   canViewRecebimento,
   canViewRequisicoes,
@@ -86,7 +87,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Multiplicador",
     description: "Multiplique quantidade e peso de vários BOMs sem alterar o desenho original.",
     icon: "multiplicador",
-    visibleTo: (role, permissions) => hasModuleAccess(role, "pranchas", permissions),
+    visibleTo: canViewMultiplicador,
   },
   {
     key: "configurador",

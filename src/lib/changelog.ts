@@ -24,6 +24,17 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-09-15",
+    title: "Multiplicador: permissão própria e total em KG por tipo na OP",
+    items: [
+      "O Multiplicador virou um módulo próprio na tela de Configurações. Antes ele vinha junto de Pranchas e não tinha caixa para marcar, então não dava para liberar um sem o outro. Quem já enxergava o Multiplicador continua enxergando: enquanto o administrador não mexer na matriz, o Multiplicador segue o que estiver marcado em Pranchas.",
+      "A planilha que sai do \"Puxar OP\" ganhou as colunas TIPO (MAT, COM, SBM, PEÇA) e UNIDADE, tiradas do cadastro do Omie.",
+      "As linhas agora saem como saem na OP: o tubo que entra em duas peças diferentes aparece nas duas linhas, com a quantidade de cada uma. Logo abaixo delas vem a linha TOTAL daquele produto, na unidade dele.",
+      "A soma é sempre do MESMO produto. Tubo com tubo de outra bitola, ou tubo com chapa, não entram no mesmo total: cada cadastro tem a sua unidade e o número não significaria nada.",
+      "Os totais também são multiplicados pelo fator, então a OP dobrada mostra o dobro.",
+    ],
+  },
+  {
     date: "2026-09-01",
     title: "De/Para: fator de conversão, busca direta e aposentadoria do código antigo",
     items: [
