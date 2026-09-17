@@ -1,5 +1,12 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-17 — Limites de texto no Recebimento
+
+### Resultado
+- Os campos de busca no Omie, edição do número da NF e inclusão manual de produto agora possuem limites de 200, 60 e 200 caracteres, respectivamente.
+- A alteração foi restrita ao cliente, conforme solicitado; nenhuma action ou contrato de servidor foi modificado.
+- TypeScript, ESLint, `git diff --check` e 14 testes focados passaram.
+
 ## 2026-09-17 — Conflito da PR de Recebimento resolvido
 
 ### Resultado
