@@ -2,14 +2,14 @@ import { MultiplicadorClient } from "@/components/multiplicador/MultiplicadorCli
 import { Forbidden } from "@/components/Forbidden";
 import { auth } from "@/lib/auth";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
-import { canViewPranchas } from "@/lib/rbac";
+import { canViewMultiplicador } from "@/lib/rbac";
 
 export const metadata = { title: "Multiplicador de BOMs — Vital Ops" };
 
 export default async function MultiplicadorPage() {
   const session = await auth();
   const permissions = await getRolePermissionsMap();
-  if (!canViewPranchas(session!.user.role, permissions)) {
+  if (!canViewMultiplicador(session!.user.role, permissions)) {
     return <Forbidden message="Você não tem permissão para acessar Multiplicador." />;
   }
 

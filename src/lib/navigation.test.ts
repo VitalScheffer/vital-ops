@@ -18,13 +18,15 @@ import {
 const DEFAULT = DEFAULT_ROLE_PERMISSIONS;
 
 describe("visibleNavFor", () => {
-  it("expõe Multiplicador junto de Pranchas e o oculta sem essa permissão", () => {
+  it("Multiplicador tem módulo próprio: some sozinho e não derruba Pranchas", () => {
     expect(visibleNavFor("FUNCIONARIO", DEFAULT).map((item) => item.key)).toContain("multiplicador");
-    const semPranchas: RolePermissionsMap = {
+    const semMultiplicador: RolePermissionsMap = {
       ...DEFAULT,
-      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
+      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, multiplicador: false },
     };
-    expect(visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key)).not.toContain("multiplicador");
+    const keys = visibleNavFor("FUNCIONARIO", semMultiplicador).map((item) => item.key);
+    expect(keys).not.toContain("multiplicador");
+    expect(keys).toContain("pranchas");
   });
 
   it("FUNCIONARIO vê os módulos operacionais (sem Usuários, Auditoria nem Configurações)", () => {
@@ -122,7 +124,7 @@ describe("visibleNavFor", () => {
   it("respeita permissões customizadas: Pranchas some sem afetar Produtos", () => {
     const semPranchas: RolePermissionsMap = {
       ...DEFAULT,
-      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false },
+      FUNCIONARIO: { ...DEFAULT.FUNCIONARIO, pranchas: false, multiplicador: false },
     };
     const keys = visibleNavFor("FUNCIONARIO", semPranchas).map((item) => item.key);
     expect(keys).toEqual(["home", "produtos", "configurador", "requisicoes", "baixas", "movimentacoes", "recebimento"]);
@@ -194,6 +196,7 @@ describe("rbac", () => {
       "perfil-comercial": {
         products: false,
         pranchas: false,
+        multiplicador: false,
         configurador: true,
         projetos: false,
         requisicoes: false,
@@ -216,6 +219,7 @@ describe("rbac", () => {
       "perfil-projetos": {
         products: false,
         pranchas: false,
+        multiplicador: false,
         configurador: false,
         projetos: true,
         requisicoes: false,

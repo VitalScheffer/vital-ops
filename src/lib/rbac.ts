@@ -26,6 +26,13 @@ export function canViewPranchas(role: Role, permissions: RolePermissionsMap): bo
   return hasModuleAccess(role, "pranchas", permissions);
 }
 
+// Multiplicador de BOMs: modulo proprio para o administrador liberar a
+// multiplicacao de quantidade/peso sem abrir junto a compilacao de Pranchas.
+// Quem ainda nao tem linha propria no banco herda Pranchas (ver permissions.ts).
+export function canViewMultiplicador(role: Role, permissions: RolePermissionsMap): boolean {
+  return hasModuleAccess(role, "multiplicador", permissions);
+}
+
 // Configurador de produto: quem tem o módulo monta a configuração e acompanha as
 // que enviou. Módulo próprio (não pendurado em "products") porque o público é o
 // comercial, que não deve enxergar BOM/estoque.

@@ -19,6 +19,7 @@ describe("buildRolePermissionsMap", () => {
     expect(map.GESTOR).toEqual({
       products: true,
       pranchas: true,
+      multiplicador: true,
       configurador: true,
       projetos: true,
       requisicoes: true,
@@ -36,6 +37,7 @@ describe("buildRolePermissionsMap", () => {
     expect(buildRolePermissionsMap([]).FABRICA).toEqual({
       products: false,
       pranchas: false,
+      multiplicador: false,
       configurador: false,
       projetos: false,
       requisicoes: true,
@@ -75,6 +77,7 @@ describe("buildRolePermissionsMap", () => {
     expect(map["perfil-abc"]).toEqual({
       products: false,
       pranchas: false,
+      multiplicador: false,
       configurador: false,
       projetos: false,
       requisicoes: true,
@@ -89,10 +92,27 @@ describe("buildRolePermissionsMap", () => {
     expect(map.FUNCIONARIO).toEqual(DEFAULT_ROLE_PERMISSIONS.FUNCIONARIO);
   });
 
+  it("sem linha própria, Multiplicador herda Pranchas (perfis anteriores à separação)", () => {
+    const map = buildRolePermissionsMap(
+      [{ role: "perfil-abc", module: "pranchas", enabled: true }],
+      ["perfil-abc"],
+    );
+    expect(map["perfil-abc"].multiplicador).toBe(true);
+  });
+
+  it("linha própria de Multiplicador manda, mesmo contrariando Pranchas", () => {
+    const map = buildRolePermissionsMap([
+      { role: "FUNCIONARIO", module: "multiplicador", enabled: false },
+    ]);
+    expect(map.FUNCIONARIO.pranchas).toBe(true);
+    expect(map.FUNCIONARIO.multiplicador).toBe(false);
+  });
+
   it("trava ADMIN em true mesmo se o banco disser o contrário", () => {
     const map = buildRolePermissionsMap([
       { role: "ADMIN", module: "audit", enabled: false },
       { role: "ADMIN", module: "pranchas", enabled: false },
+      { role: "ADMIN", module: "multiplicador", enabled: false },
       { role: "ADMIN", module: "requisicoes", enabled: false },
       { role: "ADMIN", module: "baixas", enabled: false },
       { role: "ADMIN", module: "users", enabled: false },
@@ -105,6 +125,7 @@ describe("buildRolePermissionsMap", () => {
     expect(map.ADMIN).toEqual({
       products: true,
       pranchas: true,
+      multiplicador: true,
       configurador: true,
       projetos: true,
       requisicoes: true,

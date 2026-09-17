@@ -14,6 +14,7 @@ import { PAPEIS_FIXOS, ROTULO_PAPEL_FIXO, type Role } from "@/lib/contracts";
 export const MODULES = [
   "products",
   "pranchas",
+  "multiplicador",
   "configurador",
   "projetos",
   "requisicoes",
@@ -37,17 +38,18 @@ export type RolePermissionsMap = Record<string, Record<Module, boolean>>;
 // Por isso FABRICA/FABRICA_GESTOR ficam de fora dos dois, e "projetos" (fila de
 // trabalho de um time específico) não vai nem pro FUNCIONARIO por padrão.
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<Module, boolean>> = {
-  ADMIN: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, movimentacoes: true, depara: true, recebimento: true, users: true, audit: true },
-  GESTOR: { products: true, pranchas: true, configurador: true, projetos: true, requisicoes: true, baixas: true, movimentacoes: true, depara: true, recebimento: true, users: true, audit: true },
-  FUNCIONARIO: { products: true, pranchas: true, configurador: true, projetos: false, requisicoes: true, baixas: true, movimentacoes: true, depara: false, recebimento: true, users: false, audit: false },
-  FABRICA: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, movimentacoes: false, depara: false, recebimento: false, users: false, audit: false },
-  FABRICA_GESTOR: { products: false, pranchas: false, configurador: false, projetos: false, requisicoes: true, baixas: false, movimentacoes: false, depara: false, recebimento: false, users: false, audit: false },
+  ADMIN: { products: true, pranchas: true, multiplicador: true, configurador: true, projetos: true, requisicoes: true, baixas: true, movimentacoes: true, depara: true, recebimento: true, users: true, audit: true },
+  GESTOR: { products: true, pranchas: true, multiplicador: true, configurador: true, projetos: true, requisicoes: true, baixas: true, movimentacoes: true, depara: true, recebimento: true, users: true, audit: true },
+  FUNCIONARIO: { products: true, pranchas: true, multiplicador: true, configurador: true, projetos: false, requisicoes: true, baixas: true, movimentacoes: true, depara: false, recebimento: true, users: false, audit: false },
+  FABRICA: { products: false, pranchas: false, multiplicador: false, configurador: false, projetos: false, requisicoes: true, baixas: false, movimentacoes: false, depara: false, recebimento: false, users: false, audit: false },
+  FABRICA_GESTOR: { products: false, pranchas: false, multiplicador: false, configurador: false, projetos: false, requisicoes: true, baixas: false, movimentacoes: false, depara: false, recebimento: false, users: false, audit: false },
 };
 
 function moduloVazio(): Record<Module, boolean> {
   return {
     products: false,
     pranchas: false,
+    multiplicador: false,
     configurador: false,
     projetos: false,
     requisicoes: false,
@@ -86,10 +88,21 @@ export function buildRolePermissionsMap(
     if (!map[codigo]) map[codigo] = moduloVazio();
   }
 
+  const multiplicadorExplicito = new Set<string>();
   for (const row of rows) {
     if (!isModule(row.module)) continue;
     const alvo = map[row.role];
-    if (alvo) alvo[row.module] = row.enabled;
+    if (!alvo) continue;
+    alvo[row.module] = row.enabled;
+    if (row.module === "multiplicador") multiplicadorExplicito.add(row.role);
+  }
+
+  // O Multiplicador nasceu pendurado no módulo "pranchas" e só depois virou
+  // módulo próprio. Quem ainda não tem linha dele no banco (perfis criados antes
+  // da separação) herda o que tem em Pranchas — ninguém perde acesso na virada.
+  // Assim que o admin salvar a matriz, a linha existe e manda sozinha.
+  for (const papel of Object.keys(map)) {
+    if (!multiplicadorExplicito.has(papel)) map[papel].multiplicador = map[papel].pranchas;
   }
 
   for (const mod of MODULES) map.ADMIN[mod] = true;
