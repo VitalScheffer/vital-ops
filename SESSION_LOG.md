@@ -49,6 +49,13 @@
 - TypeScript, ESLint, `git diff --check` e 19 testes focados passaram.
 - Em `localhost:3000/recebimento`, o seletor abriu com a grade mensal, navegação anual e indicou setembro de 2026 como o limite atual do Omie.
 
+## 2026-09-17 — Entrega da melhoria de Recebimento
+
+### Entrega
+- Commit `1d58b15` criado e enviado na branch `feat/planilha-interativa`.
+- PR aberto contra `master`: https://github.com/VitalScheffer/vital-ops/pull/4
+- O diff inclui apenas código, testes e documentação. Registros de NF e dados temporários de validação permanecem fora do Git.
+
 ## 2026-09-14 - Pre-scan sem falsos positivos de Auth
 
 ### Resumo
