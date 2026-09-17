@@ -1,5 +1,73 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-17 — Limites de texto no Recebimento
+
+### Resultado
+- Os campos de busca no Omie, edição do número da NF e inclusão manual de produto agora possuem limites de 200, 60 e 200 caracteres, respectivamente.
+- A alteração foi restrita ao cliente, conforme solicitado; nenhuma action ou contrato de servidor foi modificado.
+- TypeScript, ESLint, `git diff --check` e 14 testes focados passaram.
+
+## 2026-09-17 — Conflito da PR de Recebimento resolvido
+
+### Resultado
+- A branch `feat/planilha-interativa` foi atualizada com `master`; o único conflito, em `SESSION_LOG.md`, foi resolvido preservando os registros das duas branches.
+- TypeScript, ESLint, `git diff --check` e 60 testes focados de Recebimento, Multiplicador, permissões e navegação passaram após a integração.
+
+## 2026-09-16 — Omie somente com entradas e checklist compacto
+
+### Resultado
+- A consulta do Omie no Recebimento agora busca e exibe somente NF-e de entrada; a chamada e a apresentação de vendas foram removidas.
+- O checklist permanece com quatro campos: `Mat. Recebido`, `Tem OC`, `OC Aprov.` e `NF-e Lançada`. Os rótulos compactos possuem tooltip acessível com o texto completo, inclusive `Ordem de Compra Aprovada`.
+- A planilha exportada usa os nomes completos. Validações concluídas: TypeScript, ESLint, 16 testes focados e verificação visual em `localhost:3000`.
+
+## 2026-09-16 — Reversão da tentativa anterior e conexão local
+
+### Resultado
+- A alteração não commitada em `prisma/seed.ts` e o registro de sessão da tentativa anterior foram revertidos ao estado do branch.
+- O Vital Ops foi iniciado em `http://localhost:3000` com `npm.cmd run dev` e validado no navegador com uma sessão autenticada de Administrador.
+- O painel carregou os módulos do Vital Ops e o atalho integrado ao NextStep. Nenhuma migração, seed, alteração de banco ou operação `upsert` foi executada nesta sessão.
+
+## 2026-09-16 — Exportação contextual, semanas e paginação do Recebimento
+
+### Resultado
+- Os botões globais de PDF e Excel foram removidos. Cada NF e cada card semanal têm menu de três pontos com exportação individual em PDF ou Excel.
+- O menu semanal consulta todas as NFs incluídas naquela semana antes de gerar o arquivo; não fica limitado às NFs visíveis na página.
+- Os cards voltaram a representar a semana de inclusão, de segunda a sexta, com o título compacto `DD/MM/AAAA - DD/MM/AAAA`.
+- O filtro no começo da página permite escolher o mês de inclusão, inclusive meses anteriores. A Lista oferece 10, 25 ou 50 NFs por página e o navegador aparece somente quando existe outra página.
+
+### Validação
+- TypeScript, ESLint, `git diff --check` e 17 testes focados passaram.
+- Conferência em `localhost:3000/recebimento`: cards semanais, menus de exportação e paginação condicional verificados.
+
+## 2026-09-17 — Contraste do seletor Lista
+
+### Resultado
+- O seletor `Lista` do Recebimento usa fundo carvão (`#101b1e`) e `color-scheme: dark`, fazendo as opções nativas abrirem no tema escuro em vez do cinza de baixo contraste.
+- A tela foi conferida em `localhost:3000/recebimento`; TypeScript, ESLint e `git diff --check` passaram.
+
+## 2026-09-17 — Rodapé do período semanal removido
+
+### Resultado
+- Removido o rodapé `Data final` dos cards do Recebimento. O período continua claramente informado no título do card, no formato `DD/MM/AAAA - DD/MM/AAAA`.
+- TypeScript, ESLint e `git diff --check` passaram.
+
+## 2026-09-17 — Calendário mensal e filtro por emissão
+
+### Resultado
+- O campo nativo de mês foi substituído por um calendário com ícone, grade de 12 meses e setas explícitas para navegar entre anos.
+- O usuário pode alternar entre `Inclusão` e `Emissão da NF`. A opção de emissão filtra por `dataEmissao`; a inclusão continua filtrando por `criadoEm`.
+- O calendário de emissão bloqueia meses anteriores à NF de entrada mais antiga encontrada no Omie. A validação do servidor aplica o mesmo limite à URL.
+
+### Validação
+- TypeScript, ESLint, `git diff --check` e 19 testes focados passaram.
+- Em `localhost:3000/recebimento`, o seletor abriu com a grade mensal, navegação anual e indicou setembro de 2026 como o limite atual do Omie.
+
+## 2026-09-17 — Entrega da melhoria de Recebimento
+
+### Entrega
+- Commit `1d58b15` criado e enviado na branch `feat/planilha-interativa`.
+- PR aberto contra `master`: https://github.com/VitalScheffer/vital-ops/pull/4
+- O diff inclui apenas código, testes e documentação. Registros de NF e dados temporários de validação permanecem fora do Git.
 ## 2026-09-15 (parte 2) — Correção: o total da OP é por PRODUTO, não por tipo
 
 ### Resumo
@@ -6205,3 +6273,94 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 
 ### Pendências / próximos passos
 - Validar no navegador de produção com um lote real de PDFs e planilhas.
+
+## 2026-09-14 — Consulta de NF-e no Omie para Recebimento
+
+### Resumo
+- Consulta somente de leitura ao serviço `RecebimentoNFe/ListarRecebimentos` da API Omie; nenhum registro foi criado ou alterado.
+- O serviço retornou 61.925 recebimentos. O filtro da etapa `40` retornou 826 NF-e; as cinco listadas abaixo são a amostra mais recente, emitida em 14/09/2026, com número, fornecedor e data de emissão compatíveis com a tela de Recebimento.
+- Cruzamento por número e data com a tabela local `RecebimentoNota`: não há registro local para nenhuma das cinco notas.
+
+### Candidatas encontradas
+- NF-e 261070230 — DELIAN PEREIRA CARVALHO — 14/09/2026 — R$ 34,09.
+- NF-e 261003207 — CYNTIA MAYARA GOMES DOS SANTOS — 14/09/2026 — R$ 45,31.
+- NF-e 261043215 — SILVANA ANTUNES NOGUEIRA — 14/09/2026 — R$ 43,75.
+- NF-e 000074947 — BOLD PARTICIPACOES S.A. — 14/09/2026 — R$ 8.514,89.
+- NF-e 000378364 — ACO CEARENSE COMERCIAL LTDA — 14/09/2026 — R$ 82.115,14.
+
+### Comandos relevantes
+- Consulta Omie: `ListarRecebimentos` em `https://app.omie.com.br/api/v1/produtos/recebimentonfe/`.
+- Cruzamento local: consulta parametrizada em `RecebimentoNota` por `numero`.
+
+### Categoria separada — Vendas (propostas e pedidos)
+- Consulta somente de leitura ao serviço `PedidoVendaProduto/ListarPedidos`; ela é independente de Recebimento de NF-e e não cria nem altera pedidos.
+- Sem os critérios ativos da tela, há 46.310 pedidos no Omie: Proposta (00) 251; A Produzir (10) 31; Produzindo (20) 10; Em Produção (50) 108; Concluído (60) 4.150; Em Expedição (70) 2.665; Armazenado (80) 39.095. As etapas 15, 30 e 40 não tinham pedidos.
+- A captura do Omie apresenta filtros ativos; portanto, suas contagens por coluna não precisam coincidir com a consulta ampla da API.
+
+## 2026-09-15 — Categoria Vendas Omie no Recebimento
+
+### Resumo
+- Adicionada a categoria visual **Vendas Omie** à rota `/recebimento`, separada do checklist manual de NF-e de entrada.
+- A categoria consulta apenas `ListarEtapasFaturamento` e `ListarPedidos` do Omie, mostra o total e os 50 pedidos mais recentes retornados, e pode ser ocultada na sessão pelo botão `Ocultar categoria`.
+- Nenhum pedido de venda é gravado no banco, alterado no Omie ou incluído nas exportações de Excel/PDF do Recebimento. A remoção definitiva da categoria não exige migration.
+
+### Arquivos alterados
+- `src/lib/recebimento/vendasOmie.ts` e teste — leitura cacheada, mapeamento de etapas e degradação segura quando o Omie estiver indisponível.
+- `src/app/(app)/recebimento/page.tsx` e teste — carrega a categoria somente depois da autorização do Recebimento.
+- `src/components/recebimento/RecebimentoClient.tsx` — painel separado, somente leitura e ocultável.
+
+### Validação
+- `npx.cmd vitest run src/lib/recebimento/vendasOmie.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts"` — 9 testes verdes.
+- `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `npm.cmd run build` — concluídos sem erros.
+
+## 2026-09-15 — Notas fiscais unificadas do Omie
+
+### Correção de escopo
+- Substituído o painel separado `Vendas Omie` por uma única listagem **Notas do Omie**.
+- A listagem reúne duas origens fiscais: `RecebimentoNFe/ListarRecebimentos` para NF-e de **Entrada** e `NFConsultar/ListarNF` com `tpNF: "1"` para NF-e de **Venda**.
+- Cada cartão identifica explicitamente `Entrada` ou `Venda`, mostra número, fornecedor/cliente, emissão e valor. Não há categoria de Vendas separada, nem botão de ocultação.
+- Continua sendo leitura: nenhuma nota é persistida, alterada ou exportada pelo checklist manual.
+
+### Validação
+- `npx.cmd vitest run src/lib/recebimento/notasOmie.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts"` — 9 testes verdes.
+- `npx.cmd tsc --noEmit`, `npm.cmd run lint` e `npm.cmd run build` — concluídos sem erros; `/recebimento` presente no build.
+
+## 2026-09-15 — Validação local das notas Omie
+
+### Resultado
+- A rota `http://localhost:3000/recebimento` foi atualizada e validada no navegador local.
+- O painel **Notas do Omie** mostrou as NF-e de entrada e de venda com o identificador da origem em cada cartão.
+- A consulta é somente leitura: o checklist manual local continuou com `Notas (0)` e nenhum registro foi criado, atualizado ou substituído no banco local.
+- Corrigida a descrição do cabeçalho para remover a referência antiga a `Vendas Omie` e explicar a listagem única.
+
+### Validação
+- `npx.cmd vitest run "src/app/(app)/recebimento/page.test.ts"` — 3 testes verdes.
+- Atualização visual em `localhost:3000/recebimento` confirmada no navegador.
+
+## 2026-09-15 — Produtos, origem e filtro das notas Omie
+
+### Resumo
+- Os cartões de **Entrada** agora mostram fornecedor e os itens de `itensRecebimento`; os de **Venda** mostram cliente e os itens de `det.prod` da NF-e.
+- A tela tem filtros **Todas**, **Entrada** e **Venda**. A consulta atual apresentou 5 entradas e 25 vendas, com produto, quantidade e unidade quando a origem os informa.
+- A criação de checklist aceita somente o número de uma NF-e de entrada listada. Fornecedor, emissão e produtos vêm do Omie; ao editar, somente o número fica disponível.
+
+### Correção de paginação
+- `ListarRecebimentos` passou a usar 25 registros também na consulta que determina `nTotalPaginas`. A API calcula o total de páginas a partir desse tamanho: com 1 registro retornava 805 páginas, levando a uma página inexistente; com 25 retorna 33 e a última página contém as entradas recentes.
+
+### Validação
+- `npx.cmd tsc --noEmit`, `npx.cmd vitest run src/lib/recebimento/notasOmie.test.ts "src/app/(app)/recebimento/actions.test.ts" "src/app/(app)/recebimento/page.test.ts"`, `npm.cmd run lint` e `npm.cmd run build` concluídos sem erros.
+- Navegador local: filtros, rótulos Cliente/Fornecedor, produtos e formulário com somente Nº da NF confirmados; nenhuma nota foi criada ou alterada na validação.
+
+## 2026-09-15 — Busca sob demanda e correção de hidratação
+
+### Resumo
+- A página de Recebimento não consulta nem mostra as notas do Omie ao abrir. O card **Buscar notas no Omie** consulta somente após uma pessoa autorizada pesquisar por número, parceiro ou produto.
+- O card separado **Nova NF** foi removido. O resultado de uma NF-e de entrada tem o botão **Adicionar ao checklist**, que cria a nota local com fornecedor, emissão e produtos vindos do Omie. NF-e de venda fica somente para consulta.
+- A busca mantém filtros por Entrada e Venda e mostra a quantidade encontrada para o termo atual.
+
+### Hidratação
+- Corrigido o mismatch de nonce no `RootLayout`: `next/script` com `beforeInteractive` gerava um script interno que o cliente reconstruía sem nonce. O tema agora usa o arquivo externo `theme-init.js` em uma tag nativa com nonce do servidor e `suppressHydrationWarning` apenas nela. O console ficou sem novos erros de hidratação após recarregar a página local.
+
+### Validação
+- `npx.cmd tsc --noEmit`, `npx.cmd vitest run src/app/layout.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts" src/lib/recebimento/notasOmie.test.ts`, `npm.cmd run lint` e `npm.cmd run build` concluídos sem erros.
+- Navegador local confirmou a tela inicial sem cartões do Omie e a pesquisa da NF-e 000153030 retornou a entrada com itens e o botão de adicionar; nenhum checklist foi criado durante a validação.

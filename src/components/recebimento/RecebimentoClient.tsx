@@ -1,12 +1,14 @@
 "use client";
 
-import { FileDown, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Ellipsis, FileDown, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 
 import {
   adicionarItemRecebimento,
+  buscarNotasOmieRecebimento,
   criarNotaRecebimento,
   editarNotaRecebimento,
+  listarNotasRecebimentoParaExportacao,
   marcarCheckRecebimento,
   marcarColunaRecebimento,
   removerItemRecebimento,
@@ -18,21 +20,21 @@ import { RECEBIMENTO_EVENTOS, type ItemRecebimentoDTO, type NotaRecebimentoDTO, 
 import { nomeArquivoRecebimento } from "@/lib/recebimento/nomeArquivo";
 import { gerarRecebimentoPdf } from "@/lib/recebimento/pdf";
 import { gerarRecebimentoXlsx } from "@/lib/recebimento/planilha";
-import { dataEmissaoSaoPaulo, dataEmissaoSaoPauloDoIso, hojeSaoPaulo } from "@/lib/recebimento/dataEmissao";
-import { agruparPorSemana } from "@/lib/recebimento/semanas";
+import { dataEmissaoSaoPauloDoIso } from "@/lib/recebimento/dataEmissao";
+import type { NotasOmieDTO } from "@/lib/recebimento/notasOmie";
 
 const EVENTO_LABEL: Record<RecebimentoEvento, string> = {
-  materialRecebido: "Material recebido",
-  temOC: "Tem OC",
-  ocAprovado: "OC Aprovado",
-  nfeLancada: "NF-e lançada",
+  materialRecebido: "Material Recebido",
+  temOC: "Tem Ordem de Compra",
+  ocAprovado: "Ordem de Compra Aprovada",
+  nfeLancada: "NF-e Lançada",
 };
 
 const EVENTO_CURTO: Record<RecebimentoEvento, string> = {
-  materialRecebido: "Material",
+  materialRecebido: "Mat. Recebido",
   temOC: "Tem OC",
   ocAprovado: "OC Aprov.",
-  nfeLancada: "NF-e",
+  nfeLancada: "NF-e Lançada",
 };
 
 const inputClass =
@@ -43,96 +45,155 @@ const botaoPrimario =
   "inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60";
 const botaoPerigo =
   "inline-flex items-center gap-1.5 rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50";
-
-function hojeISO(): string {
-  return hojeSaoPaulo();
-}
+const LIMITE_BUSCA_OMIE = 200;
+const LIMITE_NUMERO_NF = 60;
+const LIMITE_NOME_PRODUTO = 200;
 
 function dataBr(iso: string): string {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(dataEmissaoSaoPauloDoIso(iso));
 }
 
+function partesDataInclusao(iso: string): { year: string; month: string; day: string } {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const parte = (tipo: Intl.DateTimeFormatPartTypes) => partes.find((item) => item.type === tipo)?.value ?? "";
+  return { year: parte("year"), month: parte("month"), day: parte("day") };
+}
+
+function chaveDataInclusao(iso: string): string {
+  const partes = partesDataInclusao(iso);
+  return `${partes.year}-${partes.month}-${partes.day}`;
+}
+
+function adicionarDias(chave: string, quantidade: number): string {
+  const data = new Date(`${chave}T12:00:00.000Z`);
+  data.setUTCDate(data.getUTCDate() + quantidade);
+  return data.toISOString().slice(0, 10);
+}
+
+function inicioSemanaInclusao(chave: string): string {
+  const data = new Date(`${chave}T12:00:00.000Z`);
+  const dia = data.getUTCDay();
+  return adicionarDias(chave, dia === 0 ? -6 : 1 - dia);
+}
+
+function dataChaveBr(chave: string): string {
+  const [ano, mes, dia] = chave.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+function rotuloSemanaInclusao(inicio: string): string {
+  return `${dataChaveBr(inicio)} - ${dataChaveBr(adicionarDias(inicio, 4))}`;
+}
+
+type FormatoExportacao = "xlsx" | "pdf";
+
 interface RecebimentoClientProps {
   notasIniciais: NotaRecebimentoDTO[];
 }
 
-// Tela de checklist manual (sem integração com o Omie): quem marca é o
-// próprio usuário. Notas ficam em `useState` e todas as mutações atualizam o
+// Checklist manual de NF de entrada: quem marca é o próprio usuário. As notas
+// do Omie são apenas leitura. Notas ficam em `useState` e todas as mutações atualizam o
 // estado local direto (otimista nos checkboxes) — não dependemos do
 // `revalidatePath` da action pra a UI refletir a mudança na hora.
+function textoParaBusca(valor: string): string {
+  return valor.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+}
+
 export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
   const [notas, setNotas] = useState(notasIniciais);
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
 
-  const [novoNumero, setNovoNumero] = useState("");
-  const [novoFornecedor, setNovoFornecedor] = useState("");
-  const [novaData, setNovaData] = useState(hojeISO());
+  const [buscaOmie, setBuscaOmie] = useState("");
+  const [notasOmie, setNotasOmie] = useState<NotasOmieDTO | null>(null);
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [edNumero, setEdNumero] = useState("");
-  const [edFornecedor, setEdFornecedor] = useState("");
-  const [edData, setEdData] = useState("");
 
   const [novoProduto, setNovoProduto] = useState<Record<string, string>>({});
   const [confirmando, setConfirmando] = useState<string | null>(null);
+  const [menuExportacao, setMenuExportacao] = useState<string | null>(null);
 
-  const grupos = useMemo(() => {
-    return agruparPorSemana(notas, (nota) => dataEmissaoSaoPauloDoIso(nota.dataEmissao)).map((grupo) => ({
-      ...grupo,
-      itens: [...grupo.itens].sort((a, b) => new Date(b.dataEmissao).getTime() - new Date(a.dataEmissao).getTime()),
-    }));
+  const semanas = useMemo(() => {
+    const porSemana = new Map<string, NotaRecebimentoDTO[]>();
+    for (const nota of notas) {
+      const inicio = inicioSemanaInclusao(chaveDataInclusao(nota.criadoEm));
+      const semana = porSemana.get(inicio) ?? [];
+      semana.push(nota);
+      porSemana.set(inicio, semana);
+    }
+    return Array.from(porSemana.entries())
+      .map(([inicio, itens]) => ({
+        inicio,
+        fim: adicionarDias(inicio, 5),
+        rotulo: rotuloSemanaInclusao(inicio),
+        itens,
+      }))
+      .sort((a, b) => b.inicio.localeCompare(a.inicio));
   }, [notas]);
 
-  function criar() {
-    if (!novoNumero.trim() || !novoFornecedor.trim() || !novaData) {
-      setErro("Preencha número, fornecedor e data da NF.");
+  const notasOmieEncontradas = useMemo(() => {
+    if (!notasOmie || notasOmie.status !== "ok") return [];
+    const termo = textoParaBusca(buscaOmie.trim());
+    if (!termo) return [];
+    return notasOmie.notas.filter((nota) =>
+      [nota.numero, nota.parceiro, ...nota.produtos.map((produto) => produto.descricao)]
+        .some((campo) => textoParaBusca(campo).includes(termo)),
+    );
+  }, [buscaOmie, notasOmie]);
+
+  function buscarNotasOmie() {
+    if (!buscaOmie.trim()) {
+      setErro("Informe o número da NF, parceiro ou produto para pesquisar no Omie.");
       return;
     }
     setErro(null);
     startTransition(async () => {
-      const resultado = await criarNotaRecebimento({
-        numero: novoNumero.trim(),
-        fornecedor: novoFornecedor.trim(),
-        dataEmissao: novaData,
-      });
+      const resultado = await buscarNotasOmieRecebimento();
+      setNotasOmie(resultado);
+    });
+  }
+
+  function adicionarNotaDoOmie(numero: string) {
+    setErro(null);
+    startTransition(async () => {
+      const resultado = await criarNotaRecebimento({ numero });
       if (resultado.status === "error") {
         setErro(resultado.message ?? "Não consegui criar a NF.");
         return;
       }
       setNotas((atual) => [...atual, resultado.nota]);
-      setNovoNumero("");
-      setNovoFornecedor("");
-      setNovaData(hojeISO());
     });
   }
 
   function iniciarEdicao(nota: NotaRecebimentoDTO) {
     setEditandoId(nota.id);
     setEdNumero(nota.numero);
-    setEdFornecedor(nota.fornecedor);
-    setEdData(dataEmissaoSaoPauloDoIso(nota.dataEmissao).toISOString().slice(0, 10));
     setErro(null);
   }
 
   function salvarEdicao() {
     if (!editandoId) return;
-    if (!edNumero.trim() || !edFornecedor.trim() || !edData) {
-      setErro("Preencha número, fornecedor e data da NF.");
+    if (!edNumero.trim()) {
+      setErro("Informe o número da NF.");
       return;
     }
     const id = editandoId;
     const numero = edNumero.trim();
-    const fornecedor = edFornecedor.trim();
     setErro(null);
     startTransition(async () => {
-      const resultado = await editarNotaRecebimento({ id, numero, fornecedor, dataEmissao: edData });
+      const resultado = await editarNotaRecebimento({ id, numero });
       if (resultado.status === "error") {
         setErro(resultado.message ?? "Não consegui salvar a NF.");
         return;
       }
       setNotas((atual) =>
-        atual.map((n) => (n.id === id ? { ...n, numero, fornecedor, dataEmissao: dataEmissaoSaoPaulo(edData).toISOString() } : n)),
+        atual.map((n) => (n.id === id ? { ...n, numero } : n)),
       );
       setEditandoId(null);
     });
@@ -208,8 +269,8 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
     });
   }
 
-  function exportar(formato: "xlsx" | "pdf") {
-    const dados = notas.map((n) => ({
+  function exportar(formato: FormatoExportacao, notasParaExportar: readonly NotaRecebimentoDTO[]) {
+    const dados = notasParaExportar.map((n) => ({
       numero: n.numero,
       fornecedor: n.fornecedor,
       dataEmissao: dataEmissaoSaoPauloDoIso(n.dataEmissao),
@@ -222,7 +283,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
       timeZone: "America/Sao_Paulo",
     }).format(extraidoEm);
     const nomeArquivo = nomeArquivoRecebimento(
-      notas.map((nota) => nota.numero),
+      notasParaExportar.map((nota) => nota.numero),
       extraidoEm,
       formato,
     );
@@ -240,49 +301,99 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
     });
   }
 
+  function exportarSemana(formato: FormatoExportacao, inicio: string, fim: string) {
+    setErro(null);
+    setMenuExportacao(null);
+    startTransition(async () => {
+      const resultado = await listarNotasRecebimentoParaExportacao({ inicio, fim });
+      if (resultado.status === "error") {
+        setErro(resultado.message ?? "Não consegui preparar a exportação da semana.");
+        return;
+      }
+      exportar(formato, resultado.notas);
+    });
+  }
+
   return (
     <div className="flex flex-col gap-8">
-      <Panel
-        title="Nova NF"
-        description="Informe o número, o fornecedor e a data de emissão para começar o checklist desta nota."
-      >
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Nº da NF
-            <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} className={inputClass} placeholder="Ex.: 12345" />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Fornecedor
+      <Panel title="Buscar notas no Omie" description="Pesquise pelo número da NF, fornecedor ou produto. Escolha uma NF-e de entrada para abrir seu checklist abaixo.">
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(evento) => {
+            evento.preventDefault();
+            buscarNotasOmie();
+          }}
+        >
+          <label className="flex min-w-64 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+            Pesquisar nota
             <input
-              value={novoFornecedor}
-              onChange={(e) => setNovoFornecedor(e.target.value)}
+              value={buscaOmie}
+              onChange={(evento) => setBuscaOmie(evento.target.value)}
+              maxLength={LIMITE_BUSCA_OMIE}
               className={inputClass}
-              placeholder="Nome do fornecedor"
+              placeholder="Nº da NF, fornecedor ou produto"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Data de emissão
-            <input type="date" value={novaData} onChange={(e) => setNovaData(e.target.value)} className={inputClass} />
-          </label>
-          <button type="button" onClick={criar} disabled={pending} className={botaoPrimario}>
-            <Plus className="h-4 w-4" /> Adicionar NF
+          <button type="submit" disabled={pending} className={botaoPrimario}>
+            Buscar no Omie
           </button>
-        </div>
+        </form>
+        {notasOmie?.status === "error" ? <p className="mt-4 text-sm text-danger">{notasOmie.message}</p> : null}
+        {notasOmie?.status === "ok" && (
+          <>
+            {notasOmieEncontradas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma nota encontrada para a pesquisa.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {notasOmieEncontradas.map((nota) => (
+                  <div key={nota.id} className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-card-foreground">NF-e Nº {nota.numero}</p>
+                    </div>
+                    <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Fornecedor</p>
+                    <p className="truncate text-xs text-muted-foreground" title={nota.parceiro}>{nota.parceiro}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {nota.dataEmissao ? `Emissão: ${nota.dataEmissao}` : "Sem data de emissão"}
+                      {nota.valor !== null ? ` · ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(nota.valor)}` : ""}
+                    </p>
+                    {nota.produtos.length === 0 ? (
+                      <p className="mt-3 text-xs text-muted-foreground">Sem produtos informados no Omie.</p>
+                    ) : (
+                      <ul className="mt-3 divide-y divide-border border-t border-border text-xs text-card-foreground">
+                        {nota.produtos.map((produto, indice) => (
+                          <li key={`${nota.id}:${indice}`} className="py-2">
+                            <p>{produto.descricao}</p>
+                            {produto.quantidade !== null ? (
+                              <p className="mt-0.5 text-muted-foreground">
+                                {new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(produto.quantidade)}{produto.unidade ? ` ${produto.unidade}` : ""}
+                              </p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => adicionarNotaDoOmie(nota.numero)}
+                      disabled={pending}
+                      className={`${botaoPrimario} mt-3`}
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Adicionar ao checklist
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-muted-foreground">
+              Atualizado em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(notasOmie.atualizadoEm))}.
+            </p>
+          </>
+        )}
       </Panel>
 
       <Panel
         title={`Notas (${notas.length})`}
-        description="Marque produto a produto o que já foi recebido, tem OC, teve a OC aprovada e teve a NF-e lançada — agrupado por semana."
-        action={
-          <div className="flex gap-2">
-            <button type="button" onClick={() => exportar("xlsx")} disabled={notas.length === 0 || pending} className={botaoSecundario}>
-              <FileSpreadsheet className="h-3.5 w-3.5" /> Exportar Excel
-            </button>
-            <button type="button" onClick={() => exportar("pdf")} disabled={notas.length === 0 || pending} className={botaoSecundario}>
-              <FileDown className="h-3.5 w-3.5" /> Exportar PDF
-            </button>
-          </div>
-        }
+        description="Marque produto a produto: Material Recebido, Tem OC, OC Aprov. e NF-e Lançada — agrupado pela semana de inclusão, de segunda a sexta."
       >
         {erro ? <p className="mb-4 rounded-lg bg-danger-dim px-3 py-2 text-sm text-danger">{erro}</p> : null}
 
@@ -290,24 +401,46 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
           <p className="text-sm text-muted-foreground">Nenhuma NF registrada ainda. Adicione a primeira acima.</p>
         ) : (
           <div className="flex flex-col gap-6">
-            {grupos.map((grupo) => (
-              <section key={grupo.chave} className="flex flex-col gap-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{grupo.rotulo}</h3>
-                {grupo.itens.map((nota) => (
+            {semanas.map((semana) => (
+              <section key={semana.inicio} className="overflow-hidden rounded-xl border-2 border-primary/30 bg-card shadow-sm">
+                <header className="border-b border-primary/30 bg-primary/10 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Semana de inclusão</p>
+                  <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <h3 className="text-lg font-semibold capitalize text-card-foreground">{semana.rotulo}</h3>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground">{semana.itens.length} {semana.itens.length === 1 ? "NF" : "NFs"} nesta semana</p>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          aria-label={`Exportar NFs da ${semana.rotulo}`}
+                          aria-expanded={menuExportacao === `semana:${semana.inicio}`}
+                          onClick={() => setMenuExportacao((atual) => atual === `semana:${semana.inicio}` ? null : `semana:${semana.inicio}`)}
+                          className="rounded-md p-1 text-muted-foreground hover:bg-card hover:text-card-foreground"
+                        >
+                          <Ellipsis className="h-5 w-5" />
+                        </button>
+                        {menuExportacao === `semana:${semana.inicio}` ? (
+                          <div role="menu" className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-border bg-card p-1 shadow-lg">
+                            <button type="button" role="menuitem" disabled={pending} onClick={() => exportarSemana("xlsx", semana.inicio, semana.fim)} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-muted disabled:opacity-60">
+                              <FileSpreadsheet className="h-3.5 w-3.5" /> Exportar Excel
+                            </button>
+                            <button type="button" role="menuitem" disabled={pending} onClick={() => exportarSemana("pdf", semana.inicio, semana.fim)} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-muted disabled:opacity-60">
+                              <FileDown className="h-3.5 w-3.5" /> Exportar PDF
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </header>
+                <div className="flex flex-col gap-4 p-4">
+                {semana.itens.map((nota) => (
                   <div key={nota.id} className="rounded-xl border border-border bg-card p-4">
                     {editandoId === nota.id ? (
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                           Nº da NF
-                          <input value={edNumero} onChange={(e) => setEdNumero(e.target.value)} className={inputClass} />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          Fornecedor
-                          <input value={edFornecedor} onChange={(e) => setEdFornecedor(e.target.value)} className={inputClass} />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          Data de emissão
-                          <input type="date" value={edData} onChange={(e) => setEdData(e.target.value)} className={inputClass} />
+                          <input value={edNumero} onChange={(e) => setEdNumero(e.target.value)} maxLength={LIMITE_NUMERO_NF} className={inputClass} />
                         </label>
                         <button type="button" onClick={salvarEdicao} disabled={pending} className={botaoPrimario}>
                           Salvar
@@ -338,6 +471,27 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                           <button type="button" onClick={() => iniciarEdicao(nota)} className={botaoSecundario}>
                             <Pencil className="h-3.5 w-3.5" /> Editar
                           </button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              aria-label={`Exportar NF ${nota.numero}`}
+                              aria-expanded={menuExportacao === `nota:${nota.id}`}
+                              onClick={() => setMenuExportacao((atual) => atual === `nota:${nota.id}` ? null : `nota:${nota.id}`)}
+                              className={botaoSecundario}
+                            >
+                              <Ellipsis className="h-4 w-4" />
+                            </button>
+                            {menuExportacao === `nota:${nota.id}` ? (
+                              <div role="menu" className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-border bg-card p-1 shadow-lg">
+                                <button type="button" role="menuitem" disabled={pending} onClick={() => { setMenuExportacao(null); exportar("xlsx", [nota]); }} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-muted disabled:opacity-60">
+                                  <FileSpreadsheet className="h-3.5 w-3.5" /> Exportar Excel
+                                </button>
+                                <button type="button" role="menuitem" disabled={pending} onClick={() => { setMenuExportacao(null); exportar("pdf", [nota]); }} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-muted disabled:opacity-60">
+                                  <FileDown className="h-3.5 w-3.5" /> Exportar PDF
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                           {confirmando === `nota:${nota.id}` ? (
                             <>
                               <button type="button" onClick={() => removerNota(nota.id)} disabled={pending} className={botaoPerigo}>
@@ -367,7 +521,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                               const todosMarcados = total > 0 && marcados === total;
                               return (
                                 <th key={evento} className="px-4 py-2.5 text-center font-medium">
-                                  <span className="flex flex-col items-center gap-1.5">
+                                  <span className="flex flex-col items-center gap-1.5" title={EVENTO_LABEL[evento]}>
                                     {EVENTO_CURTO[evento]}
                                     <input
                                       type="checkbox"
@@ -396,6 +550,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                                     checked={item[evento]}
                                     onChange={(e) => alternarCheck(nota.id, item, evento, e.target.checked)}
                                     aria-label={`${EVENTO_LABEL[evento]} — ${item.produto}`}
+                                    title={EVENTO_LABEL[evento]}
                                     className="h-4 w-4 cursor-pointer accent-primary"
                                   />
                                 </td>
@@ -434,6 +589,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                       <input
                         value={novoProduto[nota.id] ?? ""}
                         onChange={(e) => setNovoProduto((atual) => ({ ...atual, [nota.id]: e.target.value }))}
+                        maxLength={LIMITE_NOME_PRODUTO}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
@@ -449,6 +605,7 @@ export function RecebimentoClient({ notasIniciais }: RecebimentoClientProps) {
                     </div>
                   </div>
                 ))}
+                </div>
               </section>
             ))}
           </div>

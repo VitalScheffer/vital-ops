@@ -1,6 +1,6 @@
+/* eslint-disable @next/next/no-sync-scripts -- o tema precisa ser aplicado antes da hidratação; next/script cria um script interno com nonce divergente. */
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import Script from "next/script";
 
 import "./globals.css";
 
@@ -26,7 +26,7 @@ export default async function RootLayout({
   return (
     <html lang="pt-BR" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
-        <Script nonce={nonce} src="/theme-init.js" strategy="beforeInteractive" />
+        <script nonce={nonce} src="/theme-init.js" suppressHydrationWarning />
         {children}
       </body>
     </html>

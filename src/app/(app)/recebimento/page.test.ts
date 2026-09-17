@@ -5,12 +5,14 @@ const mocks = vi.hoisted(() => ({
   getRolePermissionsMap: vi.fn(),
   canViewRecebimento: vi.fn(),
   findMany: vi.fn(),
+  obterDataMaisAntigaNotaEntradaOmie: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/permissions.server", () => ({ getRolePermissionsMap: mocks.getRolePermissionsMap }));
 vi.mock("@/lib/rbac", () => ({ canViewRecebimento: mocks.canViewRecebimento }));
 vi.mock("@/lib/db", () => ({ prisma: { recebimentoNota: { findMany: mocks.findMany } } }));
+vi.mock("@/lib/recebimento/notasOmie", () => ({ obterDataMaisAntigaNotaEntradaOmie: mocks.obterDataMaisAntigaNotaEntradaOmie }));
 
 import RecebimentoPage from "./page";
 
@@ -21,31 +23,50 @@ describe("RecebimentoPage", () => {
     mocks.getRolePermissionsMap.mockResolvedValue({});
     mocks.canViewRecebimento.mockReturnValue(true);
     mocks.findMany.mockResolvedValue([]);
+    mocks.obterDataMaisAntigaNotaEntradaOmie.mockResolvedValue(null);
   });
 
-  it("busca uma pagina limitada com ordenacao estavel", async () => {
-    const pagina = await RecebimentoPage({ searchParams: Promise.resolve({ pagina: "2" }) });
+  it("filtra o mês, respeita a lista escolhida e ordena pela inclusão", async () => {
+    const pagina = await RecebimentoPage({ searchParams: Promise.resolve({ pagina: "2", limite: "25", mes: "2026-09" }) });
 
     expect(mocks.findMany).toHaveBeenCalledWith({
-      skip: 50,
-      take: 51,
-      orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
+      where: {
+        criadoEm: {
+          gte: new Date("2026-09-01T03:00:00.000Z"),
+          lt: new Date("2026-10-01T03:00:00.000Z"),
+        },
+      },
+      skip: 25,
+      take: 26,
+      orderBy: [{ criadoEm: "desc" }, { id: "desc" }],
       include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
     });
-    expect((pagina as unknown as { props: { children: Array<{ key: string }> } }).props.children[1].key).toBe("2");
+    expect((pagina as unknown as { props: { children: Array<{ key: string }> } }).props.children[2].key).toBe("inclusao:2026-09:25:2");
   });
 
   it("volta para a primeira pagina quando a query for invalida", async () => {
     await RecebimentoPage({ searchParams: Promise.resolve({ pagina: "100000000000000000000" }) });
 
-    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 51 }));
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 11 }));
   });
 
-  it("nao consulta notas quando a sessao nao tiver permissao", async () => {
+  it("nao consulta dados quando a sessao nao tiver permissao", async () => {
     mocks.canViewRecebimento.mockReturnValue(false);
 
     await RecebimentoPage({ searchParams: Promise.resolve({}) });
 
     expect(mocks.findMany).not.toHaveBeenCalled();
+    expect(mocks.obterDataMaisAntigaNotaEntradaOmie).not.toHaveBeenCalled();
+  });
+
+  it("filtra pela emissão e não aceita mês anterior à NF mais antiga do Omie", async () => {
+    mocks.obterDataMaisAntigaNotaEntradaOmie.mockResolvedValue("15/05/2024");
+
+    await RecebimentoPage({ searchParams: Promise.resolve({ criterio: "emissao", mes: "2024-02" }) });
+
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { dataEmissao: { gte: new Date("2024-05-01T03:00:00.000Z"), lt: new Date("2024-06-01T03:00:00.000Z") } },
+      orderBy: [{ dataEmissao: "desc" }, { id: "desc" }],
+    }));
   });
 });

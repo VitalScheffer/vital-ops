@@ -8,18 +8,25 @@ export type RecebimentoEvento = (typeof RECEBIMENTO_EVENTOS)[number];
 
 export const criarNotaRecebimentoSchema = z.object({
   numero: z.string().trim().min(1).max(60),
-  fornecedor: z.string().trim().min(1).max(160),
-  dataEmissao: z.string().trim().min(1), // yyyy-mm-dd (input[type=date])
 });
 export type CriarNotaRecebimentoInput = z.infer<typeof criarNotaRecebimentoSchema>;
 
-export const editarNotaRecebimentoSchema = criarNotaRecebimentoSchema.extend({
+export const editarNotaRecebimentoSchema = z.object({
   id: z.string().min(1),
+  numero: z.string().trim().min(1).max(60),
 });
 export type EditarNotaRecebimentoInput = z.infer<typeof editarNotaRecebimentoSchema>;
 
 export const removerNotaRecebimentoSchema = z.object({ id: z.string().min(1) });
 export type RemoverNotaRecebimentoInput = z.infer<typeof removerNotaRecebimentoSchema>;
+
+// Consulta limitada ao período de um card semanal para exportação. As datas
+// são civis no fuso de São Paulo (AAAA-MM-DD), nunca timestamps do navegador.
+export const listarNotasRecebimentoParaExportacaoSchema = z.object({
+  inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  fim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type ListarNotasRecebimentoParaExportacaoInput = z.infer<typeof listarNotasRecebimentoParaExportacaoSchema>;
 
 export const adicionarItemRecebimentoSchema = z.object({
   notaId: z.string().min(1),
@@ -63,5 +70,6 @@ export interface NotaRecebimentoDTO {
   numero: string;
   fornecedor: string;
   dataEmissao: string;
+  criadoEm: string;
   itens: ItemRecebimentoDTO[];
 }

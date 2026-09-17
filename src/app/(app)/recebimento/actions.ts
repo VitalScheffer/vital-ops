@@ -9,6 +9,7 @@ import {
   adicionarItemRecebimentoSchema,
   criarNotaRecebimentoSchema,
   editarNotaRecebimentoSchema,
+  listarNotasRecebimentoParaExportacaoSchema,
   marcarCheckRecebimentoSchema,
   marcarColunaRecebimentoSchema,
   removerItemRecebimentoSchema,
@@ -17,6 +18,7 @@ import {
   type CriarNotaRecebimentoInput,
   type EditarNotaRecebimentoInput,
   type ItemRecebimentoDTO,
+  type ListarNotasRecebimentoParaExportacaoInput,
   type MarcarCheckRecebimentoInput,
   type MarcarColunaRecebimentoInput,
   type NotaRecebimentoDTO,
@@ -28,6 +30,7 @@ import type { FormState } from "@/lib/form";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
 import { canViewRecebimento } from "@/lib/rbac";
 import { dataEmissaoSaoPaulo } from "@/lib/recebimento/dataEmissao";
+import { listarNotasOmie, localizarNotaEntradaOmie, type NotasOmieDTO } from "@/lib/recebimento/notasOmie";
 import { requestHeaders } from "@/lib/request";
 
 interface Guarda {
@@ -91,6 +94,82 @@ async function criarItemComOrdem(notaId: string, produto: string) {
 }
 
 export type CriarNotaRecebimentoResult = { status: "success"; nota: NotaRecebimentoDTO } | { status: "error"; message: string };
+export type ListarNotasRecebimentoParaExportacaoResult =
+  | { status: "success"; notas: NotaRecebimentoDTO[] }
+  | { status: "error"; message: string };
+
+function inicioDoDiaSaoPaulo(data: string): Date {
+  return new Date(`${data}T03:00:00.000Z`);
+}
+
+function paraNotaDTO(nota: {
+  id: string;
+  numero: string;
+  fornecedor: string;
+  dataEmissao: Date;
+  criadoEm: Date;
+  itens: Array<{
+    id: string;
+    produto: string;
+    materialRecebido: boolean;
+    temOC: boolean;
+    ocAprovado: boolean;
+    nfeLancada: boolean;
+  }>;
+}): NotaRecebimentoDTO {
+  return {
+    id: nota.id,
+    numero: nota.numero,
+    fornecedor: nota.fornecedor,
+    dataEmissao: nota.dataEmissao.toISOString(),
+    criadoEm: nota.criadoEm.toISOString(),
+    itens: nota.itens.map((item) => ({
+      id: item.id,
+      produto: item.produto,
+      materialRecebido: item.materialRecebido,
+      temOC: item.temOC,
+      ocAprovado: item.ocAprovado,
+      nfeLancada: item.nfeLancada,
+    })),
+  };
+}
+
+export async function listarNotasRecebimentoParaExportacao(
+  input: ListarNotasRecebimentoParaExportacaoInput,
+): Promise<ListarNotasRecebimentoParaExportacaoResult> {
+  const guarda = await guardar();
+  if (!ehGuarda(guarda)) return guarda;
+
+  const parsed = listarNotasRecebimentoParaExportacaoSchema.safeParse(input);
+  if (!parsed.success || parsed.data.inicio >= parsed.data.fim) {
+    return { status: "error", message: "Período de exportação inválido." };
+  }
+
+  const notas = await prisma.recebimentoNota.findMany({
+    where: {
+      criadoEm: {
+        gte: inicioDoDiaSaoPaulo(parsed.data.inicio),
+        lt: inicioDoDiaSaoPaulo(parsed.data.fim),
+      },
+    },
+    orderBy: [{ criadoEm: "desc" }, { id: "desc" }],
+    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
+  });
+
+  return { status: "success", notas: notas.map(paraNotaDTO) };
+}
+
+export async function buscarNotasOmieRecebimento(): Promise<NotasOmieDTO> {
+  const guarda = await guardar();
+  if (!ehGuarda(guarda)) return guarda;
+
+  return listarNotasOmie();
+}
+
+function dataOmieParaSaoPaulo(data: string | null): Date {
+  const partes = data ? /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(data) : null;
+  return partes ? dataEmissaoSaoPaulo(`${partes[3]}-${partes[2]}-${partes[1]}`) : new Date(Number.NaN);
+}
 
 export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Promise<CriarNotaRecebimentoResult> {
   const guarda = await guardar();
@@ -98,21 +177,27 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
 
   const parsed = criarNotaRecebimentoSchema.safeParse(input);
   if (!parsed.success) {
-    return { status: "error", message: "Preencha número, fornecedor e data da NF." };
+    return { status: "error", message: "Informe o número da NF." };
   }
-  const dataEmissao = dataEmissaoSaoPaulo(parsed.data.dataEmissao);
+  const notaOmie = await localizarNotaEntradaOmie(parsed.data.numero);
+  if (!notaOmie) {
+    return { status: "error", message: "NF-e de entrada não encontrada entre as notas atuais do Omie." };
+  }
+  const dataEmissao = dataOmieParaSaoPaulo(notaOmie.dataEmissao);
   if (Number.isNaN(dataEmissao.getTime())) {
-    return { status: "error", message: "Data de emissão inválida." };
+    return { status: "error", message: "A NF-e do Omie não tem uma data de emissão válida." };
   }
 
   const nota = await prisma.recebimentoNota.create({
     data: {
-      numero: parsed.data.numero,
-      fornecedor: parsed.data.fornecedor,
+      numero: notaOmie.numero,
+      fornecedor: notaOmie.parceiro,
       dataEmissao,
       criadoPorId: guarda.userId,
       criadoPorNome: guarda.nome,
+      itens: { create: notaOmie.produtos.map((produto, ordem) => ({ produto: produto.descricao, ordem })) },
     },
+    include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
   });
 
   await audit({
@@ -120,7 +205,7 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
     action: "recebimento.criarNota",
     entity: "RecebimentoNota",
     entityId: nota.id,
-    summary: `Criou a NF ${nota.numero} (${nota.fornecedor}) no checklist de Recebimento.`,
+    summary: `Criou a NF ${nota.numero} (${nota.fornecedor}) a partir da NF-e de entrada no Omie.`,
     after: nota,
     req: await requestHeaders(),
   });
@@ -128,7 +213,7 @@ export async function criarNotaRecebimento(input: CriarNotaRecebimentoInput): Pr
   revalidatePath(REVALIDAR);
   return {
     status: "success",
-    nota: { id: nota.id, numero: nota.numero, fornecedor: nota.fornecedor, dataEmissao: nota.dataEmissao.toISOString(), itens: [] },
+    nota: paraNotaDTO(nota),
   };
 }
 
@@ -138,11 +223,7 @@ export async function editarNotaRecebimento(input: EditarNotaRecebimentoInput): 
 
   const parsed = editarNotaRecebimentoSchema.safeParse(input);
   if (!parsed.success) {
-    return { status: "error", message: "Preencha número, fornecedor e data da NF." };
-  }
-  const dataEmissao = dataEmissaoSaoPaulo(parsed.data.dataEmissao);
-  if (Number.isNaN(dataEmissao.getTime())) {
-    return { status: "error", message: "Data de emissão inválida." };
+    return { status: "error", message: "Informe o número da NF." };
   }
 
   const antes = await prisma.recebimentoNota.findUnique({ where: { id: parsed.data.id } });
@@ -152,7 +233,7 @@ export async function editarNotaRecebimento(input: EditarNotaRecebimentoInput): 
 
   const nota = await prisma.recebimentoNota.update({
     where: { id: parsed.data.id },
-    data: { numero: parsed.data.numero, fornecedor: parsed.data.fornecedor, dataEmissao },
+    data: { numero: parsed.data.numero },
   });
 
   await audit({
