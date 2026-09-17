@@ -2,6 +2,13 @@
 
 ## 2026-09-17 — Limites de texto no Recebimento
 
+## 2026-09-17 — Normalizacao da autoria da branch
+
+### Resultado
+- Reescritos os 12 commits exclusivos de `feat/planilha-interativa` de `João <dev02@vitalscheffer.com.br>` para `joaovitalscheffer2002 <296499188+joaovitalscheffer2002@users.noreply.github.com>`, como autor e committer.
+- Commits de outras identidades e merges que nao pertenciam a João ficaram fora da reescrita.
+- O conteudo dos commits foi preservado; apenas os metadados e hashes mudaram. A branch remota foi atualizada com `git push --force-with-lease origin feat/planilha-interativa`.
+
 ### Resultado
 - Os campos de busca no Omie, edição do número da NF e inclusão manual de produto agora possuem limites de 200, 60 e 200 caracteres, respectivamente.
 - A alteração foi restrita ao cliente, conforme solicitado; nenhuma action ou contrato de servidor foi modificado.
