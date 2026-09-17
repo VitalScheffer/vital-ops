@@ -5,8 +5,6 @@ const CACHE_SECONDS = 5 * 60;
 
 export interface NotaOmieDTO {
   id: string;
-  tipo: "Entrada" | "Venda";
-  rotuloParceiro: "Fornecedor" | "Cliente";
   numero: string;
   parceiro: string;
   dataEmissao: string | null;
@@ -24,7 +22,6 @@ export type NotasOmieDTO =
   | {
       status: "ok";
       totalEntradas: number;
-      totalVendas: number;
       notas: NotaOmieDTO[];
       atualizadoEm: string;
     }
@@ -66,20 +63,6 @@ function produtosEntrada(recebimento: unknown): ProdutoOmieDTO[] {
   });
 }
 
-function produtosVenda(nota: OmiePayload): ProdutoOmieDTO[] {
-  return lista(nota.det).flatMap((item) => {
-    const produto = comoObjeto(comoObjeto(item)?.prod);
-    const descricao = texto(produto?.xProd);
-    if (!descricao) return [];
-
-    return [{
-      descricao,
-      quantidade: numero(produto?.qCom),
-      unidade: texto(produto?.uCom),
-    }];
-  });
-}
-
 function dataParaOrdem(data: string | null): number {
   if (!data || !/^\d{2}\/\d{2}\/\d{4}$/.test(data)) return 0;
   const [dia, mes, ano] = data.split("/").map(Number);
@@ -97,8 +80,6 @@ function entradasDaResposta(resposta: OmiePayload | null): NotaOmieDTO[] {
 
     return [{
       id: `entrada:${id}`,
-      tipo: "Entrada" as const,
-      rotuloParceiro: "Fornecedor" as const,
       numero: numeroNf,
       parceiro: texto(cabecalho?.cRazaoSocial) ?? texto(cabecalho?.cNome) ?? "Fornecedor não informado",
       dataEmissao: texto(cabecalho?.dEmissaoNFe),
@@ -108,51 +89,16 @@ function entradasDaResposta(resposta: OmiePayload | null): NotaOmieDTO[] {
   });
 }
 
-function vendasDaResposta(resposta: OmiePayload | null): NotaOmieDTO[] {
-  if (!resposta || !Array.isArray(resposta.nfCadastro)) return [];
-
-  return resposta.nfCadastro.flatMap((nf) => {
-    const nota = comoObjeto(nf);
-    if (!nota) return [];
-    const ide = comoObjeto(nota?.ide);
-    const complementar = comoObjeto(nota?.compl);
-    const destinatario = comoObjeto(nota?.nfDestInt);
-    const totalIcms = comoObjeto(comoObjeto(nota?.total)?.ICMSTot);
-    const id = inteiro(complementar?.nIdNF);
-    const numeroNf = texto(ide?.nNF);
-    if (id === null || !numeroNf) return [];
-
-    return [{
-      id: `venda:${id}`,
-      tipo: "Venda" as const,
-      rotuloParceiro: "Cliente" as const,
-      numero: numeroNf,
-      parceiro: texto(destinatario?.cRazao) ?? "Cliente não informado",
-      dataEmissao: texto(ide?.dEmi),
-      valor: numero(totalIcms?.vNF),
-      produtos: produtosVenda(nota),
-    }];
-  });
-}
-
 // Espelha as duas origens fiscais do Omie. A leitura é isolada do checklist
 // manual: não persiste, não exporta e não altera dados do Omie.
 export async function listarNotasOmie(): Promise<NotasOmieDTO> {
   try {
-    const [primeiraPaginaEntradas, respostaVendas] = await Promise.all([
-      chamar(
-        "produtos/recebimentonfe",
-        "ListarRecebimentos",
-        { nPagina: 1, nRegistrosPorPagina: NOTAS_POR_ORIGEM, cEtapa: "40" },
-        { ttlSeconds: CACHE_SECONDS },
-      ),
-      chamar(
-        "produtos/nfconsultar",
-        "ListarNF",
-        { pagina: 1, registros_por_pagina: NOTAS_POR_ORIGEM, ordenar_por: "CODIGO", ordem_decrescente: "S", tpNF: "1", filtrar_por_status: "N", cApenasResumo: "N" },
-        { ttlSeconds: CACHE_SECONDS },
-      ),
-    ]);
+    const primeiraPaginaEntradas = await chamar(
+      "produtos/recebimentonfe",
+      "ListarRecebimentos",
+      { nPagina: 1, nRegistrosPorPagina: NOTAS_POR_ORIGEM, cEtapa: "40" },
+      { ttlSeconds: CACHE_SECONDS },
+    );
 
     const totalEntradas = inteiro(primeiraPaginaEntradas?.nTotalRegistros) ?? 0;
     const paginaFinalEntradas = Math.max(inteiro(primeiraPaginaEntradas?.nTotalPaginas) ?? 1, 1);
@@ -166,8 +112,7 @@ export async function listarNotasOmie(): Promise<NotasOmieDTO> {
     return {
       status: "ok",
       totalEntradas,
-      totalVendas: inteiro(respostaVendas?.total_de_registros) ?? 0,
-      notas: [...entradasDaResposta(respostaEntradas), ...vendasDaResposta(respostaVendas)].sort(
+      notas: entradasDaResposta(respostaEntradas).sort(
         (a, b) => dataParaOrdem(b.dataEmissao) - dataParaOrdem(a.dataEmissao),
       ),
       atualizadoEm: new Date().toISOString(),
@@ -182,5 +127,17 @@ export async function localizarNotaEntradaOmie(numero: string): Promise<NotaOmie
   const resposta = await listarNotasOmie();
   if (resposta.status === "error") return null;
 
-  return resposta.notas.find((nota) => nota.tipo === "Entrada" && nota.numero === numero) ?? null;
+  return resposta.notas.find((nota) => nota.numero === numero) ?? null;
+}
+
+// A última página da consulta do Omie contém as entradas mais antigas. Ela
+// define o começo real do calendário de emissão, sem inventar meses sem NF.
+export async function obterDataMaisAntigaNotaEntradaOmie(): Promise<string | null> {
+  const resposta = await listarNotasOmie();
+  if (resposta.status === "error") return null;
+
+  return resposta.notas
+    .map((nota) => nota.dataEmissao)
+    .filter((data): data is string => data !== null)
+    .sort((a, b) => dataParaOrdem(a) - dataParaOrdem(b))[0] ?? null;
 }

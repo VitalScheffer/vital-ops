@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   localizarNotaEntradaOmie: vi.fn(),
   listarNotasOmie: vi.fn(),
   findUnique: vi.fn(),
+  findMany: vi.fn(),
   criarNota: vi.fn(),
   aggregate: vi.fn(),
   create: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("@/lib/rbac", () => ({ canViewRecebimento: mocks.canViewRecebimento }));
 vi.mock("@/lib/db", () => ({
   prisma: {
     $transaction: mocks.transaction,
-    recebimentoNota: { findUnique: mocks.findUnique, create: mocks.criarNota },
+    recebimentoNota: { findUnique: mocks.findUnique, findMany: mocks.findMany, create: mocks.criarNota },
     recebimentoItem: { aggregate: mocks.aggregate, create: mocks.create },
   },
 }));
@@ -39,6 +40,7 @@ import {
   buscarNotasOmieRecebimento,
   criarNotaRecebimento,
   editarNotaRecebimento,
+  listarNotasRecebimentoParaExportacao,
   marcarCheckRecebimento,
   marcarColunaRecebimento,
   removerItemRecebimento,
@@ -94,6 +96,7 @@ describe("adicionarItemRecebimento", () => {
 describe("guard de Recebimento", () => {
   const chamadas = [
     () => buscarNotasOmieRecebimento(),
+    () => listarNotasRecebimentoParaExportacao({ inicio: "2026-09-14", fim: "2026-09-20" }),
     () => criarNotaRecebimento({ numero: "123" }),
     () => editarNotaRecebimento({ id: "nota-1", numero: "123" }),
     () => removerNotaRecebimento({ id: "nota-1" }),
@@ -118,6 +121,7 @@ describe("guard de Recebimento", () => {
     resultados.forEach((resultado) => expect(resultado).toMatchObject({ status: "error", message: expect.any(String) }));
     expect(mocks.getRolePermissionsMap).not.toHaveBeenCalled();
     expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.findMany).not.toHaveBeenCalled();
     expect(mocks.aggregate).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.listarNotasOmie).not.toHaveBeenCalled();
@@ -134,6 +138,7 @@ describe("guard de Recebimento", () => {
     resultados.forEach((resultado) => expect(resultado).toMatchObject({ status: "error", message: expect.any(String) }));
     expect(mocks.getRolePermissionsMap).toHaveBeenCalledTimes(chamadas.length);
     expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.findMany).not.toHaveBeenCalled();
     expect(mocks.aggregate).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.listarNotasOmie).not.toHaveBeenCalled();
@@ -164,6 +169,7 @@ describe("criarNotaRecebimento", () => {
       numero: "123",
       fornecedor: "Fornecedor Omie",
       dataEmissao: new Date("2026-09-14T03:00:00.000Z"),
+      criadoEm: new Date("2026-09-16T12:00:00.000Z"),
       itens: [{ id: "item-1", produto: "Produto vindo do Omie", materialRecebido: false, temOC: false, ocAprovado: false, nfeLancada: false }],
     });
     mocks.audit.mockResolvedValue(undefined);
@@ -198,12 +204,42 @@ describe("buscarNotasOmieRecebimento", () => {
     mocks.auth.mockResolvedValue({ user: { id: "user-1", name: "Ana", email: "ana@vitalscheffer.com.br", role: "FUNCIONARIO" } });
     mocks.getRolePermissionsMap.mockResolvedValue({});
     mocks.canViewRecebimento.mockReturnValue(true);
-    mocks.listarNotasOmie.mockResolvedValue({ status: "ok", totalEntradas: 1, totalVendas: 1, notas: [], atualizadoEm: "2026-09-15T17:00:00.000Z" });
+    mocks.listarNotasOmie.mockResolvedValue({ status: "ok", totalEntradas: 1, notas: [], atualizadoEm: "2026-09-15T17:00:00.000Z" });
   });
 
   it("consulta o Omie somente quando a pessoa autorizada pedir a busca", async () => {
-    await expect(buscarNotasOmieRecebimento()).resolves.toMatchObject({ status: "ok", totalEntradas: 1, totalVendas: 1 });
+    await expect(buscarNotasOmieRecebimento()).resolves.toMatchObject({ status: "ok", totalEntradas: 1 });
 
     expect(mocks.listarNotasOmie).toHaveBeenCalledOnce();
+  });
+});
+
+describe("listarNotasRecebimentoParaExportacao", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.auth.mockResolvedValue({ user: { id: "user-1", name: "Ana", email: "ana@vitalscheffer.com.br", role: "FUNCIONARIO" } });
+    mocks.getRolePermissionsMap.mockResolvedValue({});
+    mocks.canViewRecebimento.mockReturnValue(true);
+    mocks.findMany.mockResolvedValue([
+      {
+        id: "nota-1",
+        numero: "123",
+        fornecedor: "Fornecedor",
+        dataEmissao: new Date("2026-09-11T03:00:00.000Z"),
+        criadoEm: new Date("2026-09-14T03:00:00.000Z"),
+        itens: [{ id: "item-1", produto: "Produto", materialRecebido: true, temOC: false, ocAprovado: false, nfeLancada: false }],
+      },
+    ]);
+  });
+
+  it("busca todas as NFs da semana de inclusão, inclusive fora da página visível", async () => {
+    const resultado = await listarNotasRecebimentoParaExportacao({ inicio: "2026-09-14", fim: "2026-09-20" });
+
+    expect(mocks.findMany).toHaveBeenCalledWith({
+      where: { criadoEm: { gte: new Date("2026-09-14T03:00:00.000Z"), lt: new Date("2026-09-20T03:00:00.000Z") } },
+      orderBy: [{ criadoEm: "desc" }, { id: "desc" }],
+      include: { itens: { orderBy: [{ ordem: "asc" }, { id: "asc" }] } },
+    });
+    expect(resultado).toMatchObject({ status: "success", notas: [{ id: "nota-1", numero: "123" }] });
   });
 });
