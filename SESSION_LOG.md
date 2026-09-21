@@ -26,7 +26,7 @@
 - `npx tsc --noEmit`, `npm run lint`, `npx vitest run` (787 testes, 71 arquivos), `npm run build`: tudo limpo.
 
 ### Pendências / próximos passos
-- **Nada foi commitado nem publicado**: aguardando o ok do Vitor.
+- Publicado a pedido do Vitor: commit `5d74559` no `master` (o repo não tem `main`), deploy da Vercel concluído com sucesso (status "Vercel: Deployment has completed" no commit).
 - Não houve escrita real no Omie nesta sessão. O primeiro envio de verdade é o teste ao vivo de `AlterarEstrutura`/`ExcluirEstrutura`: conferir no Omie que a quantidade mudou, que perda/observação ficaram e que a linha removida saiu. Sugestão: começar por uma BOM pequena com uma quantidade alterada e uma peça retirada.
 
 ## 2026-09-17 — Limites de texto no Recebimento
