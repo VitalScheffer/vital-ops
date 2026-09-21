@@ -60,6 +60,7 @@ export interface EnviarAoOmieResult {
 
 const STATUS_PRODUTO: Record<OutcomeEnvio, string> = {
   enviado: "ENVIADO",
+  atualizado: "ENVIADO", // só a estrutura usa; aqui por completude do Record
   ja_existia: "ENVIADO", // Upsert idempotente atualizou o registro existente
   falha: "FALHA",
   nao_enviado: "NOVO", // segue pendente para um novo envio
@@ -67,6 +68,7 @@ const STATUS_PRODUTO: Record<OutcomeEnvio, string> = {
 
 const STATUS_ESTRUTURA: Record<OutcomeEnvio, string> = {
   enviado: "ENVIADO",
+  atualizado: "ENVIADO", // quantidade sobrescrita no Omie
   ja_existia: "ENVIADO",
   falha: "FALHA",
   nao_enviado: "PENDENTE",
@@ -81,7 +83,7 @@ function nomeArquivoPadrao(): string {
 }
 
 function foiEnviado(outcome: OutcomeEnvio): boolean {
-  return outcome === "enviado" || outcome === "ja_existia";
+  return outcome === "enviado" || outcome === "atualizado" || outcome === "ja_existia";
 }
 
 function houveFalha(resultado: EnvioResultado): boolean {
@@ -89,7 +91,8 @@ function houveFalha(resultado: EnvioResultado): boolean {
   return (
     resultado.familias.some((f) => f.outcome === "falha") ||
     resultado.produtos.some((p) => p.outcome === "falha") ||
-    resultado.estrutura.some((e) => e.outcome === "falha")
+    resultado.estrutura.some((e) => e.outcome === "falha") ||
+    resultado.remocoes.some((r) => r.outcome === "falha")
   );
 }
 
@@ -205,6 +208,13 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       familias: resultado.familias.map((f) => ({ familia: f.familia, outcome: f.outcome })),
       // Detalhe das falhas (o quê + porquê) para o admin auditar sem abrir o banco.
       falhas: falhasDetalhadas(resultado),
+      // O espelho da estrutura APAGA linhas no Omie: fica tudo registrado aqui
+      // (pai, filho, quantidade, id da linha) pra dar pra recolocar à mão.
+      estruturaAtualizada: resultado.estrutura
+        .filter((e) => e.outcome === "atualizado")
+        .map((e) => ({ pai: e.codigoPai, filho: e.codigoFilho, detalhe: e.detalhe ?? null })),
+      estruturaRemovida: resultado.remocoes,
+      paisNaoConferidos: resultado.paisNaoConferidos,
     },
     req: await requestHeaders(),
   });
@@ -276,6 +286,13 @@ function falhasDetalhadas(resultado: EnvioResultado): FalhaDetalhada[] {
         ref: `${e.codigoPai}→${e.codigoFilho}`,
         motivo: e.motivo ?? null,
       })),
+    ...resultado.remocoes
+      .filter((r) => r.outcome === "falha")
+      .map((r): FalhaDetalhada => ({
+        tipo: "estrutura",
+        ref: `${r.codigoPai}→${r.codigoFilho} (remoção)`,
+        motivo: r.motivo ?? null,
+      })),
   ];
 }
 
@@ -289,7 +306,15 @@ function resumoAuditoria(resultado: EnvioResultado): string {
   if (naoEnviados > 0) partes.push(`${naoEnviados} não alcançado(s)`);
   if (recusados > 0) partes.push(`${recusados} recusado(s) por não serem novos`);
   const estruturaEnviada = resultado.estrutura.filter((e) => foiEnviado(e.outcome)).length;
-  let texto = `Envio ao Omie: ${partes.join(", ")}. Estrutura: ${estruturaEnviada}/${resultado.estrutura.length} relação(ões).`;
+  let texto = `Envio ao Omie: ${partes.join(", ")}. Estrutura: ${estruturaEnviada}/${resultado.estrutura.length} relação(ões)`;
+  const atualizadas = resultado.estrutura.filter((e) => e.outcome === "atualizado").length;
+  const removidas = resultado.remocoes.filter((r) => r.outcome === "removido").length;
+  if (atualizadas > 0) texto += `, ${atualizadas} com quantidade sobrescrita`;
+  if (removidas > 0) texto += `, ${removidas} linha(s) removida(s) do Omie por não estarem mais na BOM`;
+  texto += ".";
+  if (resultado.paisNaoConferidos.length > 0) {
+    texto += ` ${resultado.paisNaoConferidos.length} pai(s) sem conferência da estrutura atual (só inclusão).`;
+  }
   if (resultado.interrompido) {
     texto += resultado.bloqueado
       ? " Lote interrompido: Omie bloqueou/breaker aberto."

@@ -1,5 +1,34 @@
 # SESSION_LOG — vital-ops
 
+## 2026-09-21: Envio de estrutura ao Omie passa a sobrescrever (espelho da BOM)
+
+### Resumo
+- Pedido do Vitor: ao subir as estruturas da BOM, o vital-ops não sobrescrevia o que já estava no Omie.
+- Causa (lida no código): o envio só conhecia `IncluirEstrutura`. Relação que já existia no pai virava "Já existia" e era pulada, então a quantidade nova nunca chegava; e o filho que saiu da BOM continuava no Omie. Além disso, a pré-checagem da malha desistia depois de 3 pais vazios seguidos e os pais seguintes caíam no "duplicado = já existia" sem leitura nenhuma.
+- Decisão do Vitor (perguntado, 21/09): **espelho exato**. A estrutura de cada pai do envio fica igual à BOM: quantidade diferente vira `AlterarEstrutura`, filho que falta vira `IncluirEstrutura`, linha do Omie que não está na BOM vira `ExcluirEstrutura`. Pai fora do envio não é lido nem mexido.
+- Campos confirmados no WSDL oficial (`geral/malha/?WSDL`): `AlterarEstrutura` = `idProduto` + `itemMalhaAlterar[]` (`idMalha`, `idProdMalha`, `quantProdMalha`, `percPerdaProdMalha`, `obsProdMalha`); `ExcluirEstrutura` = `idProduto` + `idMalha` (ou `intMalha`) no topo, uma linha por chamada.
+
+### Arquivos alterados
+- `src/lib/produtos/envioOmie.ts`: etapa 3 reescrita como espelho por pai. Lê a malha atual (`ConsultarEstrutura`) só de pai que já existia antes do lote (ou quando a pré-checagem falhou), casa as linhas pelo id do filho e, sem id, pelo código; planeja tudo antes de escrever; inclui/altera primeiro e remove depois. Alteração devolve perda e observação que estavam no Omie. Mesma peça repetida sob o mesmo número de pai na BOM soma numa linha; submontagem repetida em dois lugares usa a primeira ocorrência. Linha repetida da mesma peça no Omie: fica uma. Novos outcomes `atualizado` (estrutura) e `removido` (remoções); `EnvioResultado` ganhou `remocoes` e `paisNaoConferidos`. Busca de id em maiúsculas (montagem digitada em minúsculas agora acha o id e é espelhada). Saiu `precarregarEstruturas`.
+- `src/lib/produtos/envioOmie.test.ts`: 13 testes novos (sobrescrita, remoção, casamento por código, soma, linha repetida, leitura com erro, falha e bloqueio na remoção, pai fora do envio, montagem em minúsculas, aviso de pais não conferidos); 2 antigos ajustados para o espelho.
+- `src/app/(app)/produtos/enviar-actions.ts`: `atualizado` grava `ENVIADO` (contrato do banco não mudou); falha de remoção entra em `houveFalha` e nas falhas detalhadas; auditoria guarda `estruturaAtualizada`, `estruturaRemovida` (pai, filho, quantidade, idMalha) e `paisNaoConferidos`.
+- `src/components/produtos/ProdutosClient.tsx`: badges Atualizado/Removido, detalhe "Quantidade no Omie: X → Y", resumo da estrutura, aviso de pais não conferidos e tabela "Removidos da estrutura no Omie".
+- `src/components/produtos/EstruturaPreview.tsx` e `MateriaPrimaTable.tsx`: aviso antes do envio de que o pai existente é sobrescrito e que relação desmarcada sai do Omie.
+- `src/lib/changelog.ts`: entrada de 21/09 em /novidades.
+
+### Decisões importantes
+- Leitura da malha continua limitada a 3 vazios seguidos (vazio conta como erro no Omie, 10 seguidos no mesmo método bloqueiam a chave). Depois disso os pais recebem só inclusão e voltam em `paisNaoConferidos`; o reenvio completa o espelho porque aí eles já têm estrutura.
+- Leitura que falha (`null`) é tratada diferente de vazia: sem saber o que existe, não remove nem altera nada.
+- Relação desmarcada na revisão sai do Omie se o pai estiver no envio (consequência direta do espelho); pai com tudo desmarcado não entra no envio e fica intacto. Isso está escrito na tela.
+
+### Comandos
+- `npx vitest run src/lib/produtos/envioOmie.test.ts` (12 vermelhos antes da correção, 58/58 depois)
+- `npx tsc --noEmit`, `npm run lint`, `npx vitest run` (787 testes, 71 arquivos), `npm run build`: tudo limpo.
+
+### Pendências / próximos passos
+- **Nada foi commitado nem publicado**: aguardando o ok do Vitor.
+- Não houve escrita real no Omie nesta sessão. O primeiro envio de verdade é o teste ao vivo de `AlterarEstrutura`/`ExcluirEstrutura`: conferir no Omie que a quantidade mudou, que perda/observação ficaram e que a linha removida saiu. Sugestão: começar por uma BOM pequena com uma quantidade alterada e uma peça retirada.
+
 ## 2026-09-17 — Limites de texto no Recebimento
 
 ### Resultado

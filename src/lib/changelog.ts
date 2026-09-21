@@ -24,6 +24,18 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-09-21",
+    title: "Produtos: o envio sobrescreve a estrutura que já está no Omie",
+    items: [
+      "Reenviar uma BOM revisada agora deixa a estrutura do Omie igual à BOM. Antes, a relação que já existia era só marcada \"Já existia\" e ficava com a quantidade antiga, e a peça que saiu da BOM continuava no Omie.",
+      "Quantidade diferente é sobrescrita (aparece como \"Atualizado\", com a quantidade antiga e a nova). A perda e a observação que alguém preencheu à mão no Omie são mantidas.",
+      "Peça que está no Omie mas não está mais na BOM é removida da estrutura daquele pai. O resultado do envio lista cada remoção com pai, filho e quantidade, e tudo fica registrado na auditoria para dar para recolocar à mão.",
+      "Relação desmarcada na revisão também sai do Omie se o pai estiver no envio. Pai com todas as relações desmarcadas não é mexido.",
+      "A mesma peça repetida debaixo do mesmo pai na BOM soma numa linha só. Linha repetida da mesma peça no Omie fica uma só.",
+      "Numa BOM com muitos pais ainda sem estrutura, a conferência pausa depois de alguns, para não arriscar o bloqueio da chave do Omie. Os pais que ficaram sem conferência aparecem num aviso: é só reenviar a mesma BOM daqui a alguns minutos.",
+    ],
+  },
+  {
     date: "2026-09-15",
     title: "Multiplicador: permissão própria e total em KG por tipo na OP",
     items: [

@@ -13,10 +13,12 @@ import {
   Network,
   PencilLine,
   Receipt,
+  RefreshCw,
   RotateCcw,
   Scale,
   Send,
   ShieldAlert,
+  Trash2,
   Warehouse,
   XCircle,
   type LucideIcon,
@@ -33,7 +35,7 @@ import { enviarAoOmie } from "@/app/(app)/produtos/enviar-actions";
 import { carregarCatalogoMat, verificarMontagem, type MontagemResult } from "@/app/(app)/produtos/mp-actions";
 import { criarReport } from "@/app/(app)/reports-actions";
 import { IDLE_FORM_STATE } from "@/lib/form";
-import type { OutcomeEnvio } from "@/lib/produtos/envioOmie";
+import type { OutcomeEnvio, OutcomeRemocao } from "@/lib/produtos/envioOmie";
 import type { ItemMat } from "@/lib/produtos/materiaPrima";
 import { NCM_PADRAO } from "@/lib/produtos/ncm";
 import { lerBomDeArquivo } from "@/lib/bom/bomFile";
@@ -106,14 +108,23 @@ function nomeArquivoSaida(): string {
 // A tipagem do resultado vem da própria Server Action (fonte única da verdade).
 type EnvioState = Awaited<ReturnType<typeof enviarAoOmie>>;
 
-const OUTCOME_META: Record<OutcomeEnvio, { label: string; icon: typeof CheckCircle2; className: string }> = {
+const OUTCOME_META: Record<
+  OutcomeEnvio | OutcomeRemocao,
+  { label: string; icon: typeof CheckCircle2; className: string }
+> = {
   enviado: { label: "Enviado", icon: CheckCircle2, className: "text-success" },
+  atualizado: { label: "Atualizado", icon: RefreshCw, className: "text-primary" },
   ja_existia: { label: "Já existia", icon: RotateCcw, className: "text-warning" },
+  removido: { label: "Removido", icon: Trash2, className: "text-warning" },
   falha: { label: "Falha", icon: XCircle, className: "text-danger" },
   nao_enviado: { label: "Não enviado", icon: MinusCircle, className: "text-muted-foreground" },
 };
 
-function OutcomeBadge({ outcome }: { outcome: OutcomeEnvio }) {
+function formatarQtd(valor: number | undefined): string {
+  return valor === undefined ? "—" : valor.toLocaleString("pt-BR", { maximumFractionDigits: 6 });
+}
+
+function OutcomeBadge({ outcome }: { outcome: OutcomeEnvio | OutcomeRemocao }) {
   const meta = OUTCOME_META[outcome];
   const Icon = meta.icon;
   return (
@@ -194,6 +205,23 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
             <Network className="h-4 w-4 text-primary" />
             Estrutura (pai → filho)
           </h3>
+          <ResumoEstrutura resultado={resultado} />
+          {resultado.paisNaoConferidos.length > 0 && (
+            <div className="flex items-start gap-2 rounded-2xl bg-warning-dim px-4 py-3 text-sm text-warning ring-1 ring-inset ring-warning/25">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {resultado.paisNaoConferidos.length} pai(s) não foram conferidos contra a estrutura que já está no Omie
+                (a leitura pausa depois de alguns pais sem estrutura, para não arriscar o bloqueio da chave). Neles os
+                itens da BOM foram incluídos, mas quantidade antiga e item que saiu da BOM não foram sobrescritos.{" "}
+                <strong>Reenvie a mesma BOM daqui a alguns minutos</strong> para completar:{" "}
+                <span className="font-mono text-xs">
+                  {resultado.paisNaoConferidos.slice(0, 5).join(", ")}
+                  {resultado.paisNaoConferidos.length > 5 ? ` e mais ${resultado.paisNaoConferidos.length - 5}` : ""}
+                </span>
+                .
+              </span>
+            </div>
+          )}
           <div className="overflow-x-auto rounded-2xl border border-border">
             <table className="w-full min-w-[32rem] text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
@@ -209,6 +237,9 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
                     <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-foreground">{rel.codigoPai}</td>
                     <td className="px-3 py-2">
                       <span className="font-mono text-xs text-foreground">{rel.codigoFilho}</span>
+                      {rel.detalhe ? (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{rel.detalhe}</span>
+                      ) : null}
                       {rel.motivo ? <span className="mt-0.5 block text-xs text-danger">{rel.motivo}</span> : null}
                     </td>
                     <td className="px-3 py-2">
@@ -221,8 +252,65 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
           </div>
         </div>
       )}
+
+      {resultado.remocoes.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Trash2 className="h-4 w-4 text-warning" />
+            Removidos da estrutura no Omie (não estão mais na BOM)
+          </h3>
+          <div className="overflow-x-auto rounded-2xl border border-border">
+            <table className="w-full min-w-[32rem] text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Pai</th>
+                  <th className="px-3 py-2 font-medium">Filho</th>
+                  <th className="px-3 py-2 font-medium">Qtd</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultado.remocoes.map((r, i) => (
+                  <tr key={`${r.codigoPai}>${r.idMalha ?? r.codigoFilho}>${i}`} className="border-t border-border/60">
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-foreground">{r.codigoPai}</td>
+                    <td className="px-3 py-2">
+                      <span className="font-mono text-xs text-foreground">{r.codigoFilho}</span>
+                      {r.descricaoFilho ? <span className="text-muted-foreground"> — {r.descricaoFilho}</span> : null}
+                      {r.motivo ? <span className="mt-0.5 block text-xs text-danger">{r.motivo}</span> : null}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
+                      {formatarQtd(r.quantidade)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <OutcomeBadge outcome={r.outcome} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+// Uma linha com o que o espelho fez na estrutura: quanto entrou, quanto teve a
+// quantidade sobrescrita, quanto já estava igual e quanto saiu do Omie.
+function ResumoEstrutura({ resultado }: { resultado: NonNullable<EnvioState["resultado"]> }) {
+  const contar = (o: OutcomeEnvio) => resultado.estrutura.filter((e) => e.outcome === o).length;
+  const partes = [
+    [contar("enviado"), "incluída(s)"],
+    [contar("atualizado"), "com quantidade atualizada"],
+    [contar("ja_existia"), "já estava(m) igual(is)"],
+    [resultado.remocoes.filter((r) => r.outcome === "removido").length, "removida(s) do Omie"],
+  ] as const;
+  const texto = partes
+    .filter(([n]) => n > 0)
+    .map(([n, rotulo]) => `${n} ${rotulo}`)
+    .join(" · ");
+  if (!texto) return null;
+  return <p className="text-xs text-muted-foreground">{texto}</p>;
 }
 
 // Anexo do report auto = mesmo teto do report manual (cabe na resposta serverless).
@@ -236,7 +324,8 @@ function envioTeveFalha(estado: EnvioState): boolean {
   return (
     r.familias.some((f) => f.outcome === "falha") ||
     r.produtos.some((p) => p.outcome === "falha") ||
-    r.estrutura.some((e) => e.outcome === "falha")
+    r.estrutura.some((e) => e.outcome === "falha") ||
+    r.remocoes.some((x) => x.outcome === "falha")
   );
 }
 
@@ -262,6 +351,9 @@ function mensagemFalhaEnvio(estado: EnvioState): string {
   }
   for (const e of r.estrutura.filter((x) => x.outcome === "falha")) {
     linhas.push(`Estrutura ${e.codigoPai} → ${e.codigoFilho}: ${e.motivo ?? "falha"}`);
+  }
+  for (const x of r.remocoes.filter((y) => y.outcome === "falha")) {
+    linhas.push(`Remoção da estrutura ${x.codigoPai} → ${x.codigoFilho}: ${x.motivo ?? "falha"}`);
   }
   return linhas.join("\n").slice(0, 4000);
 }

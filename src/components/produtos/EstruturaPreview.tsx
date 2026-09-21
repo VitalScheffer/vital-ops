@@ -1,6 +1,6 @@
 "use client";
 
-import { Network } from "lucide-react";
+import { AlertTriangle, Network } from "lucide-react";
 
 import { motivoEstrutura, type EstruturaReviewItem } from "@/lib/bom/review";
 
@@ -28,6 +28,14 @@ export function EstruturaPreview({ itens, onToggle, onQuantidade }: EstruturaPre
           </p>
         </div>
       </div>
+      <p className="flex items-start gap-1.5 border-b border-border bg-warning-dim/40 px-4 py-2 text-xs text-foreground">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+        <span>
+          No envio, a estrutura de cada pai que já existe no Omie fica <strong>igual a esta lista</strong>: a quantidade
+          daqui sobrescreve a de lá, e o filho que estiver no Omie mas desmarcado ou fora da BOM{" "}
+          <strong>sai do Omie</strong>. Pai com todas as relações desmarcadas não é mexido.
+        </span>
+      </p>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">

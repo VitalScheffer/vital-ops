@@ -38,7 +38,8 @@ export function MateriaPrimaTable({
           <p className="text-xs text-muted-foreground">
             {incluidas} de {itens.length} peça(s) com a matéria-prima confirmada. Cada uma vira uma linha da estrutura
             da própria peça, com o consumo de UMA peça na unidade do cadastro no Omie (KG no aço, M no perfil de
-            borracha, M² no tecido).
+            borracha, M² no tecido). Se a peça já tem estrutura no Omie, ela é sobrescrita: fica só a matéria-prima
+            marcada aqui. Peça desmarcada não é mexida.
           </p>
         </div>
       </div>

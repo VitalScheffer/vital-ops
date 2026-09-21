@@ -195,7 +195,7 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
     expect(await gerar()).toBe(await gerar());
   });
 
-  it("pula a relação de estrutura que JÁ existe no pai (reenvio idempotente, sem IncluirEstrutura)", async () => {
+  it("pula a relação que JÁ existe no pai com a MESMA quantidade (reenvio sem nenhuma escrita)", async () => {
     const { fn, calls } = mockChamar((rec) => {
       if (rec.call === "ListarProdutos") {
         return {
@@ -205,15 +205,18 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
           ],
         };
       }
-      if (rec.call === "ConsultarEstrutura") return { itens: [{ idProdMalha: 600 }] }; // PAI->FILHO já existe
+      if (rec.call === "ConsultarEstrutura") {
+        return { itens: [{ idMalha: 9001, idProdMalha: 600, codProdMalha: "FILHO", quantProdMalha: 2 }] };
+      }
       return {};
     });
     const res = await orquestrarEnvio({ novos: [item("PAI", null)], estrutura: [rel("PAI", "FILHO", 2)] }, fn);
     expect(res.estrutura[0].outcome).toBe("ja_existia");
-    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(false);
+    expect(calls.filter((c) => c.path === "geral/malha/").map((c) => c.call)).toEqual(["ConsultarEstrutura"]);
+    expect(res.remocoes).toEqual([]);
   });
 
-  it("inclui a relação nova mesmo quando o pai já tem OUTRAS relações", async () => {
+  it("espelho: inclui o filho novo e REMOVE do Omie o que não está mais na BOM", async () => {
     const { fn, calls } = mockChamar((rec) => {
       if (rec.call === "ListarProdutos") {
         return {
@@ -223,12 +226,33 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
           ],
         };
       }
-      if (rec.call === "ConsultarEstrutura") return { itens: [{ idProdMalha: 999 }] }; // outra relação, não a nossa
+      if (rec.call === "ConsultarEstrutura") {
+        // Outra peça, que saiu da BOM nesta revisão.
+        return {
+          itens: [{ idMalha: 7, idProdMalha: 999, codProdMalha: "VELHO", descrProdMalha: "PEÇA VELHA", quantProdMalha: 3 }],
+        };
+      }
       return {};
     });
     const res = await orquestrarEnvio({ novos: [item("PAI", null)], estrutura: [rel("PAI", "FILHO", 2)] }, fn);
+
     expect(res.estrutura[0].outcome).toBe("enviado");
-    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(true);
+    // Inclui primeiro, remove depois: se o lote parar no meio, sobra item em vez de faltar.
+    expect(calls.filter((c) => c.path === "geral/malha/").map((c) => c.call)).toEqual([
+      "ConsultarEstrutura",
+      "IncluirEstrutura",
+      "ExcluirEstrutura",
+    ]);
+    expect(calls.find((c) => c.call === "ExcluirEstrutura")?.param).toEqual({ idProduto: 500, idMalha: 7 });
+    expect(res.remocoes).toEqual([
+      expect.objectContaining({
+        codigoPai: "PAI",
+        codigoFilho: "VELHO",
+        descricaoFilho: "PEÇA VELHA",
+        quantidade: 3,
+        outcome: "removido",
+      }),
+    ]);
   });
 
   it("usa quantidade 1 quando a relação vem sem quantidade", async () => {
@@ -819,6 +843,220 @@ describe("orquestrarEnvio — pré-checagem de estrutura não queima o breaker",
     );
 
     expect(calls.filter((c) => c.call === "ConsultarEstrutura").length).toBeLessThanOrEqual(3);
+  });
+
+  it("avisa quais pais ficaram sem conferência depois que a leitura pausou", async () => {
+    const pais = Array.from({ length: 5 }, (_, i) => `PAI${i}0 SM001 CCCCC`);
+    const { fn } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            ...pais.map((codigo, i) => ({ codigo, codigo_produto: 100 + i })),
+            { codigo: "BBBBB PC001 CCSLD", codigo_produto: 999 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") return null;
+      return {};
+    });
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: pais.map((pai) => rel(pai, "BBBBB PC001 CCSLD", 1)) }, fn);
+
+    // Os 3 primeiros foram lidos (vazios); os 2 últimos não, e a tela precisa dizer.
+    expect(res.paisNaoConferidos).toEqual([pais[3], pais[4]]);
+    // Os filhos ainda entram (pai sem estrutura é o caso comum aqui).
+    expect(res.estrutura.every((r) => r.outcome === "enviado")).toBe(true);
+  });
+});
+
+describe("orquestrarEnvio — sobrescreve a estrutura que já existe no Omie", () => {
+  const PRODUTOS = {
+    produto_servico_cadastro: [
+      { codigo: "PAI", codigo_produto: 500 },
+      { codigo: "FILHO", codigo_produto: 600 },
+      { codigo: "OUTRO", codigo_produto: 700 },
+    ],
+  };
+
+  function comEstrutura(itens: OmiePayload[], extra: Comportamento = () => ({})) {
+    return mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") return PRODUTOS;
+      if (rec.call === "ConsultarEstrutura") return { itens };
+      return extra(rec);
+    });
+  }
+
+  it("quantidade diferente vira AlterarEstrutura na linha que já existe (não inclui outra)", async () => {
+    const { fn, calls } = comEstrutura([
+      { idMalha: 9001, idProdMalha: 600, codProdMalha: "FILHO", quantProdMalha: 1, percPerdaProdMalha: 5, obsProdMalha: "corte a laser" },
+    ]);
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("PAI", "FILHO", 4)] }, fn);
+
+    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(false);
+    expect(calls.find((c) => c.call === "AlterarEstrutura")?.param).toEqual({
+      idProduto: 500,
+      // Perda e observação que alguém pôs à mão no Omie são mantidas.
+      itemMalhaAlterar: [
+        { idMalha: 9001, idProdMalha: 600, quantProdMalha: 4, percPerdaProdMalha: 5, obsProdMalha: "corte a laser" },
+      ],
+    });
+    expect(res.estrutura[0]).toMatchObject({ outcome: "atualizado" });
+    expect(res.estrutura[0].detalhe).toMatch(/1.*→.*4/);
+    expect(res.interrompido).toBe(false);
+  });
+
+  it("casa pelo CÓDIGO quando o id do filho não é conhecido (não duplica a linha)", async () => {
+    // Pré-checagem não trouxe o filho: só o código da linha do Omie identifica.
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") return { produto_servico_cadastro: [{ codigo: "PAI", codigo_produto: 500 }] };
+      if (rec.call === "ConsultarEstrutura") {
+        return { itens: [{ idMalha: 9001, idProdMalha: 612, codProdMalha: "CREHI PC015 ITSLD", quantProdMalha: 1 }] };
+      }
+      return {};
+    });
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("PAI", "CREHI PC015 ITSLD", 3)] }, fn);
+
+    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(false);
+    expect(calls.some((c) => c.call === "ExcluirEstrutura")).toBe(false);
+    expect(calls.find((c) => c.call === "AlterarEstrutura")?.param).toMatchObject({
+      itemMalhaAlterar: [{ idMalha: 9001, quantProdMalha: 3 }],
+    });
+    expect(res.estrutura[0].outcome).toBe("atualizado");
+  });
+
+  it("a mesma peça repetida sob o MESMO pai soma numa linha só", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    const estrutura: EstruturaRel[] = [
+      { ...rel("PAI", "PARAFUSO", 2), numeroPai: "1", numeroFilho: "1.1" },
+      { ...rel("PAI", "PARAFUSO", 3), numeroPai: "1", numeroFilho: "1.4" },
+    ];
+
+    const res = await orquestrarEnvio({ novos: [], estrutura }, fn);
+
+    const inclusoes = calls.filter((c) => c.call === "IncluirEstrutura");
+    expect(inclusoes).toHaveLength(1);
+    expect(inclusoes[0].param).toMatchObject({ itemMalhaIncluir: [{ quantProdMalha: 5 }] });
+    expect(res.estrutura.map((r) => r.outcome)).toEqual(["enviado", "enviado"]);
+  });
+
+  it("submontagem repetida em dois lugares da BOM não soma nem duplica os filhos dela", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    const estrutura: EstruturaRel[] = [
+      { ...rel("SM", "PECA", 2), numeroPai: "1", numeroFilho: "1.1" },
+      { ...rel("SM", "PECA", 2), numeroPai: "3", numeroFilho: "3.1" },
+    ];
+
+    await orquestrarEnvio({ novos: [], estrutura }, fn);
+
+    const inclusoes = calls.filter((c) => c.call === "IncluirEstrutura");
+    expect(inclusoes).toHaveLength(1);
+    expect(inclusoes[0].param).toMatchObject({ itemMalhaIncluir: [{ quantProdMalha: 2 }] });
+  });
+
+  it("linha repetida da mesma peça no Omie: mantém uma e remove a sobra", async () => {
+    const { fn, calls } = comEstrutura([
+      { idMalha: 1, idProdMalha: 600, codProdMalha: "FILHO", quantProdMalha: 2 },
+      { idMalha: 2, idProdMalha: 600, codProdMalha: "FILHO", quantProdMalha: 2 },
+    ]);
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("PAI", "FILHO", 2)] }, fn);
+
+    expect(res.estrutura[0].outcome).toBe("ja_existia");
+    expect(calls.filter((c) => c.call === "ExcluirEstrutura").map((c) => c.param.idMalha)).toEqual([2]);
+    expect(res.remocoes.map((r) => r.outcome)).toEqual(["removido"]);
+  });
+
+  it("não conseguiu ler a estrutura atual: não remove nada e avisa que o pai não foi conferido", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") return PRODUTOS;
+      if (rec.call === "ConsultarEstrutura") return new OmieError("instabilidade", { retryable: true });
+      return {};
+    });
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("PAI", "FILHO", 2)] }, fn);
+
+    expect(calls.some((c) => c.call === "ExcluirEstrutura")).toBe(false);
+    expect(calls.some((c) => c.call === "AlterarEstrutura")).toBe(false);
+    // Cai no caminho antigo (inclui e trata duplicado) pra não travar o envio.
+    expect(calls.some((c) => c.call === "IncluirEstrutura")).toBe(true);
+    expect(res.paisNaoConferidos).toEqual(["PAI"]);
+    expect(res.interrompido).toBe(false);
+  });
+
+  it("falha ao remover marca só aquela remoção e não assume que saiu", async () => {
+    const { fn } = comEstrutura([{ idMalha: 7, idProdMalha: 700, codProdMalha: "OUTRO", quantProdMalha: 1 }], (rec) =>
+      rec.call === "ExcluirEstrutura" ? new OmieError("não pode excluir: item usado em OP") : {},
+    );
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("PAI", "FILHO", 1)] }, fn);
+
+    expect(res.estrutura[0].outcome).toBe("enviado");
+    expect(res.remocoes).toEqual([
+      expect.objectContaining({ codigoFilho: "OUTRO", outcome: "falha", motivo: "não pode excluir: item usado em OP" }),
+    ]);
+    expect(res.interrompido).toBe(false);
+  });
+
+  it("bloqueio real no meio do espelho para o lote e lista o que deixou de remover", async () => {
+    const { fn, calls } = comEstrutura(
+      [
+        { idMalha: 7, idProdMalha: 700, codProdMalha: "OUTRO", quantProdMalha: 1 },
+        { idMalha: 8, idProdMalha: 800, codProdMalha: "MAIS UM", quantProdMalha: 1 },
+      ],
+      (rec) => (rec.call === "ExcluirEstrutura" ? new OmieBlocked("consumo indevido") : {}),
+    );
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [rel("PAI", "FILHO", 1)] }, fn);
+
+    expect(res.interrompido).toBe(true);
+    expect(res.bloqueado).toBe(true);
+    expect(calls.filter((c) => c.call === "ExcluirEstrutura")).toHaveLength(1);
+    expect(res.remocoes.map((r) => [r.codigoFilho, r.outcome])).toEqual([
+      ["OUTRO", "falha"],
+      ["MAIS UM", "nao_enviado"],
+    ]);
+  });
+
+  it("pai que não está no envio NÃO é lido nem mexido", async () => {
+    const { fn, calls } = comEstrutura([{ idMalha: 7, idProdMalha: 700, codProdMalha: "OUTRO", quantProdMalha: 1 }]);
+
+    await orquestrarEnvio({ novos: [item("FILHO", null)], estrutura: [] }, fn);
+
+    expect(calls.some((c) => c.path === "geral/malha/")).toBe(false);
+  });
+
+  it("montagem de destino digitada em minúsculas ainda é lida e espelhada pelo ID interno", async () => {
+    const { fn, calls } = mockChamar((rec) => {
+      if (rec.call === "ListarProdutos") {
+        return {
+          produto_servico_cadastro: [
+            { codigo: "XXXXX MT999 ZZZZZ", codigo_produto: 777 },
+            { codigo: "AAAAA SM001 CCCCC", codigo_produto: 888 },
+          ],
+        };
+      }
+      if (rec.call === "ConsultarEstrutura") {
+        return { itens: [{ idMalha: 5, idProdMalha: 888, codProdMalha: "AAAAA SM001 CCCCC", quantProdMalha: 1 }] };
+      }
+      return {};
+    });
+    const raiz: EstruturaRel = {
+      numeroPai: "0",
+      numeroFilho: "1",
+      codigoPai: "xxxxx mt999 zzzzz",
+      codigoFilho: "AAAAA SM001 CCCCC",
+      descricaoFilho: "filho",
+      quantidade: 2,
+      origem: "raiz",
+    };
+
+    const res = await orquestrarEnvio({ novos: [], estrutura: [raiz] }, fn);
+
+    expect(calls.find((c) => c.call === "ConsultarEstrutura")?.param).toEqual({ idProduto: 777 });
+    expect(calls.find((c) => c.call === "AlterarEstrutura")?.param).toMatchObject({ idProduto: 777 });
+    expect(res.estrutura[0].outcome).toBe("atualizado");
   });
 });
 

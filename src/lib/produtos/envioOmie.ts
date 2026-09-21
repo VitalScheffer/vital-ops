@@ -30,7 +30,10 @@ const TIPO_ITEM_FIXO = "04";
 
 const MOTIVO_NAO_ENVIADO = "Lote interrompido antes de chegar neste item.";
 
-export type OutcomeEnvio = "enviado" | "ja_existia" | "falha" | "nao_enviado";
+// "atualizado" só existe na estrutura: a relação já estava no Omie com outra
+// quantidade e foi sobrescrita (AlterarEstrutura).
+export type OutcomeEnvio = "enviado" | "atualizado" | "ja_existia" | "falha" | "nao_enviado";
+export type OutcomeRemocao = "removido" | "falha" | "nao_enviado";
 
 export interface FamiliaResultado {
   familia: Familia;
@@ -56,6 +59,20 @@ export interface EstruturaResultado {
   codigoFilho: string;
   outcome: OutcomeEnvio;
   motivo?: string;
+  detalhe?: string; // informativo, não é erro (ex.: "Quantidade 1 → 4")
+}
+
+// Linha que estava na estrutura do Omie e não está na BOM enviada: sai do Omie
+// pra estrutura ficar igual à BOM. Vem do próprio Omie, então não tem número
+// da BOM: guarda o que é preciso pra alguém recolocar à mão, se for o caso.
+export interface RemocaoResultado {
+  codigoPai: string;
+  codigoFilho: string;
+  descricaoFilho?: string;
+  quantidade?: number;
+  idMalha?: string;
+  outcome: OutcomeRemocao;
+  motivo?: string;
 }
 
 export interface EnvioTotais {
@@ -71,6 +88,11 @@ export interface EnvioResultado {
   familias: FamiliaResultado[];
   produtos: ProdutoResultado[];
   estrutura: EstruturaResultado[];
+  remocoes: RemocaoResultado[];
+  // Pais que talvez já tivessem estrutura no Omie mas não foram lidos (leitura
+  // pausada ou com erro): neles só houve inclusão, sem sobrescrever quantidade
+  // nem remover o que saiu da BOM. A tela pede pra reenviar.
+  paisNaoConferidos: string[];
   interrompido: boolean;
   bloqueado: boolean; // interrompido especificamente por bloqueio do Omie/breaker
   motivoInterrupcao?: string;
@@ -271,50 +293,123 @@ async function precarregarExistentes(
 }
 
 // Um produto SEM estrutura faz o `ConsultarEstrutura` voltar vazio, e vazio no
-// Omie é resposta de ERRO: o client conta fault no breaker (§6). Numa BOM com
-// muitos pais ainda sem malha (é o caso quando a matéria-prima entra: cada PEÇA
-// vira um pai novo), essa sequência de vazios sozinha abriria o breaker soft
-// (6 faults) e o lote inteiro morreria em `OmieBlocked` antes das escritas.
-// Por isso a pré-checagem desiste depois de alguns vazios seguidos: ela é só uma
-// otimização de reenvio, não vale queimar crédito do breaker com ela.
+// Omie é resposta de ERRO: conta pro bloqueio da app_key, que dispara na 10ª
+// requisição incorreta SEGUIDA do mesmo método (§6). Numa BOM com muitos pais
+// ainda sem malha (é o caso quando a matéria-prima entra: cada PEÇA vira um pai),
+// ler um atrás do outro queimaria esse orçamento. Por isso a leitura pausa depois
+// de alguns vazios seguidos (só uma leitura com itens zera a conta); os pais
+// seguintes recebem só inclusão e voltam em `paisNaoConferidos`. No reenvio eles
+// já têm estrutura, a leitura dá certo e o espelho completa.
 const LIMITE_VAZIOS_SEGUIDOS = 3;
 
-// Pré-checa (LEITURA) as relações de estrutura que JÁ existem nos produtos-pai
-// conhecidos, pra PULAR a inclusão delas no reenvio (idempotência). Sem isso, o
-// reenvio de uma estrutura já montada dispararia um erro de duplicado por relação;
-// se o faultstring de duplicado da malha não casar o regex DUPLICATE, viraria
-// "falha" e o freio pausaria. Consulta uma vez por produto-pai (só os que têm ID
-// interno). Devolve um conjunto de chaves "idPai|idFilho".
+// Uma linha da estrutura que o Omie JÁ tem num pai (ConsultarEstrutura.itens).
+interface LinhaMalha {
+  idMalha?: string;
+  intMalha?: string;
+  idProdMalha?: string;
+  intProdMalha?: string;
+  codProdMalha?: string;
+  descrProdMalha?: string;
+  quantProdMalha?: number;
+  percPerdaProdMalha?: unknown;
+  obsProdMalha?: unknown;
+}
+
+function numero(valor: unknown): number | undefined {
+  if (valor === undefined || valor === null || valor === "") return undefined;
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function linhaMalha(it: OmiePayload): LinhaMalha {
+  return {
+    idMalha: texto(it.idMalha) || undefined,
+    intMalha: texto(it.intMalha) || undefined,
+    idProdMalha: texto(it.idProdMalha) || undefined,
+    intProdMalha: texto(it.intProdMalha) || undefined,
+    codProdMalha: texto(it.codProdMalha) || undefined,
+    descrProdMalha: texto(it.descrProdMalha) || undefined,
+    quantProdMalha: numero(it.quantProdMalha),
+    percPerdaProdMalha: it.percPerdaProdMalha,
+    obsProdMalha: it.obsProdMalha,
+  };
+}
+
+// Lê a estrutura que o Omie já tem num pai, pra sobrescrever: alterar a
+// quantidade do que mudou, incluir o que falta e remover o que saiu da BOM.
+// `null` = NÃO deu pra ler, e isso é diferente de vazia: sem saber o que existe,
+// o espelho não pode remover nem alterar nada.
 //
 // IMPORTANTE: esta leitura NUNCA interrompe o lote. `ConsultarEstrutura` do MESMO
 // idProduto em menos de 60s volta como "consumo redundante", que o client lança
 // como `OmieBlocked` (não é bloqueio real da chave). Se a gente interrompesse aqui,
-// um reenvio rápido pararia o envio à toa. Então qualquer erro só faz perder a
-// otimização daquele pai; quem decide parar por bloqueio REAL é o loop de escrita
-// (IncluirEstrutura), que aí sim vê o `consumo indevido`.
-async function precarregarEstruturas(idsPai: Set<string>, chamar: ChamarFn): Promise<Set<string>> {
-  const existentes = new Set<string>();
-  let vaziosSeguidos = 0;
-  for (const idPai of idsPai) {
-    if (vaziosSeguidos >= LIMITE_VAZIOS_SEGUIDOS) break;
-    try {
-      const resp = await chamar("geral/malha/", "ConsultarEstrutura", { idProduto: Number(idPai) });
-      const itens = resp?.itens;
-      if (!Array.isArray(itens) || itens.length === 0) {
-        vaziosSeguidos += 1;
-        continue;
-      }
-      vaziosSeguidos = 0;
-      for (const it of itens as OmiePayload[]) {
-        const idFilho = texto(it.idProdMalha);
-        if (idFilho) existentes.add(`${idPai}|${idFilho}`);
-      }
-    } catch {
-      // Redundante/bloqueio/erro na leitura: só perde a otimização deste pai.
-      vaziosSeguidos += 1;
-    }
+// um reenvio rápido pararia o envio à toa. Quem decide parar por bloqueio REAL são
+// as escritas, que aí sim veem o `consumo indevido`.
+async function lerEstruturaAtual(idPai: string, chamar: ChamarFn): Promise<LinhaMalha[] | null> {
+  try {
+    const resp = await chamar("geral/malha/", "ConsultarEstrutura", { idProduto: Number(idPai) });
+    const itens = resp?.itens;
+    return Array.isArray(itens) ? (itens as OmiePayload[]).map(linhaMalha) : [];
+  } catch {
+    return null;
   }
-  return existentes;
+}
+
+// Quantidade da relação: `??` só cobre null/undefined; um NaN vindo do parser
+// viraria JSON null, então exige um número finito de verdade (senão, 1).
+function quantidadeDe(rel: EstruturaRel): number {
+  return typeof rel.quantidade === "number" && Number.isFinite(rel.quantidade) ? rel.quantidade : 1;
+}
+
+// Soma sem o lixo do ponto flutuante (0,1 + 0,2 = 0,30000000000000004).
+function arredondar(valor: number): number {
+  return Math.round(valor * 1e6) / 1e6;
+}
+
+function mesmaQuantidade(atual: number | undefined, desejada: number): boolean {
+  return atual !== undefined && Math.abs(atual - desejada) < 1e-6;
+}
+
+function formatarQuantidade(valor: number | undefined): string {
+  return valor === undefined ? "?" : valor.toLocaleString("pt-BR", { maximumFractionDigits: 6 });
+}
+
+// A linha do Omie é identificada pelo id interno da malha; o código de
+// integração só serve de reserva (linhas incluídas à mão costumam vir sem ele).
+function refLinha(linha: LinhaMalha): OmiePayload | null {
+  if (linha.idMalha) return { idMalha: Number(linha.idMalha) };
+  if (linha.intMalha) return { intMalha: linha.intMalha };
+  return null;
+}
+
+// Um filho que a BOM quer no pai, já consolidado: a mesma peça repetida sob o
+// MESMO pai (mesmo número na BOM) soma numa linha só, porque o Omie guarda uma
+// quantidade por peça. Se o pai aparece em dois lugares da BOM (a mesma
+// submontagem usada duas vezes), os filhos dela são os mesmos: vale a
+// quantidade da primeira ocorrência, sem somar de novo.
+interface FilhoDesejado {
+  codigoPai: string;
+  codigoFilho: string;
+  chaveFilho: string; // código sem espaço, em maiúsculas
+  idFilho?: string;
+  intFilho: string; // código de integração do filho (o real, quando conhecido)
+  quant: number;
+  instancia: string; // número do pai na BOM onde a quantidade foi somada
+  indices: number[]; // posições das relações de origem em `input.estrutura`
+}
+
+interface PaiDesejado {
+  chave: string;
+  codigoPai: string;
+  filhos: Map<string, FilhoDesejado>;
+}
+
+function casaLinha(linha: LinhaMalha, filho: FilhoDesejado): boolean {
+  // Com os dois ids na mão, eles decidem sozinhos: código igual com id diferente
+  // é outro cadastro.
+  if (filho.idFilho && linha.idProdMalha) return linha.idProdMalha === filho.idFilho;
+  if (linha.codProdMalha && semEspaco(linha.codProdMalha).toUpperCase() === filho.chaveFilho) return true;
+  return Boolean(linha.intProdMalha && semEspaco(linha.intProdMalha).toUpperCase() === semEspaco(filho.intFilho).toUpperCase());
 }
 
 // Resolve um conflito (descrição OU código) reaproveitando o cadastro
@@ -389,7 +484,9 @@ const LIMITE_SEQUENCIA_RISCO = 5;
  * é isso que estoura o contador de bloqueio (10 requisições incorretas no mesmo
  * método). A Estrutura referencia pai/filho pelo ID interno do Omie quando conhecido.
  * Idempotente: `Upsert*` atualiza no reenvio e
- * `OmieDuplicate` conta como sucesso. Conflito de descrição/código (peça
+ * `OmieDuplicate` conta como sucesso. A estrutura de cada pai enviado é um
+ * ESPELHO da BOM: lê o que o Omie já tem, sobrescreve a quantidade que mudou,
+ * inclui o que falta e remove o que saiu (ver a etapa 3). Conflito de descrição/código (peça
  * padrão já cadastrada sob outro código/ID, ex. parafuso/dobradiça) é
  * resolvido buscando e reaproveitando o cadastro existente — não para o lote.
  * Só `OmieBlocked` (breaker/app_key realmente bloqueado) PARA o lote inteiro
@@ -408,7 +505,6 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
 
   const familias: FamiliaResultado[] = [];
   const produtos: ProdutoResultado[] = [];
-  const estrutura: EstruturaResultado[] = [];
   const idPorFamilia = new Map<Familia, unknown>();
   // Nosso código (sem espaço) → codigo_produto_integracao REAL, quando um item
   // foi resolvido por reaproveitamento (conflito de descrição ou de código). A
@@ -419,6 +515,10 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // referenciar pelo ID interno (idProduto/idProdMalha), que não depende do
   // código de integração estar preenchido no cadastro.
   const idOmiePorCodigo = new Map<string, string>();
+  // Códigos (sem espaço, maiúsculos) que JÁ estavam cadastrados no Omie antes
+  // deste lote: só esses podem ter estrutura pra sobrescrever. Quem foi criado
+  // agora não tem malha, e perguntar volta vazio (que conta como erro no Omie).
+  const preexistentes = new Set<string>();
   const interrupcao: Interrupcao = { interrompido: false, bloqueado: false };
   let sequenciaRisco = 0;
 
@@ -435,11 +535,12 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   // sequência em sucesso limpo; qualquer outra coisa soma, e ao bater o limite
   // pausa o envio por segurança (bloqueado fica false — não é um bloqueio real
   // da Omie, é a nossa própria margem de segurança).
-  const registrarSequencia = (outcome: OutcomeEnvio, custoOmie = true) => {
+  const registrarSequencia = (outcome: OutcomeEnvio | OutcomeRemocao, custoOmie = true) => {
     if (interrupcao.interrompido) return;
     // Sucesso limpo OU passo sem chamada ao Omie (item pulado por já existir)
     // zeram a sequência — só resposta ruim de uma chamada REAL soma pro freio.
-    if (outcome === "enviado" || !custoOmie) {
+    const sucessoLimpo = outcome === "enviado" || outcome === "atualizado" || outcome === "removido";
+    if (sucessoLimpo || !custoOmie) {
       sequenciaRisco = 0;
       return;
     }
@@ -500,6 +601,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   for (const [chave, cadastro] of existentes) {
     if (cadastro.idProduto) idOmiePorCodigo.set(chave, cadastro.idProduto);
     if (cadastro.intProduto) integracaoReal.set(chave, cadastro.intProduto);
+    preexistentes.add(chave.toUpperCase());
   }
 
   // 2. Produtos (idempotente via UpsertProduto).
@@ -558,6 +660,11 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       });
       registrarSequencia("enviado");
     } catch (erro) {
+      // Duplicado e conflito querem dizer que o cadastro JÁ existia (com outro
+      // código ou id): pode ter estrutura, então entra na conferência.
+      if (erro instanceof OmieDuplicate || erro instanceof OmieDescriptionConflict || erro instanceof OmieCodeConflict) {
+        preexistentes.add(chaveItem.toUpperCase());
+      }
       if (erro instanceof OmieDuplicate) {
         produtos.push({ codigo: item.codigo, descricao: item.descricaoProduto, outcome: "ja_existia" });
         registrarSequencia("ja_existia");
@@ -615,22 +722,6 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
     }
   }
 
-  // 2.5. Pré-checagem da estrutura: lê as relações que já existem nos pais
-  // conhecidos, pra pular a inclusão delas (reenvio idempotente, sem depender de
-  // classificar o duplicado da malha).
-  //
-  // Só vale consultar os pais que JÁ EXISTIAM no Omie antes deste lote: quem foi
-  // criado agora não tem malha nenhuma, e perguntar volta vazio — que o Omie conta
-  // como erro e o breaker soma (ver LIMITE_VAZIOS_SEGUIDOS).
-  const idsPaiEstrutura = new Set<string>();
-  for (const rel of input.estrutura) {
-    const idPai = existentes.get(semEspaco(rel.codigoPai))?.idProduto;
-    if (idPai) idsPaiEstrutura.add(idPai);
-  }
-  const relacoesExistentes = interrupcao.interrompido
-    ? new Set<string>()
-    : await precarregarEstruturas(idsPaiEstrutura, chamar);
-
   // Tudo que o Omie reconhece OU que este lote criou. Comparado em MAIÚSCULAS: o
   // código da montagem é digitado à mão na tela, e uma diferença só de caixa não
   // pode virar acusação de "não existe". Inclui `existentes` direto, e não só os
@@ -657,63 +748,96 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
   const montagemAusente = (chave: string): boolean =>
     precheck.completo && !conhecidos.has(chave.toUpperCase());
 
-  // 3. Estrutura (IncluirEstrutura não tem Upsert → duplicado = já existe = ok).
-  for (const rel of input.estrutura) {
-    const chaves = {
+  // Os mapas de código guardam a caixa de onde vieram (BOM, Omie); na estrutura a
+  // busca é em MAIÚSCULAS, pelo mesmo motivo de `conhecidos`: a montagem digitada
+  // em minúsculas precisa achar o id interno pra estrutura dela ser lida.
+  const idPorChave = new Map<string, string>();
+  for (const [chave, id] of idOmiePorCodigo) idPorChave.set(chave.toUpperCase(), id);
+  const intPorChave = new Map<string, string>();
+  for (const [chave, int] of integracaoReal) intPorChave.set(chave.toUpperCase(), int);
+
+  // 3. Estrutura: ESPELHO por pai. Cada pai do envio termina com a estrutura da
+  // BOM no Omie: o que já estava com a mesma quantidade fica como está, a
+  // quantidade diferente é sobrescrita (AlterarEstrutura), o que falta é incluído
+  // (IncluirEstrutura) e o que o Omie tem a mais sai (ExcluirEstrutura). Pai que
+  // não está no envio não é lido nem mexido.
+  const resultados: Array<EstruturaResultado | undefined> = new Array(input.estrutura.length);
+  const remocoes: RemocaoResultado[] = [];
+  const paisNaoConferidos: string[] = [];
+
+  const chavesDaRelacao = (indice: number) => {
+    const rel = input.estrutura[indice];
+    return {
       numeroPai: rel.numeroPai,
       numeroFilho: rel.numeroFilho,
       codigoPai: rel.codigoPai,
       codigoFilho: rel.codigoFilho,
     };
-    if (interrupcao.interrompido) {
-      estrutura.push({ ...chaves, outcome: "nao_enviado", motivo: MOTIVO_NAO_ENVIADO });
-      continue;
+  };
+
+  // Toda relação que virou este filho recebe o mesmo resultado.
+  const marcar = (filho: FilhoDesejado, parcial: Pick<EstruturaResultado, "outcome" | "motivo" | "detalhe">) => {
+    for (const indice of filho.indices) resultados[indice] = { ...chavesDaRelacao(indice), ...parcial };
+  };
+
+  const pais = new Map<string, PaiDesejado>();
+  input.estrutura.forEach((rel, indice) => {
+    const chavePai = semEspaco(rel.codigoPai).toUpperCase();
+    if (!interrupcao.interrompido && rel.origem === "raiz" && montagemAusente(chavePai)) {
+      resultados[indice] = {
+        ...chavesDaRelacao(indice),
+        outcome: "falha",
+        motivo: `A montagem ${rel.codigoPai} não está cadastrada no Omie. Confira o código antes de reenviar.`,
+      };
+      // NÃO mexe no freio: essa falha é NOSSA, não veio de resposta do Omie.
+      // Zerar a sequência aqui (que é o que `registrarSequencia` faz quando não
+      // houve chamada) desarmaria o freio justamente no cenário que ele existe
+      // pra pegar — montagem errada intercalada com escritas que falham de
+      // verdade, cada relação de topo limpando o contador da anterior.
+      return;
     }
 
+    let pai = pais.get(chavePai);
+    if (!pai) {
+      pai = { chave: chavePai, codigoPai: rel.codigoPai, filhos: new Map() };
+      pais.set(chavePai, pai);
+    }
+    const chaveFilho = semEspaco(rel.codigoFilho).toUpperCase();
+    const idFilho = idPorChave.get(chaveFilho);
+    const chaveDesejo = idFilho ? `id:${idFilho}` : `cod:${chaveFilho}`;
+    const quant = quantidadeDe(rel);
+    const filho = pai.filhos.get(chaveDesejo);
+    if (!filho) {
+      pai.filhos.set(chaveDesejo, {
+        codigoPai: rel.codigoPai,
+        codigoFilho: rel.codigoFilho,
+        chaveFilho,
+        idFilho,
+        intFilho: intPorChave.get(chaveFilho) ?? semEspaco(rel.codigoFilho),
+        quant,
+        instancia: rel.numeroPai,
+        indices: [indice],
+      });
+      return;
+    }
+    if (rel.numeroPai === filho.instancia) filho.quant = arredondar(filho.quant + quant);
+    filho.indices.push(indice);
+  });
+
+  const incluirFilho = async (filho: FilhoDesejado, idPai: string | undefined) => {
+    // Referência de pai/filho: prefere o ID INTERNO do Omie (idProduto/idProdMalha),
+    // que não depende do código de integração estar preenchido no cadastro — vale
+    // tanto pra quem já existia (pré-check) quanto pra quem acabou de ser enviado.
+    // Só cai pro código de integração (intProduto/intProdMalha, código SEM espaço)
+    // como fallback quando o ID interno não é conhecido. Formato confirmado na doc
+    // da API de malha: pai no topo, filhos no array `itemMalhaIncluir` (um por
+    // chamada, pro resultado por relação continuar granular).
+    const chavePai = semEspaco(filho.codigoPai);
+    const refPai = idPai
+      ? { idProduto: Number(idPai) }
+      : { intProduto: intPorChave.get(chavePai.toUpperCase()) ?? chavePai };
+    const refFilho = filho.idFilho ? { idProdMalha: Number(filho.idFilho) } : { intProdMalha: filho.intFilho };
     try {
-      // Referência de pai/filho: prefere o ID INTERNO do Omie (idProduto/idProdMalha),
-      // que não depende do código de integração estar preenchido no cadastro — vale
-      // tanto pra quem já existia (pré-check) quanto pra quem acabou de ser enviado.
-      // Só cai pro código de integração (intProduto/intProdMalha, código SEM espaço)
-      // como fallback quando o ID interno não é conhecido. Formato confirmado na doc
-      // da API de malha: pai no topo, filhos no array `itemMalhaIncluir` (um por
-      // chamada, pro resultado por relação continuar granular).
-      const chavePai = semEspaco(rel.codigoPai);
-      const chaveFilho = semEspaco(rel.codigoFilho);
-      const idPai = idOmiePorCodigo.get(chavePai);
-      const idFilho = idOmiePorCodigo.get(chaveFilho);
-
-      if (rel.origem === "raiz" && montagemAusente(chavePai)) {
-        estrutura.push({
-          ...chaves,
-          outcome: "falha",
-          motivo: `A montagem ${rel.codigoPai} não está cadastrada no Omie. Confira o código antes de reenviar.`,
-        });
-        // NÃO mexe no freio: essa falha é NOSSA, não veio de resposta do Omie.
-        // Zerar a sequência aqui (que é o que `registrarSequencia` faz quando não
-        // houve chamada) desarmaria o freio justamente no cenário que ele existe
-        // pra pegar — montagem errada intercalada com escritas que falham de
-        // verdade, cada relação de topo limpando o contador da anterior.
-        continue;
-      }
-
-      // Relação já existe no pai (pré-check): não reinclui (evita duplicado no
-      // reenvio). Sem chamada ao Omie, não conta pro freio.
-      if (idPai && idFilho && relacoesExistentes.has(`${idPai}|${idFilho}`)) {
-        estrutura.push({ ...chaves, outcome: "ja_existia" });
-        registrarSequencia("ja_existia", false);
-        continue;
-      }
-
-      const refPai = idPai
-        ? { idProduto: Number(idPai) }
-        : { intProduto: integracaoReal.get(chavePai) ?? chavePai };
-      const refFilho = idFilho
-        ? { idProdMalha: Number(idFilho) }
-        : { intProdMalha: integracaoReal.get(chaveFilho) ?? chaveFilho };
-      // `??` só cobre null/undefined; um NaN vindo do parser viraria JSON null, então
-      // exige um número finito de verdade (senão, quantidade 1).
-      const quant = typeof rel.quantidade === "number" && Number.isFinite(rel.quantidade) ? rel.quantidade : 1;
       await chamar(
         "geral/malha/",
         "IncluirEstrutura",
@@ -722,33 +846,186 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
           itemMalhaIncluir: [
             {
               // intMalha é OBRIGATÓRIO pelo Omie (string20); sem ele o item falha.
-              intMalha: intMalhaDe(rel.codigoPai, rel.codigoFilho),
+              intMalha: intMalhaDe(filho.codigoPai, filho.codigoFilho),
               ...refFilho,
-              quantProdMalha: quant,
+              quantProdMalha: filho.quant,
             },
           ],
         },
         WRITE,
       );
-      estrutura.push({ ...chaves, outcome: "enviado" });
+      marcar(filho, { outcome: "enviado" });
       registrarSequencia("enviado");
     } catch (erro) {
+      // IncluirEstrutura não tem Upsert → duplicado = já existe = ok.
       if (erro instanceof OmieDuplicate) {
-        estrutura.push({ ...chaves, outcome: "ja_existia" });
+        marcar(filho, { outcome: "ja_existia" });
         registrarSequencia("ja_existia");
-        continue;
+        return;
       }
-      estrutura.push({ ...chaves, outcome: "falha", motivo: mensagem(erro) });
+      marcar(filho, { outcome: "falha", motivo: mensagem(erro) });
       registrarSequencia("falha");
       interromper(erro);
     }
+  };
+
+  const alterarFilho = async (filho: FilhoDesejado, idPai: string, linha: LinhaMalha) => {
+    const ref = refLinha(linha);
+    if (!ref) {
+      // Sem chamada ao Omie: falha nossa, não mexe no freio (ver montagem acima).
+      marcar(filho, {
+        outcome: "falha",
+        motivo:
+          `O Omie não informou o identificador desta linha da estrutura. ` +
+          `Ajuste a quantidade à mão para ${formatarQuantidade(filho.quant)}.`,
+      });
+      return;
+    }
+    // Perda e observação voltam como estão: alguém pode ter preenchido à mão no
+    // Omie, e sobrescrever a quantidade não deve apagar isso.
+    const itemAlterar: OmiePayload = { ...ref, quantProdMalha: filho.quant };
+    if (linha.idProdMalha) itemAlterar.idProdMalha = Number(linha.idProdMalha);
+    if (linha.percPerdaProdMalha !== undefined && linha.percPerdaProdMalha !== null) {
+      itemAlterar.percPerdaProdMalha = linha.percPerdaProdMalha;
+    }
+    if (linha.obsProdMalha !== undefined && linha.obsProdMalha !== null && linha.obsProdMalha !== "") {
+      itemAlterar.obsProdMalha = linha.obsProdMalha;
+    }
+    try {
+      const resp = await chamar(
+        "geral/malha/",
+        "AlterarEstrutura",
+        { idProduto: Number(idPai), itemMalhaAlterar: [itemAlterar] },
+        WRITE,
+      );
+      if (resp === null) {
+        // "Não encontrado": a linha sumiu entre a leitura e a escrita.
+        marcar(filho, {
+          outcome: "falha",
+          motivo: "O Omie não achou esta linha da estrutura para alterar (pode ter sido mexida agora). Reenvie.",
+        });
+        registrarSequencia("falha");
+        return;
+      }
+      marcar(filho, {
+        outcome: "atualizado",
+        detalhe: `Quantidade no Omie: ${formatarQuantidade(linha.quantProdMalha)} → ${formatarQuantidade(filho.quant)}`,
+      });
+      registrarSequencia("atualizado");
+    } catch (erro) {
+      marcar(filho, { outcome: "falha", motivo: mensagem(erro) });
+      registrarSequencia("falha");
+      interromper(erro);
+    }
+  };
+
+  const removerLinha = async (pai: PaiDesejado, idPai: string, linha: LinhaMalha) => {
+    const base = {
+      codigoPai: pai.codigoPai,
+      codigoFilho:
+        linha.codProdMalha ?? linha.intProdMalha ?? (linha.idProdMalha ? `id ${linha.idProdMalha}` : "?"),
+      descricaoFilho: linha.descrProdMalha,
+      quantidade: linha.quantProdMalha,
+      idMalha: linha.idMalha,
+    };
+    if (interrupcao.interrompido) {
+      remocoes.push({ ...base, outcome: "nao_enviado", motivo: MOTIVO_NAO_ENVIADO });
+      return;
+    }
+    const ref = refLinha(linha);
+    if (!ref) {
+      remocoes.push({
+        ...base,
+        outcome: "falha",
+        motivo: "O Omie não informou o identificador desta linha da estrutura. Remova à mão no Omie.",
+      });
+      return;
+    }
+    try {
+      const resp = await chamar("geral/malha/", "ExcluirEstrutura", { idProduto: Number(idPai), ...ref }, WRITE);
+      remocoes.push({ ...base, outcome: "removido" });
+      // "Não encontrado" = a linha já não estava lá: o efeito é o mesmo, mas foi
+      // resposta de erro do Omie, então soma pro freio como um duplicado soma.
+      registrarSequencia(resp === null ? "ja_existia" : "removido");
+    } catch (erro) {
+      remocoes.push({ ...base, outcome: "falha", motivo: mensagem(erro) });
+      registrarSequencia("falha");
+      interromper(erro);
+    }
+  };
+
+  const espelharPai = async (pai: PaiDesejado, idPai: string | undefined, atuais: LinhaMalha[] | null) => {
+    // Casa TODAS as linhas do Omie com os filhos da BOM antes de escrever: se o
+    // lote parar no meio, o que faltou remover já é conhecido e vai pra tela.
+    const usadas = new Set<LinhaMalha>();
+    const sobras: LinhaMalha[] = [];
+    const plano: Array<{ filho: FilhoDesejado; linha?: LinhaMalha }> = [];
+    for (const filho of pai.filhos.values()) {
+      const casadas = (atuais ?? []).filter((linha) => !usadas.has(linha) && casaLinha(linha, filho));
+      for (const linha of casadas) usadas.add(linha);
+      // A mesma peça em duas linhas no Omie (incluída de novo à mão, por
+      // exemplo): fica a primeira, as outras saem.
+      sobras.push(...casadas.slice(1));
+      plano.push({ filho, linha: casadas[0] });
+    }
+    if (atuais) sobras.push(...atuais.filter((linha) => !usadas.has(linha)));
+
+    // Inclui/altera primeiro e remove depois: se o lote parar no meio, sobra
+    // item no Omie em vez de faltar.
+    for (const { filho, linha } of plano) {
+      if (interrupcao.interrompido) break;
+      if (!linha || !idPai) {
+        await incluirFilho(filho, idPai);
+      } else if (mesmaQuantidade(linha.quantProdMalha, filho.quant)) {
+        // Sem chamada ao Omie, não conta pro freio.
+        marcar(filho, { outcome: "ja_existia" });
+        registrarSequencia("ja_existia", false);
+      } else {
+        await alterarFilho(filho, idPai, linha);
+      }
+    }
+    if (!idPai) return;
+    for (const linha of sobras) await removerLinha(pai, idPai, linha);
+  };
+
+  let vaziosSeguidos = 0;
+  for (const pai of pais.values()) {
+    if (interrupcao.interrompido) break;
+    const idPai = idPorChave.get(pai.chave);
+    // Pode ter estrutura: já existia antes do lote, ou a pré-checagem falhou e
+    // não dá pra afirmar que foi criado agora (o Upsert atualiza o que existe).
+    const podeTerEstrutura = preexistentes.has(pai.chave) || !precheck.completo;
+
+    let atuais: LinhaMalha[] | null = null;
+    if (!idPai) {
+      // Sem o id interno não dá pra ler a malha: só inclusão, como sempre foi.
+      if (podeTerEstrutura) paisNaoConferidos.push(pai.codigoPai);
+    } else if (!podeTerEstrutura) {
+      atuais = []; // criado agora: não tem malha
+    } else if (vaziosSeguidos >= LIMITE_VAZIOS_SEGUIDOS) {
+      paisNaoConferidos.push(pai.codigoPai);
+    } else {
+      atuais = await lerEstruturaAtual(idPai, chamar);
+      vaziosSeguidos = atuais && atuais.length > 0 ? 0 : vaziosSeguidos + 1;
+      if (atuais === null) paisNaoConferidos.push(pai.codigoPai);
+    }
+    await espelharPai(pai, idPai, atuais);
   }
+
+  // Array.from (e não .map): `resultados` nasce esparso e o map pula os buracos.
+  const estrutura: EstruturaResultado[] = Array.from(
+    resultados,
+    (resultado, indice) =>
+      resultado ?? { ...chavesDaRelacao(indice), outcome: "nao_enviado", motivo: MOTIVO_NAO_ENVIADO },
+  );
 
   const contar = (o: OutcomeEnvio) => produtos.filter((p) => p.outcome === o).length;
   return {
     familias,
     produtos,
     estrutura,
+    remocoes,
+    paisNaoConferidos,
     interrompido: interrupcao.interrompido,
     bloqueado: interrupcao.bloqueado,
     motivoInterrupcao: interrupcao.motivo,
