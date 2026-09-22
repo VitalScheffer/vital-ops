@@ -6415,3 +6415,8 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 
 ### Pendências / próximos passos
 - Code review antes do commit/push; migration/deploy real do VitalOps e primeiro envio real ao Omie continuam dependentes da publicação e homologação autorizadas.
+
+## 2026-09-22 — Publicação da revisão de BOM
+
+- **Publicação:** commit `b3d5088` enviado para `origin/master` (`VitalScheffer/vital-ops`). O status Vercel do commit ficou `success` e o deploy `9sFVd8Xx3N7Byk8LrZ678UU6MS6e` concluiu.
+- **Validação operacional pendente:** não foi executada escrita real no Omie nesta sessão; falta homologar uma BOM pequena com alteração de quantidade, retirada de peça e revisão.
