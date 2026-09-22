@@ -35,6 +35,7 @@ export interface ProdutoReviewItem {
   // Editáveis na revisão:
   descricaoProduto: string;
   familia: Familia | null;
+  revisao?: string;
   included: boolean;
   // Status original vindo do parser (novo/duplicado/erro), só para exibição.
   status: ParsedItem["status"];
@@ -50,6 +51,7 @@ export interface EstruturaReviewItem {
   codigoFilho: string;
   descricaoFilho: string;
   quantidade: number | null;
+  revisao?: string;
   included: boolean;
   // "raiz" = relação com a MONTAGEM já cadastrada (a tela destaca essas).
   origem: EstruturaRel["origem"];
@@ -104,6 +106,7 @@ export function buildProdutoReview(itens: ParsedItem[]): ProdutoReviewItem[] {
     codigo: item.codigo,
     descricaoProduto: item.descricaoProduto,
     familia: item.familia,
+    ...(item.revisao ? { revisao: item.revisao } : {}),
     included: inclusaoPadrao(item.status),
     status: item.status,
     motivoErro: item.motivoErro,
@@ -119,6 +122,7 @@ export function buildEstruturaReview(rels: EstruturaRel[]): EstruturaReviewItem[
     codigoFilho: rel.codigoFilho,
     descricaoFilho: rel.descricaoFilho,
     quantidade: rel.quantidade,
+    ...(rel.revisao ? { revisao: rel.revisao } : {}),
     included: true,
     origem: rel.origem,
   }));
@@ -187,6 +191,7 @@ export function produtosParaEnvio(itens: ProdutoReviewItem[]): ParsedItem[] {
       codigo: item.codigo,
       descricaoProduto: item.descricaoProduto.trim(),
       familia: item.familia,
+      ...(item.revisao ? { revisao: item.revisao } : {}),
       status: "novo" as const,
     }));
 }
@@ -203,6 +208,7 @@ export function estruturaParaEnvio(itens: EstruturaReviewItem[]): EstruturaRel[]
       descricaoFilho: item.descricaoFilho,
       quantidade: item.quantidade,
       origem: item.origem,
+      ...(item.revisao ? { revisao: item.revisao } : {}),
     }));
 }
 

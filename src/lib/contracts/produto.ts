@@ -40,6 +40,17 @@ export const estruturaItemSchema = z.object({
 });
 export type EstruturaItem = z.infer<typeof estruturaItemSchema>;
 
+export const produtoRevisaoSchema = z.object({
+  id: z.string(),
+  importId: z.string(),
+  codigo: z.string(),
+  revisao: z.string(),
+  descricao: z.string(),
+  linha: z.number(),
+  criadoEm: z.string(),
+});
+export type ProdutoRevisao = z.infer<typeof produtoRevisaoSchema>;
+
 export const produtoImportSchema = z.object({
   id: z.string(),
   autorId: z.string(),

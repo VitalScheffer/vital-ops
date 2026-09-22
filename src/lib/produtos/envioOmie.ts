@@ -12,6 +12,7 @@ import type { EstruturaRel, Familia, ParsedItem } from "@/lib/bom/types";
 import type { ChamarOptions, OmiePayload } from "@/lib/omie/client";
 import { OmieBlocked, OmieCodeConflict, OmieDescriptionConflict, OmieDuplicate } from "@/lib/omie/errors";
 import { normalizarNcm } from "./ncm";
+import { observacaoComRevisao } from "./revisoes";
 
 // Assinatura mínima de `chamar` do client Omie (o real é compatível com esta).
 export type ChamarFn = (
@@ -393,6 +394,7 @@ interface FilhoDesejado {
   chaveFilho: string; // código sem espaço, em maiúsculas
   idFilho?: string;
   intFilho: string; // código de integração do filho (o real, quando conhecido)
+  revisao?: string;
   quant: number;
   instancia: string; // número do pai na BOM onde a quantidade foi somada
   indices: number[]; // posições das relações de origem em `input.estrutura`
@@ -814,12 +816,14 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
         chaveFilho,
         idFilho,
         intFilho: intPorChave.get(chaveFilho) ?? semEspaco(rel.codigoFilho),
+        ...(rel.revisao ? { revisao: rel.revisao } : {}),
         quant,
         instancia: rel.numeroPai,
         indices: [indice],
       });
       return;
     }
+    if (!filho.revisao && rel.revisao) filho.revisao = rel.revisao;
     if (rel.numeroPai === filho.instancia) filho.quant = arredondar(filho.quant + quant);
     filho.indices.push(indice);
   });
@@ -849,6 +853,7 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
               intMalha: intMalhaDe(filho.codigoPai, filho.codigoFilho),
               ...refFilho,
               quantProdMalha: filho.quant,
+              ...(filho.revisao ? { obsProdMalha: observacaoComRevisao("", filho.revisao) } : {}),
             },
           ],
         },
@@ -881,16 +886,17 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       });
       return;
     }
-    // Perda e observação voltam como estão: alguém pode ter preenchido à mão no
-    // Omie, e sobrescrever a quantidade não deve apagar isso.
+    // Perda e observação manual voltam como estão. O marcador de revisão é
+    // gerenciado pelo VitalOps: troca/limpa só o próprio marcador e preserva
+    // qualquer texto manual que venha depois dele.
     const itemAlterar: OmiePayload = { ...ref, quantProdMalha: filho.quant };
     if (linha.idProdMalha) itemAlterar.idProdMalha = Number(linha.idProdMalha);
     if (linha.percPerdaProdMalha !== undefined && linha.percPerdaProdMalha !== null) {
       itemAlterar.percPerdaProdMalha = linha.percPerdaProdMalha;
     }
-    if (linha.obsProdMalha !== undefined && linha.obsProdMalha !== null && linha.obsProdMalha !== "") {
-      itemAlterar.obsProdMalha = linha.obsProdMalha;
-    }
+    const observacaoAtual = texto(linha.obsProdMalha)?.trim() ?? "";
+    const observacaoDesejada = observacaoComRevisao(observacaoAtual, filho.revisao);
+    if (observacaoAtual || observacaoDesejada) itemAlterar.obsProdMalha = observacaoDesejada;
     try {
       const resp = await chamar(
         "geral/malha/",
@@ -976,7 +982,10 @@ export async function orquestrarEnvio(input: EnvioInput, chamar: ChamarFn): Prom
       if (interrupcao.interrompido) break;
       if (!linha || !idPai) {
         await incluirFilho(filho, idPai);
-      } else if (mesmaQuantidade(linha.quantProdMalha, filho.quant)) {
+      } else if (
+        mesmaQuantidade(linha.quantProdMalha, filho.quant) &&
+        observacaoComRevisao(linha.obsProdMalha, filho.revisao) === (texto(linha.obsProdMalha)?.trim() ?? "")
+      ) {
         // Sem chamada ao Omie, não conta pro freio.
         marcar(filho, { outcome: "ja_existia" });
         registrarSequencia("ja_existia", false);

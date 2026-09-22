@@ -209,6 +209,7 @@ model ProdutoImport {
   autor     User            @relation(fields: [autorId], references: [id], onDelete: Cascade)
   produtos  ProdutoItem[]
   estrutura EstruturaItem[]
+  revisoes  ProdutoRevisao[]
 
   @@index([autorId])
   @@index([status])
@@ -250,6 +251,25 @@ model EstruturaItem {
   import ProdutoImport @relation(fields: [importId], references: [id], onDelete: Cascade)
 
   @@index([importId])
+}
+
+// Snapshot imutável das revisões identificadas em cada BOM enviada. Fica
+// separado de ProdutoItem porque a mesma revisão precisa ser registrada mesmo
+// quando o produto já existia no Omie e não entrou como "novo" no lote.
+model ProdutoRevisao {
+  id        String   @id @default(cuid())
+  importId  String
+  codigo    String
+  revisao   String
+  descricao String
+  linha     Int?
+  criadoEm  DateTime @default(now())
+
+  import ProdutoImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([codigo])
+  @@index([revisao])
 }
 
 // ---------------------------------------------------------------------------

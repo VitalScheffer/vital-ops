@@ -48,6 +48,10 @@ function rel(codigoPai: string, codigoFilho: string, quantidade: number | null):
   };
 }
 
+function relRevisao(codigoPai: string, codigoFilho: string, quantidade: number, revisao: string) {
+  return { ...rel(codigoPai, codigoFilho, quantidade), revisao } as EstruturaRel & { revisao: string };
+}
+
 describe("orquestrarEnvio — ordem e mapeamento", () => {
   it("envia na ordem famílias → produtos → estrutura", async () => {
     const { fn, calls } = mockChamar((rec) => (rec.call === "UpsertFamilia" ? { codigo: 5 } : {}));
@@ -156,6 +160,18 @@ describe("orquestrarEnvio — ordem e mapeamento", () => {
           quantProdMalha: 3,
         },
       ],
+    });
+  });
+
+  it("grava a revisão na observação quando inclui uma linha nova da estrutura", async () => {
+    const { fn, calls } = mockChamar(() => ({}));
+    await orquestrarEnvio(
+      { novos: [], estrutura: [relRevisao("PAI", "FILHO", 2, "R001")] },
+      fn,
+    );
+
+    expect(calls.find((c) => c.call === "IncluirEstrutura")?.param).toMatchObject({
+      itemMalhaIncluir: [{ quantProdMalha: 2, obsProdMalha: "Revisão R001" }],
     });
   });
 
@@ -904,6 +920,27 @@ describe("orquestrarEnvio — sobrescreve a estrutura que já existe no Omie", (
     expect(res.estrutura[0]).toMatchObject({ outcome: "atualizado" });
     expect(res.estrutura[0].detalhe).toMatch(/1.*→.*4/);
     expect(res.interrompido).toBe(false);
+  });
+
+  it("atualiza a observação de revisão mesmo quando a quantidade continua igual", async () => {
+    const { fn, calls } = comEstrutura([
+      {
+        idMalha: 9001,
+        idProdMalha: 600,
+        codProdMalha: "FILHO",
+        quantProdMalha: 4,
+        obsProdMalha: "Revisão R000 · corte a laser",
+      },
+    ]);
+
+    await orquestrarEnvio(
+      { novos: [], estrutura: [relRevisao("PAI", "FILHO", 4, "R001")] },
+      fn,
+    );
+
+    expect(calls.find((c) => c.call === "AlterarEstrutura")?.param).toMatchObject({
+      itemMalhaAlterar: [{ idMalha: 9001, quantProdMalha: 4, obsProdMalha: "Revisão R001 · corte a laser" }],
+    });
   });
 
   it("casa pelo CÓDIGO quando o id do filho não é conhecido (não duplica a linha)", async () => {

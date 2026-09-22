@@ -2,8 +2,8 @@ import type { BomRow, EstruturaRel, Familia, ParsedItem, ParseResult } from "./t
 
 // Formato padrão de código de engenharia: 3 blocos de 5 caracteres (família,
 // tipo+sequência, material/processo) separados por espaço, revisão opcional
-// ("R00") e por fim " - descrição". Itens comprados (família começando com
-// "COM") nunca têm bloco de revisão.
+// ("R00", "R001"...) e por fim " - descrição". O código cadastrado no Omie
+// continua sendo só os 15 caracteres úteis; a revisão é metadado da estrutura.
 //
 // O " - " antes da descrição é OPCIONAL porque o CAD às vezes exporta sem ele
 // ("MSVCH SM004 ITPOL ESTRUTURA SUPERIOR", visto na BOM da MSVCH MT001 I0POL).
@@ -14,7 +14,7 @@ import type { BomRow, EstruturaRel, Familia, ParsedItem, ParseResult } from "./t
 // seguido do hífen ("... ITSLD REV01 - CHAPA"): aí é revisão fora do padrão R00
 // ou bloco a mais, e engolir isso colocaria "REV01 - " dentro da descrição
 // cadastrada no Omie. Esse caso continua sendo erro para o usuário corrigir.
-const CODE_PATTERN = /^(\S{5}) (\S{5}) (\S{5})(?: (R\d{2}))?(?: - | (?!\S{5} - ))(.+)$/;
+const CODE_PATTERN = /^(\S{5}) (\S{5}) (\S{5})(?: (R\d*))?(?: - | (?!\S{5} - ))(.+)$/;
 
 export const DESCRICAO_MAX = 120;
 
@@ -51,6 +51,7 @@ interface CodigoInfo {
   codigo: string;
   descricao: string;
   familia: Familia | null;
+  revisao?: string;
 }
 
 /**
@@ -75,11 +76,12 @@ export function ehPeca(codigo: string): boolean {
 function extrairCodigo(pecaTrim: string): CodigoInfo | null {
   const match = CODE_PATTERN.exec(pecaTrim);
   if (!match) return null;
-  const [, familiaBloco, tipoBloco, materialBloco, , descricao] = match;
+  const [, familiaBloco, tipoBloco, materialBloco, revisao, descricao] = match;
   return {
     codigo: `${familiaBloco} ${tipoBloco} ${materialBloco}`,
     descricao: descricao.trim(),
     familia: classificarFamilia(familiaBloco, tipoBloco, materialBloco),
+    ...(revisao ? { revisao } : {}),
   };
 }
 
@@ -124,7 +126,15 @@ function parseLinha(row: BomRow): ParsedItem {
     };
   }
 
-  return { linha: row.linha, raw: row.peca, codigo, descricaoProduto, familia, status: "novo" };
+  return {
+    linha: row.linha,
+    raw: row.peca,
+    codigo,
+    descricaoProduto,
+    familia,
+    ...(info.revisao ? { revisao: info.revisao } : {}),
+    status: "novo",
+  };
 }
 
 /**
@@ -176,12 +186,12 @@ export const NUMERO_RAIZ = "0";
  */
 export function parseEstrutura(rows: BomRow[], codigoRaiz?: string): EstruturaRel[] {
   // 1ª passada: mapa numero -> código (só das linhas com código válido).
-  const codigoPorNumero = new Map<string, string>();
+  const codigoPorNumero = new Map<string, CodigoInfo>();
   for (const row of rows) {
     const numero = row.numero.trim();
     if (!numero) continue;
     const info = extrairCodigo(normalizarPeca(row.peca));
-    if (info) codigoPorNumero.set(numero, info.codigo);
+    if (info) codigoPorNumero.set(numero, info);
   }
 
   const raiz = codigoRaiz?.trim();
@@ -207,21 +217,23 @@ export function parseEstrutura(rows: BomRow[], codigoRaiz?: string): EstruturaRe
         descricaoFilho: info.descricao,
         quantidade: row.quantidade,
         origem: "raiz",
+        ...(info.revisao ? { revisao: info.revisao } : {}),
       });
       continue;
     }
 
     const numeroPai = numero.slice(0, numero.lastIndexOf("."));
-    const codigoPai = codigoPorNumero.get(numeroPai);
-    if (!codigoPai) continue; // pai sem código válido -> não dá pra relacionar
+    const infoPai = codigoPorNumero.get(numeroPai);
+    if (!infoPai) continue; // pai sem código válido -> não dá pra relacionar
     rels.push({
       numeroPai,
       numeroFilho: numero,
-      codigoPai,
+      codigoPai: infoPai.codigo,
       codigoFilho: info.codigo,
       descricaoFilho: info.descricao,
       quantidade: row.quantidade,
       origem: "bom",
+      ...(info.revisao ? { revisao: info.revisao } : {}),
     });
   }
   return rels;

@@ -159,6 +159,16 @@ function EnvioResultadoView({ estado }: { estado: EnvioState }) {
         </div>
       )}
 
+      {estado.revisoes && estado.revisoes.length > 0 && (
+        <div className="flex items-start gap-2 rounded-2xl bg-warning-dim px-4 py-3 text-sm text-warning ring-1 ring-inset ring-warning/25">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <strong>{estado.revisoes.length} revisão(ões) registradas no histórico do VitalOps:</strong>{" "}
+            {estado.revisoes.map((revisao) => `${revisao.codigo} ${revisao.revisao}`).join(" · ")}
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard icon={CheckCircle2} label="Cadastrados" value={totais.enviados} tone="success" />
         <SummaryCard icon={RotateCcw} label="Já existiam" value={totais.jaExistiam} tone="warning" />

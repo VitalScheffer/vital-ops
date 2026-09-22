@@ -29,6 +29,8 @@ export interface ParsedItem {
   codigo: string;
   descricaoProduto: string;
   familia: Familia | null;
+  /** Revisão do CAD depois dos 15 caracteres úteis do código (ex.: R001). */
+  revisao?: string;
   status: "novo" | "duplicado" | "erro";
   motivoErro?: string;
 }
@@ -58,4 +60,6 @@ export interface EstruturaRel {
   descricaoFilho: string;
   quantidade: number | null;
   origem: OrigemEstrutura;
+  /** Revisão do filho, quando a linha da BOM trouxe um sufixo R... . */
+  revisao?: string;
 }

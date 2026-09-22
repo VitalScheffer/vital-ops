@@ -15,6 +15,12 @@ describe("parseBom — separador da descrição", () => {
     expect(item.descricaoProduto).toBe("MSVCH SM004 ITPOL - ESTRUTURA SUPERIOR");
   });
 
+  it("não confunde descrição sem hífen iniciada por R com revisão", () => {
+    const item = parseBom([linha("MSVCH SM004 ITPOL RODIZIO SUPERIOR")]).itens[0];
+    expect(item.revisao).toBeUndefined();
+    expect(item.descricaoProduto).toBe("MSVCH SM004 ITPOL - RODIZIO SUPERIOR");
+  });
+
   it("mas NÃO engole um bloco a mais que ainda vem seguido de hífen", () => {
     // "REV01" é revisão fora do padrão R00. Engolir isso gravaria
     // "... - REV01 - CHAPA LATERAL" como descrição do produto no Omie.
@@ -22,9 +28,10 @@ describe("parseBom — separador da descrição", () => {
     expect(item.status).toBe("erro");
   });
 
-  it("a revisão no padrão R00 continua sendo removida", () => {
-    const item = parseBom([linha("MSVCH PC001 ITSLD R00 - TUBO CENTRAL")]).itens[0];
+  it("preserva a revisão R00/R001 separada do código-base de 15 caracteres", () => {
+    const item = parseBom([linha("MSVCH PC001 ITSLD R001 - TUBO CENTRAL")]).itens[0];
     expect(item.descricaoProduto).toBe("MSVCH PC001 ITSLD - TUBO CENTRAL");
+    expect(item.revisao).toBe("R001");
   });
 });
 
@@ -111,6 +118,15 @@ describe("parseBom — casos de borda", () => {
     expect(r.itens[0].codigo).toBe("MCHUH SM001 C0PTD");
     expect(r.itens[0].descricaoProduto).toBe("MCHUH SM001 C0PTD - LONGARINA RODIZIO DIR. E TOT.");
     expect(r.itens[0].familia).toBe("SBM - SUBMONTAGEM");
+  });
+
+  it("leva a revisão do filho para a relação da estrutura", () => {
+    const rows = [
+      linha("CREHS SM001 C0PTD R00 - SUBMONTAGEM", { numero: "1" }),
+      linha("CREHS PC001 CCSLD R001 - PEÇA REVISADA", { numero: "1.1" }),
+    ];
+    const relacao = parseEstrutura(rows)[0];
+    expect(relacao.revisao).toBe("R001");
   });
 
   it("aceita tab e espaço duplo entre os blocos do código", () => {

@@ -6393,3 +6393,25 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 ### Validação
 - `npx.cmd tsc --noEmit`, `npx.cmd vitest run src/app/layout.test.ts "src/app/(app)/recebimento/page.test.ts" "src/app/(app)/recebimento/actions.test.ts" src/lib/recebimento/notasOmie.test.ts`, `npm.cmd run lint` e `npm.cmd run build` concluídos sem erros.
 - Navegador local confirmou a tela inicial sem cartões do Omie e a pesquisa da NF-e 000153030 retornou a entrada com itens e o botão de adicionar; nenhum checklist foi criado durante a validação.
+
+## 2026-09-21 — Revisão de BOM no envio ao Omie e histórico no VitalOps
+
+### Resumo
+- Implementada a identificação de revisões iniciadas por `R` depois dos 15 caracteres úteis do código (`R00`, `R001`, etc.).
+- A revisão é preservada separada do SKU-base, gravada como `Revisão Rxxx` na observação da linha da estrutura do Omie e atualizada/removida sem apagar observações manuais.
+- Cada envio registra no banco os produtos/relações revisados em `ProdutoRevisao`, além de mostrar o resumo no resultado e na auditoria.
+
+### Arquivos alterados/criados
+- `src/lib/bom/bomParser.ts`, `types.ts`, `review.ts`: carregam a revisão do parser até a Server Action e as relações enviadas.
+- `src/lib/produtos/revisoes.ts` e testes: deduplicação do histórico e composição segura da observação do Omie.
+- `src/lib/produtos/envioOmie.ts`: inclui/altera a observação de revisão no espelho da estrutura.
+- `src/app/(app)/produtos/enviar-actions.ts`, `src/components/produtos/ProdutosClient.tsx`, `src/lib/contracts/produto.ts`: persistência, auditoria e mensagem ao operador.
+- `prisma/schema.prisma` e `prisma/migrations/20260921120000_historico_revisoes_bom/migration.sql`: histórico persistente.
+
+### Validação
+- `npx vitest run` — 72 arquivos, 793 testes verdes.
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` e `npx prisma validate` verdes.
+- Testes focados de parser/revisão/envio: 99 verdes.
+
+### Pendências / próximos passos
+- Code review antes do commit/push; migration/deploy real do VitalOps e primeiro envio real ao Omie continuam dependentes da publicação e homologação autorizadas.

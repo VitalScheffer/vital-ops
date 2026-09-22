@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db";
 import { chamar } from "@/lib/omie";
 import { orquestrarEnvio, type EnvioResultado, type OutcomeEnvio } from "@/lib/produtos/envioOmie";
 import { normalizarNcm } from "@/lib/produtos/ncm";
+import { revisoesDaEntrada, type RevisaoDetectada } from "@/lib/produtos/revisoes";
 import { requestHeaders } from "@/lib/request";
 
 // Envio automático dos produtos da BOM ao Omie via API (REQUISITOS §6/§7).
@@ -27,6 +28,7 @@ const parsedItemSchema = z.object({
   codigo: z.string().trim().min(1),
   descricaoProduto: z.string().trim().min(1),
   familia: familiaSchema.nullable(),
+  revisao: z.string().trim().regex(/^R\d*$/i).optional(),
   status: z.enum(["novo", "duplicado", "erro"]),
   motivoErro: z.string().optional(),
 });
@@ -39,6 +41,7 @@ const estruturaRelSchema = z.object({
   descricaoFilho: z.string(),
   quantidade: z.number().nullable(),
   origem: z.enum(["bom", "raiz", "mp"]),
+  revisao: z.string().trim().regex(/^R\d*$/i).optional(),
 });
 
 const enviarInputSchema = z.object({
@@ -56,6 +59,7 @@ export interface EnviarAoOmieResult {
   erro?: string;
   importId?: string;
   resultado?: EnvioResultado;
+  revisoes?: RevisaoDetectada[];
 }
 
 const STATUS_PRODUTO: Record<OutcomeEnvio, string> = {
@@ -137,6 +141,19 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
     },
   });
 
+  const revisoes = revisoesDaEntrada(parsed.data.novos, estrutura);
+  if (revisoes.length > 0) {
+    await prisma.produtoRevisao.createMany({
+      data: revisoes.map((revisao) => ({
+        importId: importRecord.id,
+        codigo: revisao.codigo,
+        revisao: revisao.revisao,
+        descricao: revisao.descricao,
+        linha: revisao.linha,
+      })),
+    });
+  }
+
   await prisma.produtoItem.createMany({
     data: novos.map((item) => ({
       importId: importRecord.id,
@@ -184,7 +201,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       after: { erro: motivo, arquivo: importRecord.arquivoNome },
       req: await requestHeaders(),
     });
-    return { ok: false, importId: importRecord.id, erro: `Falha inesperada no envio ao Omie: ${motivo}` };
+    return { ok: false, importId: importRecord.id, revisoes, erro: `Falha inesperada no envio ao Omie: ${motivo}` };
   }
 
   // 3. Reflete o resultado no banco (status por item).
@@ -208,6 +225,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
       familias: resultado.familias.map((f) => ({ familia: f.familia, outcome: f.outcome })),
       // Detalhe das falhas (o quê + porquê) para o admin auditar sem abrir o banco.
       falhas: falhasDetalhadas(resultado),
+      revisoes,
       // O espelho da estrutura APAGA linhas no Omie: fica tudo registrado aqui
       // (pai, filho, quantidade, id da linha) pra dar pra recolocar à mão.
       estruturaAtualizada: resultado.estrutura
@@ -219,7 +237,7 @@ export async function enviarAoOmie(input: EnviarAoOmieInput): Promise<EnviarAoOm
     req: await requestHeaders(),
   });
 
-  return { ok: true, importId: importRecord.id, resultado };
+  return { ok: true, importId: importRecord.id, resultado, revisoes };
 }
 
 async function aplicarResultadoNoBanco(importId: string, resultado: EnvioResultado): Promise<void> {
