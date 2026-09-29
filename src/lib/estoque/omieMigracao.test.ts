@@ -64,13 +64,16 @@ describe("migrarSaldo", () => {
     expect(saida).toMatchObject({
       id_prod: 8723549209,
       tipo: "SAI",
+      motivo: "OPS",
       quan: 240,
       codigo_local_estoque: Number(MP),
       cod_int_ajuste: "item-1-ms",
     });
+    // PRD00240 (28/09/2026): a entrada ia com motivo OPS e o Omie recusava.
     expect(entrada).toMatchObject({
       id_prod: 12098285735,
       tipo: "ENT",
+      motivo: "OPE",
       quan: 1694.9153,
       codigo_local_estoque: Number(MP),
       cod_int_ajuste: "item-1-me",
@@ -79,7 +82,8 @@ describe("migrarSaldo", () => {
 
   it("o valor das duas pernas sai do CMC do ANTIGO, para o total não mudar", async () => {
     // Usar o CMC do cadastro novo (que pode ser zero, ou de outra unidade) na
-    // entrada inventaria ou apagaria valor numa troca de etiqueta.
+    // entrada inventaria ou apagaria valor numa troca de etiqueta. O `valor` do
+    // Omie é UNITÁRIO: 10 × 3,3 = 33 na saída e 70 × 0,471429 ≈ 33 na entrada.
     const chamadas: Record<string, unknown>[] = [];
     const chamar: ChamarFn = vi.fn(async (_p, _c, param) => {
       chamadas.push(param as Record<string, unknown>);
@@ -88,8 +92,45 @@ describe("migrarSaldo", () => {
 
     await migrarSaldo([item({ quantidadeLegado: 10, quantidadeNovo: 70 })], ctx({ [MP]: { saldo: 10, cmc: 3.3 } }), chamar);
 
-    expect(chamadas[0].valor).toBe(33);
-    expect(chamadas[1].valor).toBe(33);
+    expect(chamadas[0].valor).toBe(3.3);
+    expect(chamadas[1].valor).toBe(0.471429);
+    expect((chamadas[1].valor as number) * 70).toBeCloseTo(33, 4);
+  });
+
+  it("mesma unidade: a entrada vai com o mesmo valor unitário da saída, nunca o total", async () => {
+    // 29/09/2026: uma entrada de 167,48 KG com valor 1246,05 (o total) deixou o
+    // nCMC do MATTB RD222 12I43 em 1246,05 POR KG no Omie.
+    const chamadas: Record<string, unknown>[] = [];
+    const chamar: ChamarFn = vi.fn(async (_p, _c, param) => {
+      chamadas.push(param as Record<string, unknown>);
+      return { id_ajuste: "x" };
+    });
+
+    await migrarSaldo(
+      [item({ quantidadeLegado: 167.48, quantidadeNovo: 167.48 })],
+      ctx({ [MP]: { saldo: 167.48, cmc: 7.44 } }),
+      chamar,
+    );
+
+    expect(chamadas[0].valor).toBe(7.44);
+    expect(chamadas[1].valor).toBe(7.44);
+  });
+
+  it("retomada usa o custo gravado da saída, não o CMC relido do antigo já zerado", async () => {
+    const chamadas: Record<string, unknown>[] = [];
+    const chamar: ChamarFn = vi.fn(async (_p, _c, param) => {
+      chamadas.push(param as Record<string, unknown>);
+      return { id_ajuste: "entrada-1" };
+    });
+
+    await migrarSaldo(
+      [item({ quantidadeLegado: 167.48, quantidadeNovo: 167.48, saidaFeita: true, custoUnitario: 7.44 })],
+      ctx({ [MP]: { saldo: 0, cmc: 0 } }),
+      chamar,
+    );
+
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0]).toMatchObject({ tipo: "ENT", motivo: "OPE", valor: 7.44 });
   });
 
   it("saldo insuficiente no local nem vira chamada ao Omie", async () => {

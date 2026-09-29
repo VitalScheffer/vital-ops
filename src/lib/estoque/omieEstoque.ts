@@ -13,7 +13,9 @@
 //     enviado: omitido, o Omie devolve os lotes de TODOS os locais (≠ do
 //     `ListarPosEstoque`, onde `codigo_local_estoque: 0` é o local padrão).
 //   • `IncluirAjusteEstoque` (estoque/ajuste/) — WRITE, tipo "SAI" (saída),
-//     origem "AJU", motivo "OPS"; `codigo_local_estoque` omitido = local PADRÃO
+//     origem "AJU", motivo "OPS" (na ENTRADA do estorno é "OPE", ver
+//     `MOTIVO_ENTRADA`; `valor` é UNITÁRIO, ver `valorUnitario`);
+//     `codigo_local_estoque` omitido = local PADRÃO
 //     (decisão do Victor, 16/07/2026). `cod_int_ajuste` recebe um id NOSSO
 //     determinístico por item → reenviar vira duplicado idempotente, não baixa
 //     duas vezes. Produto com controle de lote leva `lote_validade`
@@ -45,6 +47,28 @@ const BLOCO_LISTAGEM = 50;
 const LIMITE_SEQUENCIA_RISCO = 5;
 
 const MOTIVO_NAO_BAIXADO = "Baixa interrompida antes de chegar neste item.";
+
+// Motivo do `IncluirAjusteEstoque`: a lista aceita depende do TIPO (doc do Omie,
+// estoque/ajuste/). "OPS" é "Integração com Ordem de Produção - Saída" e só vale
+// na saída; o par da entrada é "OPE". Uma entrada com OPS volta recusada
+// ("Valores permitidos: 'INI', 'INV', 'OPE', 'PDV'"), e foi isso que deixou a
+// migração PRD00240 (28/09/2026) e a transferência da OP 2026/00801 (31/08/2026)
+// com a saída lançada e a entrada nunca feita.
+export const MOTIVO_SAIDA = "OPS";
+export const MOTIVO_ENTRADA = "OPE";
+
+/**
+ * O `valor` do `IncluirAjusteEstoque` é UNITÁRIO, não o total do movimento.
+ *
+ * Conferido em 29/09/2026: uma entrada de 167,48 KG com valor 1246,05 (o total)
+ * deixou o nCMC do produto em 1246,05 POR KG. Na saída o Omie ignora o número e
+ * grava o próprio CMC (a saída do PRD00240 mandou 1246,05 e ficou 7,44), mas na
+ * ENTRADA o valor vira o custo do saldo que chega. Seis casas, a mesma precisão
+ * do nCMC que o próprio Omie devolve. Sem custo, o campo é omitido.
+ */
+export function valorUnitario(custo: number): { valor?: number } {
+  return custo > 0 ? { valor: Number(custo.toFixed(6)) } : {};
+}
 
 function texto(valor: unknown): string | undefined {
   if (valor === undefined || valor === null) return undefined;
@@ -673,12 +697,12 @@ export async function baixarEstoque(
           data: ctx.data,
           quan: item.quantidade,
           tipo: "SAI",
-          motivo: "OPS",
+          motivo: MOTIVO_SAIDA,
           origem: "AJU",
           // Saída: o Omie preenche o valor pelo CMC. Só mandamos quando há custo
           // médio (> 0); sem custo, omitimos — o Omie baixa a 0 (só consome o
           // estoque) em vez de rejeitar por "custo médio unitário não informado".
-          ...(cmc > 0 ? { valor: Number((cmc * item.quantidade).toFixed(2)) } : {}),
+          ...valorUnitario(cmc),
           obs: item.obs.slice(0, 500),
           ...(loteValidade ? { lote_validade: loteValidade } : {}),
           ...(localEscolhido ? { codigo_local_estoque: Number(localEscolhido) } : {}),
@@ -809,9 +833,9 @@ export async function reverterBaixa(
           data,
           quan: item.quantidade,
           tipo: "ENT",
-          motivo: "OPS",
+          motivo: MOTIVO_ENTRADA,
           origem: "AJU",
-          ...(item.custoUnitario > 0 ? { valor: Number((item.custoUnitario * item.quantidade).toFixed(2)) } : {}),
+          ...valorUnitario(item.custoUnitario),
           obs: item.obs.slice(0, 500),
           ...(loteValidade && loteValidade.length > 0 ? { lote_validade: loteValidade } : {}),
           ...(localEscolhido ? { codigo_local_estoque: Number(localEscolhido) } : {}),

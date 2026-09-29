@@ -43,7 +43,7 @@ import {
   type SaldoEstoque,
 } from "@/lib/estoque/omieEstoque";
 import { migrarSaldo, novoAceitaEntrada, type ItemMigracao } from "@/lib/estoque/omieMigracao";
-import { inativarProduto } from "@/lib/estoque/omieProduto";
+import { instrucaoInativar, produtoInativo } from "@/lib/estoque/omieProduto";
 import { chamar } from "@/lib/omie";
 import { OmieBlocked } from "@/lib/omie/errors";
 import { getRolePermissionsMap } from "@/lib/permissions.server";
@@ -557,7 +557,49 @@ export interface ResultadoPendencias {
   pendencias: PendenciasLegado;
   /** Impedimento duro: nem com confirmação dá para migrar. */
   impedimento?: string;
+  /**
+   * Migração deste código que não terminou (saída lançada e entrada não, ou
+   * execução que não fechou). Enquanto ela existir, o único caminho é
+   * CONCLUIR essa; começar outra do zero tiraria o saldo de novo.
+   */
+  migracaoAberta?: MigracaoAberta;
 }
+
+export interface MigracaoAberta {
+  id: string;
+  status: string;
+  criadoEm: string;
+  itens: ItemMigrado[];
+}
+
+/**
+ * A migração deste código que ficou pela metade, se houver.
+ *
+ * Existe por causa do PRD00240 (28/09/2026): a saída passou, a entrada foi
+ * recusada, e a tela só oferecia o botão de migrar de novo. O 2º clique criou
+ * uma migração nova que tentou tirar o saldo outra vez (o Omie barrou por saldo
+ * negativo) e o 3º, já com o antigo zerado, aposentou e deu como migrado um
+ * material que não tinha chegado ao código novo.
+ */
+async function migracaoAbertaDe(codigoLegado: string): Promise<MigracaoAberta | undefined> {
+  const aberta = await prisma.migracaoLegado.findFirst({
+    where: { codigoLegado, status: { in: ["PENDENTE", "ENVIANDO"] } },
+    orderBy: { criadoEm: "desc" },
+    include: { itens: { orderBy: { localCodigo: "asc" } } },
+  });
+  if (!aberta) return undefined;
+  return {
+    id: aberta.id,
+    status: aberta.status,
+    criadoEm: aberta.criadoEm.toISOString(),
+    itens: aberta.itens.map(paraItemMigrado),
+  };
+}
+
+const ERRO_MIGRACAO_ABERTA =
+  "Este código tem uma migração que não terminou (por exemplo, a saída do código antigo foi lançada no " +
+  "Omie e a entrada no código novo não). Conclua essa migração antes de qualquer outra coisa; começar de " +
+  "novo tiraria o saldo pela segunda vez.";
 
 const SEM_PENDENCIAS: PendenciasLegado = {
   ops: [],
@@ -669,11 +711,12 @@ export async function pendenciasLegado(input: PendenciasLegadoInput): Promise<Re
       : {}),
   }));
 
-  const [pendenciasOmie, requisicoes] = await Promise.all([
+  const [pendenciasOmie, requisicoes, migracaoAberta] = await Promise.all([
     legado
       ? conferirPendencias({ idProd: legado.idProd, requisicoes: [] }, chamar)
       : Promise.resolve(SEM_PENDENCIAS),
     requisicoesAbertas(codigoLegado),
+    migracaoAbertaDe(codigoLegado),
   ]);
 
   return {
@@ -690,6 +733,7 @@ export async function pendenciasLegado(input: PendenciasLegadoInput): Promise<Re
     saldoTotal: detalhados.reduce((soma, s) => soma + s.saldo, 0),
     pendencias: { ...pendenciasOmie, requisicoes },
     impedimento,
+    migracaoAberta,
   };
 }
 
@@ -710,6 +754,7 @@ export interface ResultadoMigracaoLegado {
   /** Locais em que a saída passou e a entrada não. */
   pendentes?: number;
   aposentado?: boolean;
+  /** Conferido no Omie (leitura): o cadastro antigo JÁ está inativo lá. */
   inativadoNoOmie?: boolean;
   avisoInativacao?: string;
   motivoInterrupcao?: string;
@@ -732,12 +777,13 @@ const STATUS_POR_OUTCOME: Record<string, string> = {
  *     lançaria no local padrão material que estava na Matéria-Prima);
  *  2. marcar como aposentado AQUI — reversível, e é o que tira o código da fila
  *     e das sugestões de substituto;
- *  3. só então inativar no Omie, se a pessoa pediu.
+ *  3. conferir no Omie se o cadastro antigo já está inativo. Só LEITURA: a API
+ *     do Omie não inativa produto (ver `omieProduto.ts`), isso é feito na tela
+ *     do Omie, e o registro só diz "inativado" quando o Omie diz.
  *
- * Inativar ANTES de mover deixaria o saldo preso num cadastro que a API não
- * aceita mais movimentar. E a inativação só acontece se a migração fechou
- * inteira: aposentar um cadastro que ainda segura material é a forma mais
- * rápida de perder material de vista.
+ * Aposentar só acontece se a migração fechou inteira E não há migração anterior
+ * pela metade: aposentar um cadastro cujo material ainda não chegou ao código
+ * novo é a forma mais rápida de perder material de vista.
  */
 export async function migrarLegado(input: MigrarLegadoInput): Promise<ResultadoMigracaoLegado> {
   const guarda = await guardar();
@@ -745,7 +791,7 @@ export async function migrarLegado(input: MigrarLegadoInput): Promise<ResultadoM
 
   const parsed = migrarLegadoSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erro: "Dados inválidos.", itens: [] };
-  const { codigoLegado, inativarNoOmie, confirmaPendencias } = parsed.data;
+  const { codigoLegado, confirmaPendencias } = parsed.data;
 
   const par = await prisma.deParaProduto.findUnique({
     where: { codigoLegado },
@@ -767,6 +813,9 @@ export async function migrarLegado(input: MigrarLegadoInput): Promise<ResultadoM
 
   const conferencia = await pendenciasLegado({ codigoLegado });
   if (!conferencia.ok) return { ok: false, erro: conferencia.erro, itens: [] };
+  if (conferencia.migracaoAberta) {
+    return { ok: false, erro: ERRO_MIGRACAO_ABERTA, migracaoId: conferencia.migracaoAberta.id, itens: [] };
+  }
   if (conferencia.impedimento) return { ok: false, erro: conferencia.impedimento, itens: [] };
   if (temPendencia(conferencia.pendencias) && !confirmaPendencias) {
     return {
@@ -822,13 +871,11 @@ export async function migrarLegado(input: MigrarLegadoInput): Promise<ResultadoM
     entityId: codigoLegado,
     summary:
       `Migração de saldo ${codigoLegado} → ${par.codigoNovo}: ` +
-      `${conferencia.saldos.length} local(is), total ${conferencia.saldoTotal}` +
-      (inativarNoOmie ? ", com inativação no Omie." : "."),
+      `${conferencia.saldos.length} local(is), total ${conferencia.saldoTotal}.`,
     after: {
       codigoNovo: par.codigoNovo,
       fator,
       locais: conferencia.saldos.length,
-      inativarNoOmie,
       pendenciasConfirmadas: confirmaPendencias,
     },
     omieTarget: "omie",
@@ -845,54 +892,96 @@ export async function migrarLegado(input: MigrarLegadoInput): Promise<ResultadoM
     return { ...execucao, ok: execucao.ok, aposentado: false };
   }
 
-  // Passo 2: aposentar aqui dentro (reversível).
+  // Passo 2: aposentar aqui dentro (reversível). O "migrado" é o que CHEGOU ao
+  // código novo, somado das migrações concluídas: quando a entrada é concluída
+  // numa retomada, esta chamada roda com o antigo já zerado, e gravar o saldo
+  // desta conferência (zero) apagaria o registro do que foi movido.
+  const migrado = await prisma.migracaoLegadoItem.aggregate({
+    _sum: { quantidadeLegado: true },
+    where: { status: "MIGRADO", migracao: { deParaId: par.id } },
+  });
   await prisma.deParaProduto.update({
     where: { codigoLegado },
     data: {
       aposentadoEm: new Date(),
       aposentadoPorId: guarda.userId,
       migradoEm: new Date(),
-      saldoMigrado: new Prisma.Decimal(conferencia.saldoTotal),
+      saldoMigrado: migrado._sum.quantidadeLegado ?? new Prisma.Decimal(0),
     },
   });
 
-  // Passo 3: inativar no Omie, se pedido.
-  let inativado = false;
-  let avisoInativacao: string | undefined;
-  if (inativarNoOmie) {
-    const produtos = await buscarProdutosPorCodigo([codigoLegado], chamar).catch(() => null);
-    const idProd = produtos?.get(codigoLegado)?.idProd;
-    if (!idProd) {
-      avisoInativacao = "O saldo foi migrado, mas não consegui achar o cadastro no Omie para inativar.";
-    } else {
-      const resultado = await inativarProduto(idProd, chamar);
-      inativado = resultado.ok;
-      if (resultado.ok) {
-        await prisma.deParaProduto.update({
-          where: { codigoLegado },
-          data: { inativadoNoOmieEm: new Date() },
-        });
-      } else {
-        avisoInativacao =
-          `O saldo foi migrado e o código está aposentado aqui, mas a inativação no Omie falhou: ${resultado.motivo}`;
-      }
-    }
-    await audit({
-      actor: { id: guarda.userId, email: guarda.email },
-      action: "depara.inativar_omie",
-      entity: "DeParaProduto",
-      entityId: codigoLegado,
-      summary: inativado
-        ? `Cadastro ${codigoLegado} inativado no Omie.`
-        : `Falha ao inativar ${codigoLegado} no Omie: ${avisoInativacao ?? "motivo desconhecido"}`,
-      after: { inativado },
-      omieTarget: "omie",
-      req: await requestHeaders(),
-    });
-  }
+  // Passo 3: conferir (só leitura) se o cadastro antigo já está inativo no Omie.
+  const situacao = await conferirNoOmie(codigoLegado);
 
   revalidatePath("/de-para");
-  return { ...execucao, aposentado: true, inativadoNoOmie: inativado, avisoInativacao };
+  return {
+    ...execucao,
+    aposentado: true,
+    inativadoNoOmie: situacao.inativo,
+    avisoInativacao: situacao.aviso,
+  };
+}
+
+/**
+ * Lê no Omie se o cadastro antigo já está inativo e, se estiver, marca aqui.
+ * Nunca marca por dedução: só o que o Omie devolve como `inativo: "S"`.
+ */
+async function conferirNoOmie(codigoLegado: string): Promise<{ inativo: boolean; aviso?: string }> {
+  let inativo: boolean | undefined;
+  try {
+    const produtos = await buscarProdutosPorCodigo([codigoLegado], chamar);
+    const idProd = produtos.get(codigoLegado)?.idProd;
+    if (!idProd) {
+      return { inativo: false, aviso: `Não achei o cadastro ${codigoLegado} no Omie para conferir se está inativo.` };
+    }
+    inativo = await produtoInativo(idProd, chamar);
+  } catch (erro) {
+    return { inativo: false, aviso: mensagemOmieIndisponivel(erro) };
+  }
+  if (inativo !== true) return { inativo: false, aviso: instrucaoInativar(codigoLegado) };
+
+  await prisma.deParaProduto.updateMany({
+    where: { codigoLegado, inativadoNoOmieEm: null },
+    data: { inativadoNoOmieEm: new Date() },
+  });
+  return { inativo: true };
+}
+
+/**
+ * O botão "Conferir no Omie" de um código aposentado: a pessoa inativou pela
+ * tela do Omie e quer que o VitalOps reconheça. Só leitura no ERP.
+ */
+export async function conferirInativacao(input: PendenciasLegadoInput): Promise<ResultadoSalvar> {
+  const guarda = await guardar();
+  if ("erro" in guarda) return { ok: false, erro: guarda.erro };
+
+  const parsed = pendenciasLegadoSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, erro: "Código inválido." };
+  const { codigoLegado } = parsed.data;
+
+  const par = await prisma.deParaProduto.findUnique({
+    where: { codigoLegado },
+    select: { aposentadoEm: true, inativadoNoOmieEm: true },
+  });
+  if (!par?.aposentadoEm) return { ok: false, erro: "Este código não está aposentado." };
+  if (par.inativadoNoOmieEm) return { ok: true };
+
+  const situacao = await conferirNoOmie(codigoLegado);
+  if (!situacao.inativo) return { ok: false, erro: situacao.aviso };
+
+  await audit({
+    actor: { id: guarda.userId, email: guarda.email },
+    action: "depara.conferir_inativacao",
+    entity: "DeParaProduto",
+    entityId: codigoLegado,
+    summary: `Cadastro ${codigoLegado} conferido INATIVO no Omie.`,
+    after: { inativadoNoOmie: true },
+    omieTarget: "omie",
+    req: await requestHeaders(),
+  });
+
+  revalidatePath("/de-para");
+  return { ok: true };
 }
 
 async function rodarMigracao(migracaoId: string): Promise<ResultadoMigracaoLegado> {
@@ -947,8 +1036,10 @@ async function rodarMigracao(migracaoId: string): Promise<ResultadoMigracaoLegad
     localCodigo: item.localCodigo,
     quantidadeLegado: decimal(item.quantidadeLegado),
     quantidadeNovo: decimal(item.quantidadeNovo),
-    obs: `Migração ${migracao.codigoLegado} → ${migracao.codigoNovo} · ${item.localNome ?? item.localCodigo}`,
+    // "->" e não "→": o Omie grava o que passa do Latin-1 como "¿¿¿".
+    obs: `Migração ${migracao.codigoLegado} -> ${migracao.codigoNovo} · ${item.localNome ?? item.localCodigo}`,
     saidaFeita: item.status === "SAIDA_OK",
+    custoUnitario: item.custoUnitario === null ? undefined : decimal(item.custoUnitario),
     lotes: Array.isArray(item.loteConsumido)
       ? (item.loteConsumido as unknown as ItemMigracao["lotes"])
       : undefined,
@@ -1175,6 +1266,9 @@ export async function migrarEntradaTardia(input: PendenciasLegadoInput): Promise
 
   const conferencia = await pendenciasLegado({ codigoLegado });
   if (!conferencia.ok) return { ok: false, erro: conferencia.erro, itens: [] };
+  if (conferencia.migracaoAberta) {
+    return { ok: false, erro: ERRO_MIGRACAO_ABERTA, migracaoId: conferencia.migracaoAberta.id, itens: [] };
+  }
   if (conferencia.impedimento) return { ok: false, erro: conferencia.impedimento, itens: [] };
   if (conferencia.saldos.length === 0) {
     return { ok: false, erro: "Este código já está zerado em todos os locais.", itens: [] };

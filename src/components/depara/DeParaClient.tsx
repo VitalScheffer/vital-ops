@@ -17,6 +17,8 @@ import {
   buscarCadastro,
   buscarCodigoNovo,
   carregarFila,
+  conferirInativacao,
+  continuarMigracao,
   migrarLegado,
   pendenciasLegado,
   reativarLegado,
@@ -248,6 +250,12 @@ export function DeParaClient({ locais, localInicial, filaInicial }: Props) {
     }
     painelAberto.current = codigoLegado;
     setAposentando(codigoLegado);
+    await conferirPendencias(codigoLegado);
+  }
+
+  // Relê o quadro do painel aberto (depois de concluir uma entrada pendente, o
+  // saldo e a migração aberta mudaram e o botão certo passa a ser outro).
+  async function conferirPendencias(codigoLegado: string) {
     setPendencias(null);
     setConferindo(true);
     try {
@@ -259,6 +267,22 @@ export function DeParaClient({ locais, localInicial, filaInicial }: Props) {
       setPendencias(resultado);
     } finally {
       if (painelAberto.current === codigoLegado) setConferindo(false);
+    }
+  }
+
+  async function conferirOmie(linha: LinhaFila) {
+    setSalvando(linha.codigo);
+    setAviso(null);
+    try {
+      const resultado = await conferirInativacao({ codigoLegado: linha.codigo });
+      if (!resultado.ok) {
+        setAviso(resultado.erro ?? "Não consegui conferir no Omie.");
+        return;
+      }
+      if (encontrados) await procurarCadastro();
+      else await carregar(local, true);
+    } finally {
+      setSalvando(null);
     }
   }
 
@@ -276,6 +300,8 @@ export function DeParaClient({ locais, localInicial, filaInicial }: Props) {
       onConfirmar: (semEquivalente: boolean) => void confirmar(linha, semEquivalente),
       onDesfazer: () => void desfazer(linha),
       onReativar: () => void reativar(linha),
+      onConferirOmie: () => void conferirOmie(linha),
+      onRecarregarPendencias: () => void conferirPendencias(linha.codigo),
       pendencias: aposentando === linha.codigo ? pendencias : null,
       conferindo: aposentando === linha.codigo && conferindo,
       onAposentar: () => void abrirAposentadoria(linha.codigo),
@@ -472,6 +498,8 @@ interface LinhaProps {
   onConfirmar: (semEquivalente: boolean) => void;
   onDesfazer: () => void;
   onReativar: () => void;
+  onConferirOmie: () => void;
+  onRecarregarPendencias: () => void;
   onAposentar: () => void;
   onMigrou: () => void;
 }
@@ -491,6 +519,8 @@ function Linha({
   onConfirmar,
   onDesfazer,
   onReativar,
+  onConferirOmie,
+  onRecarregarPendencias,
   onAposentar,
   onMigrou,
 }: LinhaProps) {
@@ -654,7 +684,7 @@ function Linha({
       ) : null}
 
       {aposentado ? (
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={onReativar}
@@ -662,8 +692,20 @@ function Linha({
             className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground disabled:opacity-60"
           >
             <Undo2 className="h-4 w-4" />
-            {salvando ? "Reativando…" : "Reativar aqui"}
+            {salvando ? "Aguarde…" : "Reativar aqui"}
           </button>
+          {!decidido?.inativadoNoOmieEm ? (
+            <button
+              type="button"
+              onClick={onConferirOmie}
+              disabled={salvando}
+              title="Depois de inativar o cadastro na tela do Omie, confira aqui para o VitalOps reconhecer."
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground disabled:opacity-60"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Conferir no Omie
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -673,6 +715,7 @@ function Linha({
           dados={pendencias}
           carregando={conferindo}
           onMigrou={onMigrou}
+          onRecarregar={onRecarregarPendencias}
         />
       ) : null}
     </li>
@@ -781,13 +824,14 @@ function PainelAposentar({
   dados,
   carregando,
   onMigrou,
+  onRecarregar,
 }: {
   codigoLegado: string;
   dados: ResultadoPendencias | null;
   carregando: boolean;
   onMigrou: () => void;
+  onRecarregar: () => void;
 }) {
-  const [inativar, setInativar] = useState(false);
   const [ciente, setCiente] = useState(false);
   const [executando, setExecutando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoMigracaoLegado | null>(null);
@@ -798,11 +842,26 @@ function PainelAposentar({
     try {
       const saida = await migrarLegado({
         codigoLegado,
-        inativarNoOmie: inativar,
         confirmaPendencias: ciente,
       });
       setResultado(saida);
       if (saida.aposentado) onMigrou();
+      // Sobrou migração pela metade: relê o quadro para o painel trocar o botão
+      // de migrar pelo de concluir. Clicar em "migrar" de novo tiraria o saldo
+      // pela segunda vez (PRD00240, 28/09/2026).
+      else if (saida.migracaoId && saida.status !== "FALHA") onRecarregar();
+    } finally {
+      setExecutando(false);
+    }
+  }
+
+  async function concluir(migracaoId: string) {
+    setExecutando(true);
+    setResultado(null);
+    try {
+      const saida = await continuarMigracao(migracaoId);
+      setResultado(saida);
+      onRecarregar();
     } finally {
       setExecutando(false);
     }
@@ -827,6 +886,7 @@ function PainelAposentar({
 
   const p = dados.pendencias;
   const totalPendencias = p.ops.length + p.compras.length + p.requisicoes.length;
+  const aberta = dados.migracaoAberta;
 
   return (
     <div className="mt-3 flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning-dim/40 p-4">
@@ -890,25 +950,48 @@ function PainelAposentar({
         ))}
       </div>
 
-      {dados.impedimento ? (
+      {aberta ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger-dim px-3 py-3">
+          <p className="flex items-start gap-2 text-xs font-semibold text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {aberta.itens.some((item) => item.status === "SAIDA_OK")
+              ? `Migração pela metade: a saída do ${dados.codigoLegado} já foi lançada no Omie e a entrada no ` +
+                `${dados.codigoNovo} não. O material está fora dos dois códigos até concluir.`
+              : `A migração anterior do ${dados.codigoLegado} foi interrompida antes de terminar. Conclua a ` +
+                "mesma migração: começar outra poderia tirar o saldo duas vezes."}
+          </p>
+          {aberta.itens.map((item, i) => (
+            <p key={`${item.localNome}-${i}`} className="text-xs text-card-foreground">
+              {item.localNome}: {numero(item.quantidadeLegado)} → {numero(item.quantidadeNovo)} ·{" "}
+              <b>{item.status === "SAIDA_OK" ? "entrada pendente" : item.status.toLowerCase()}</b>
+              {item.motivo ? ` · ${item.motivo}` : ""}
+            </p>
+          ))}
+          <button
+            type="button"
+            onClick={() => void concluir(aberta.id)}
+            disabled={executando}
+            className="flex w-fit items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            <ArrowRightLeft className="h-4 w-4" />
+            {executando
+              ? "Concluindo…"
+              : aberta.itens.some((item) => item.status === "SAIDA_OK")
+                ? "Concluir a entrada pendente"
+                : "Concluir a migração"}
+          </button>
+        </div>
+      ) : dados.impedimento ? (
         <p className="flex items-start gap-2 rounded-lg bg-danger-dim px-3 py-2 text-xs text-danger">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           {dados.impedimento}
         </p>
       ) : (
         <>
-          <label className="flex items-start gap-2 text-xs text-card-foreground">
-            <input
-              type="checkbox"
-              checked={inativar}
-              onChange={(e) => setInativar(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
-            />
-            <span>
-              Inativar o cadastro <b>{dados.codigoLegado}</b> no Omie depois de mover o saldo. Isso é escrita no
-              ERP e a tela não desfaz: o cadastro some das buscas, dos pedidos e das estruturas novas.
-            </span>
-          </label>
+          <p className="text-xs text-muted-foreground">
+            Depois de mover, inative o <b>{dados.codigoLegado}</b> na tela do Omie: a API do Omie não inativa
+            cadastro. O VitalOps confere e marca como inativado quando o Omie disser que está.
+          </p>
 
           {totalPendencias > 0 || p.incompleto ? (
             <label className="flex items-start gap-2 text-xs text-warning">
@@ -956,20 +1039,27 @@ function ResultadoMigracao({ resultado }: { resultado: ResultadoMigracaoLegado }
   }
 
   const pendentes = resultado.pendentes ?? 0;
+  const concluido = resultado.aposentado || resultado.status === "CONCLUIDO";
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
-      <p className={`text-xs font-semibold ${pendentes > 0 ? "text-warning" : "text-success"}`}>
+      <p className={`text-xs font-semibold ${concluido && pendentes === 0 ? "text-success" : "text-warning"}`}>
         {pendentes > 0
           ? `${pendentes} local(is) tiveram a saída lançada e a entrada não. O material está fora dos dois códigos até concluir.`
           : resultado.aposentado
             ? "Saldo migrado e código antigo aposentado."
-            : "Migração processada."}
+            : resultado.status === "CONCLUIDO"
+              ? "Entrada concluída: o saldo está no código novo. Agora dá para aposentar o antigo."
+              : resultado.status === "FALHA"
+                ? resultado.itens.some((item) => item.status === "MIGRADO")
+                  ? "Parte do saldo foi movida. Os locais com FALHA continuam no código antigo (veja abaixo)."
+                  : "Nada foi movido: o Omie recusou a saída. O código antigo continua como estava."
+                : "A migração não terminou. Veja a situação de cada local abaixo."}
       </p>
       {resultado.avisoInativacao ? (
         <p className="text-xs text-warning">{resultado.avisoInativacao}</p>
       ) : null}
       {resultado.inativadoNoOmie ? (
-        <p className="text-xs text-muted-foreground">Cadastro inativado no Omie.</p>
+        <p className="text-xs text-muted-foreground">Conferido no Omie: o cadastro antigo está inativo.</p>
       ) : null}
       {resultado.motivoInterrupcao ? (
         <p className="text-xs text-warning">{resultado.motivoInterrupcao}</p>

@@ -180,7 +180,7 @@ describe("listarLocaisEstoque / nomeDoLocal", () => {
 });
 
 describe("baixarEstoque", () => {
-  it("baixa com id_prod, tipo SAI, motivo OPS, valor = CMC × quantidade e cod_int_ajuste nosso", async () => {
+  it("baixa com id_prod, tipo SAI, motivo OPS, valor = CMC UNITÁRIO e cod_int_ajuste nosso", async () => {
     const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 987 });
     const ctx = contexto(
       { "MAT 001": { idProd: "111", descricao: "Fita" } },
@@ -201,7 +201,8 @@ describe("baixarEstoque", () => {
       tipo: "SAI",
       motivo: "OPS",
       origem: "AJU",
-      valor: 5,
+      // O `valor` do Omie é unitário: 2 × 2,5 = 5 seria o total.
+      valor: 2.5,
       obs: "REQ-0001",
     });
     expect(resultado.itens[0]).toMatchObject({ outcome: "baixado", omieRef: "987" });
@@ -736,7 +737,7 @@ describe("reverterBaixa (estorno)", () => {
     obs: "Estorno",
   };
 
-  it("lança ENTRADA nos mesmos lotes, valor = custo × qtd, cod_int est-<chave>", async () => {
+  it("lança ENTRADA (motivo OPE) nos mesmos lotes, valor = custo UNITÁRIO, cod_int est-<chave>", async () => {
     const chamar = vi.fn<ChamarFn>().mockResolvedValue({ id_ajuste: 999 });
     const resultado = await reverterBaixa([ITEM_REV], "16/07/2026", chamar, "8667075521");
     const [path, call, param] = chamar.mock.calls[0];
@@ -746,8 +747,11 @@ describe("reverterBaixa (estorno)", () => {
       cod_int_ajuste: "est-bi-1",
       id_prod: 111,
       tipo: "ENT",
+      // OPS numa entrada volta recusado pelo Omie ("Valores permitidos: 'INI',
+      // 'INV', 'OPE', 'PDV'"); e o valor unitário vira o custo do saldo.
+      motivo: "OPE",
       quan: 4,
-      valor: 10,
+      valor: 2.5,
       lote_validade: [{ nIdLote: 30, nQtdLote: 4 }],
       codigo_local_estoque: 8667075521,
     });

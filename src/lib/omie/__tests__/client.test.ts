@@ -195,3 +195,65 @@ describe("chamar — releitura (revalidar) respeita o piso de 60s", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
+
+// 28/09/2026: a 2ª tentativa da migração do PRD00240 leu do cache o saldo de
+// ANTES da saída que acabara de passar, e tentou tirar os 167,48 KG de novo.
+describe("chamar — escrita de estoque invalida as leituras de posição", () => {
+  function cacheQueAnota(invalidados: string[]): CacheStore {
+    return {
+      async get() {
+        return null;
+      },
+      async store() {},
+      async invalidate(path: string) {
+        invalidados.push(path);
+        return 1;
+      },
+    };
+  }
+
+  it("ajuste de estoque invalida o próprio caminho, a posição e os lotes", async () => {
+    const invalidados: string[] = [];
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ id_ajuste: 1 })));
+
+    await chamar(
+      "estoque/ajuste/",
+      "IncluirAjusteEstoque",
+      { tipo: "SAI" },
+      { write: true },
+      { ...deps(fetchImpl), cache: cacheQueAnota(invalidados) },
+    );
+
+    expect(invalidados).toEqual(["estoque/ajuste/", "estoque/consulta/", "produtos/produtoslote/"]);
+  });
+
+  it("escrita em outro caminho só invalida o próprio caminho", async () => {
+    const invalidados: string[] = [];
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ codigo_produto: 1 })));
+
+    await chamar(
+      "geral/produtos/",
+      "AlterarProduto",
+      {},
+      { write: true },
+      { ...deps(fetchImpl), cache: cacheQueAnota(invalidados) },
+    );
+
+    expect(invalidados).toEqual(["geral/produtos/"]);
+  });
+
+  it("leitura não invalida nada", async () => {
+    const invalidados: string[] = [];
+    const fetchImpl = vi.fn(async () => fakeResponse(200, JSON.stringify({ produtos: [] })));
+
+    await chamar(
+      "estoque/consulta/",
+      "ListarPosEstoque",
+      {},
+      {},
+      { ...deps(fetchImpl), cache: cacheQueAnota(invalidados) },
+    );
+
+    expect(invalidados).toEqual([]);
+  });
+});

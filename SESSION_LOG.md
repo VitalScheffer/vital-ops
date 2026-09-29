@@ -6420,3 +6420,87 @@ campo em % na tela, começando em 100% (área teórica). Rodando a BOM real da C
 
 - **Publicação:** commit `b3d5088` enviado para `origin/master` (`VitalScheffer/vital-ops`). O status Vercel do commit ficou `success` e o deploy `9sFVd8Xx3N7Byk8LrZ678UU6MS6e` concluiu.
 - **Validação operacional pendente:** não foi executada escrita real no Omie nesta sessão; falta homologar uma BOM pequena com alteração de quantidade, retirada de peça e revisão.
+
+## 2026-09-29 — De/Para: a entrada no Omie nunca passava (PRD00240 → MATTB RD222 12I43)
+
+### Resumo
+O Vitor reportou: "fiz no De/Para do VitalOps e deu erro, mas depois foi no VitalOps e não foi no Omie".
+A tela mostrava a migração do PRD00240 com FALHA de "saldo negativo". Diagnóstico pelo banco (MigracaoLegado,
+AuditLog e OmieCache) e pelo Omie (só leitura), três cliques em 28/09 às 19h29 (horário de Brasília):
+
+1. **19:29:01**: a SAÍDA de 167,48 KG do PRD00240 passou (ajuste 12189013339); a ENTRADA no MATTB foi recusada:
+   "preenchimento inválido da tag [motivo]! Valores permitidos: 'INI', 'INV', 'OPE', 'PDV'". O código mandava
+   motivo OPS nas duas pernas, e OPS só vale em saída (doc: OPS = OP-Saída, OPE = OP-Entrada).
+2. **19:29:18**: a tela não tinha botão de concluir (o `continuarMigracao` existia no servidor, sem nenhum botão),
+   então o 2º clique criou uma migração NOVA. O saldo veio do cache do client (a escrita não invalidava
+   estoque/consulta/), ainda 167,48, e a nova saída foi barrada pelo Omie por saldo negativo. Era o erro da tela.
+3. **19:29:47**: com o saldo já zero, o caminho "nada a mover" aposentou o código, gravou saldoMigrado 0 e
+   marcou "inativado no Omie". O `AlterarProduto {codigo_produto, inativo:"S"}` respondeu "Produto alterado com
+   sucesso!", mas o PRD00240 seguiu `inativo: "N"` e com `dAlt` em 10/07/2026: a API ignora o campo (o
+   automacao-lotes já tinha registrado isso). Era a pendência aberta em 01/09, agora respondida.
+
+Resultado: 167,48 KG fora dos dois códigos, e o VitalOps dizendo que estava tudo feito.
+
+Mesmo bug na **Movimentação por OP**: OP 2026/00801 (31/08), PRD01213 0,426 KG e COMRU TP3CN C015M 10 UN
+saíram da Matéria-Prima e nunca entraram no Reservado Produção (itens SAIDA_OK). Nenhuma transferência nem
+estorno de entrada tinha passado até hoje.
+
+### Correção dos dados (aprovada pelo Vitor, passo a passo)
+- **Omie:** entrada de 167,48 KG no MATTB RD222 12I43, Matéria-Prima, data 28/09, motivo OPE, chave
+  `cmuln55jz000504kzmz2tpbde-me` (a mesma que o app usaria na retomada).
+- **Erro meu no meio:** a 1ª entrada foi com valor 1246,05 (o total, como o código fazia) e o Omie gravou como
+  UNITÁRIO: nCMC do MATTB em 1246,05/KG. Excluí (`ExcluirAjusteEstoque` 12189786309) e relancei com 7,44/KG:
+  ajuste **12189809451**. Conferido: saldo 167,48 e nCMC 7,44 em 28/09 e 29/09.
+- **Banco do VitalOps (uma transação):** item → MIGRADO com refEntrada 12189809451; migração
+  cmuln55jl000404kzctn3umsv → CONCLUIDO; De/Para: saldoMigrado 167,48 e inativadoNoOmieEm nulo; linha de
+  auditoria `depara.correcao_manual`.
+- **OP 2026/00801: só anotado** (decisão do Vitor). Faz um mês; conferir o físico antes de lançar.
+
+### Correção do código (branch fix/depara-entrada-omie)
+- `src/lib/estoque/omieEstoque.ts`: `MOTIVO_SAIDA = "OPS"`, `MOTIVO_ENTRADA = "OPE"` e `valorUnitario()`.
+  Estorno (`reverterBaixa`) com OPE e valor unitário; baixa com valor unitário.
+- `src/lib/estoque/omieMigracao.ts`: OPE na entrada; valor unitário nas duas pernas (na entrada, total ÷ quantidade
+  nova, para o fator de conversão não mudar o total); retomada usa o custo gravado da saída.
+- `src/lib/estoque/omieOp.ts`: transferência com OPS na saída e OPE na entrada, valor unitário.
+- `src/lib/omie/client.ts`: escrita em estoque/ajuste/ invalida também estoque/consulta/ e produtos/produtoslote/.
+- `src/lib/estoque/omieProduto.ts`: sem escrita. Sai o `inativarProduto`; fica `produtoInativo` (leitura) e o texto
+  de instrução.
+- `src/app/(app)/de-para/actions.ts`: `pendenciasLegado` devolve `migracaoAberta` (PENDENTE/ENVIANDO);
+  `migrarLegado` e `migrarEntradaTardia` recusam com migração aberta; `saldoMigrado` = soma dos itens MIGRADO;
+  passo 3 só confere no Omie; nova action `conferirInativacao`; obs com "->" (o Omie grava a seta como "¿¿¿").
+- `src/lib/contracts/movimentacao.ts`: sai `inativarNoOmie` do schema da migração.
+- `src/components/depara/DeParaClient.tsx`: bloco "Migração pela metade" com botão "Concluir a entrada pendente"
+  no lugar do botão de migrar; sem a caixa "inativar no Omie" (texto explicando que é pela tela do Omie);
+  "Conferir no Omie" no código aposentado; mensagens de resultado por situação (a genérica "Migração processada."
+  saiu).
+- `src/lib/changelog.ts`: entrada de 29/09.
+- Testes: `omieMigracao.test.ts`, `omieOp.test.ts`, `omieEstoque.test.ts` e `omie/__tests__/client.test.ts`.
+  Os 7 testes novos/alterados de estoque falham no código antigo e passam no novo.
+
+### Decisões
+- **Contraria a decisão de 01/09** ("inativar no Omie pelo AlterarProduto com payload mínimo"): a premissa nunca
+  tinha sido testada e hoje ficou provado que a API responde sucesso e não grava. Manter a escrita seria manter
+  um botão que sempre mente. Inativar é na tela do Omie; o VitalOps só marca quando LÊ "S".
+- **`valor` do IncluirAjusteEstoque é unitário.** Na saída o Omie ignora e grava o próprio CMC (a saída do PRD00240
+  mandou 1246,05 e ficou 7,44), então as baixas desde julho não distorceram custo. Na entrada ele vira o custo do
+  saldo. Se só o motivo fosse corrigido, toda entrada passaria a chegar com custo multiplicado pela quantidade.
+- **Uma migração aberta bloqueia qualquer outra do mesmo código** (inclusive a entrada tardia e a aposentadoria
+  "sem saldo"), e o caminho é concluir a que existe, com a mesma chave de idempotência.
+- **Transferência `tipo: "TRF"`:** a doc do Omie lista TRF com `codigo_local_estoque_destino` (transferência numa
+  chamada só, sem estado SAIDA_OK). Ficou só registrado no comentário do omieOp: não foi exercitado contra a API.
+- O Omie também guarda resposta de LISTAGEM idêntica por alguns minutos: a mesma consulta de ajustes feita logo
+  depois da exclusão ainda mostrou o ajuste excluído. Para conferir depois de escrever, mudar o payload.
+
+### Comandos relevantes
+- Leituras: scripts node com `pg` (transação READ ONLY) no Neon do VitalOps e `fetch` direto no Omie
+  (ListarPosEstoque, ConsultarProduto, ListarAjusteEstoque, ListarLocaisEstoque).
+- Escritas aprovadas: IncluirAjusteEstoque (2x), ExcluirAjusteEstoque (1x), UPDATE/INSERT numa transação no banco.
+- `npm ci`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx vitest run` (72 arquivos, 799 testes),
+  `npm run build`.
+
+### Pendências / próximos passos
+- **Inativar o PRD00240 na tela do Omie** (a API não faz). Depois, "Conferir no Omie" no De/Para.
+- **OP 2026/00801:** conferir o físico de PRD01213 (0,426 KG) e COMRU TP3CN C015M (10 UN, lote 12154890341) antes de
+  qualquer lançamento. Depois do deploy, o "continuar" da Movimentação por OP lança a entrada no Reservado Produção.
+- Tela nova (bloco de migração pela metade, "Conferir no Omie") não foi vista no navegador nesta sessão.
+- Avaliar trocar a transferência SAI+ENT pelo `tipo: "TRF"` depois de um teste controlado.

@@ -24,6 +24,17 @@ export function versaoDaEntrada(entry: ChangelogEntry): string {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    date: "2026-09-29",
+    title: "De/Para e Movimentação por OP: a entrada no Omie volta a funcionar",
+    items: [
+      "Toda ENTRADA de estoque feita pelo Vital Ops estava sendo recusada pelo Omie (motivo de ajuste errado). A saída passava e a entrada não: foi o que deixou o PRD00240 sem os 167,48 KG, que não chegaram ao MATTB RD222 12I43. A entrada agora vai com o motivo certo, na migração do De/Para, na transferência da Movimentação por OP e no estorno.",
+      "O custo da entrada agora vai por unidade, que é como o Omie entende o campo. Mandar o total faria o material chegar com custo médio multiplicado pela quantidade.",
+      "Se uma migração ficar pela metade (saiu do código antigo e não entrou no novo), o painel de aposentar mostra o local pendente e troca o botão por \"Concluir a entrada pendente\". Não dá mais para começar uma migração nova por cima, nem aposentar o código, enquanto a anterior não fechar: antes, clicar de novo tentava tirar o saldo pela segunda vez.",
+      "Depois de uma saída, o saldo mostrado é relido do Omie na hora, em vez de reaproveitar a leitura de antes da saída.",
+      "Inativar o código antigo agora é pela tela do Omie: a API do Omie responde \"alterado com sucesso\" e não inativa o cadastro. O Vital Ops confere e só marca \"inativado no Omie\" quando o Omie diz que está. O botão \"Conferir no Omie\" do código aposentado faz essa conferência depois que você inativar lá.",
+    ],
+  },
+  {
     date: "2026-09-21",
     title: "Produtos: o envio sobrescreve a estrutura que já está no Omie",
     items: [

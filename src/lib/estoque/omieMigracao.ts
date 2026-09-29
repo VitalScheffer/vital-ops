@@ -16,7 +16,10 @@ import { OmieBlocked, OmieDuplicate } from "@/lib/omie/errors";
 import type { OmiePayload } from "@/lib/omie/client";
 import {
   LOCAL_PADRAO,
+  MOTIVO_ENTRADA,
+  MOTIVO_SAIDA,
   alocarLotesFEFO,
+  valorUnitario,
   type AlocacaoLote,
   type ChamarFn,
   type LoteDisponivel,
@@ -62,6 +65,12 @@ export interface ItemMigracao {
   obs: string;
   /** A saída já foi lançada num envio anterior: manda só a entrada. */
   saidaFeita?: boolean;
+  /**
+   * CMC do cadastro antigo com que a saída foi lançada. Na retomada ele vale
+   * mais que o saldo relido: o antigo pode estar zerado, e o Omie devolve CMC 0
+   * para saldo zero, o que faria a entrada chegar sem custo.
+   */
+  custoUnitario?: number;
   lotes?: AlocacaoLote[];
 }
 
@@ -124,11 +133,14 @@ export function novoAceitaEntrada(novo: ProdutoEstoque): { ok: boolean; motivo?:
 /**
  * Move o saldo do cadastro antigo para o novo, um local por vez.
  *
- * O valor dos DOIS ajustes sai do CMC do cadastro ANTIGO multiplicado pela
- * quantidade que sai dele. É o único jeito de o total não mudar: usar o CMC do
- * cadastro novo (que pode ser zero, ou de outra unidade) na perna de entrada
- * inventaria ou apagaria valor de estoque numa operação que é só uma troca de
- * etiqueta.
+ * O valor dos DOIS ajustes sai do CMC do cadastro ANTIGO. É o único jeito de o
+ * total não mudar: usar o CMC do cadastro novo (que pode ser zero, ou de outra
+ * unidade) na perna de entrada inventaria ou apagaria valor de estoque numa
+ * operação que é só uma troca de etiqueta.
+ *
+ * O `valor` do Omie é UNITÁRIO (ver `valorUnitario`). Na saída ele é o CMC do
+ * antigo; na entrada é o mesmo total dividido pela quantidade NOVA, porque com
+ * fator de conversão 240 kg viram 1.694,9 m² e o custo por unidade muda junto.
  */
 export async function migrarSaldo(
   itens: readonly ItemMigracao[],
@@ -183,7 +195,8 @@ export async function migrarSaldo(
     }
 
     const saldo = ctx.saldos.get(item.localCodigo);
-    const cmc = saldo?.cmc ?? 0;
+    const cmc =
+      item.saidaFeita && (item.custoUnitario ?? 0) > 0 ? (item.custoUnitario ?? 0) : (saldo?.cmc ?? 0);
     const local = localParaOmie(item.localCodigo);
     let alocacaoLote: AlocacaoLote[] | undefined = item.lotes;
 
@@ -217,7 +230,7 @@ export async function migrarSaldo(
       }
     }
 
-    const valorTotal = cmc > 0 ? Number((cmc * item.quantidadeLegado).toFixed(2)) : undefined;
+    const custoEntrada = item.quantidadeNovo > 0 ? (cmc * item.quantidadeLegado) / item.quantidadeNovo : 0;
     const noLocal: OmiePayload = local ? { codigo_local_estoque: local } : {};
 
     // --- perna 1: saída do cadastro ANTIGO ---
@@ -235,9 +248,9 @@ export async function migrarSaldo(
             id_prod: Number(ctx.legado.idProd),
             data: ctx.data,
             quan: item.quantidadeLegado,
-            motivo: "OPS",
+            motivo: MOTIVO_SAIDA,
             origem: "AJU",
-            ...(valorTotal !== undefined ? { valor: valorTotal } : {}),
+            ...valorUnitario(cmc),
             ...(loteValidade && loteValidade.length > 0 ? { lote_validade: loteValidade } : {}),
             cod_int_ajuste: `${item.chave}-${SUFIXO_SAIDA}`.slice(0, 60),
             tipo: "SAI",
@@ -286,9 +299,9 @@ export async function migrarSaldo(
           id_prod: Number(ctx.novo.idProd),
           data: ctx.data,
           quan: item.quantidadeNovo,
-          motivo: "OPS",
+          motivo: MOTIVO_ENTRADA,
           origem: "AJU",
-          ...(valorTotal !== undefined ? { valor: valorTotal } : {}),
+          ...valorUnitario(custoEntrada),
           cod_int_ajuste: `${item.chave}-${SUFIXO_ENTRADA}`.slice(0, 60),
           tipo: "ENT",
           obs: `Entrada p/ ${item.obs}`.slice(0, 500),

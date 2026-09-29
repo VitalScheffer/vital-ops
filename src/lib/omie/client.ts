@@ -39,6 +39,15 @@ export interface ChamarOptions {
 // ainda gastaria orçamento de ban.
 export const REVALIDACAO_MINIMA_SEGUNDOS = 60;
 
+// Escrever num caminho deixa velha a LEITURA de outro: um ajuste de estoque
+// muda a posição (estoque/consulta/) e os lotes (produtos/produtoslote/). Sem
+// isto, o saldo de antes da saída continuava saindo do cache por até dois
+// minutos, e foi ele que deixou a 2ª tentativa da migração do PRD00240
+// (28/09/2026) achar que ainda havia 167,48 KG para tirar do código antigo.
+export const LEITURAS_AFETADAS_PELA_ESCRITA: Readonly<Record<string, readonly string[]>> = {
+  "estoque/ajuste/": ["estoque/consulta/", "produtos/produtoslote/"],
+};
+
 // Dependências injetáveis (facilita teste; a produção usa defaultDeps).
 export interface OmieClientDeps {
   breaker: Breaker;
@@ -184,6 +193,9 @@ async function handle(
     });
     if (ctx.write) {
       await deps.cache.invalidate(path);
+      for (const afetado of LEITURAS_AFETADAS_PELA_ESCRITA[path] ?? []) {
+        await deps.cache.invalidate(afetado);
+      }
     }
     return resposta;
   }

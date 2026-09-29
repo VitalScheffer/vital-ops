@@ -290,14 +290,20 @@ describe("transferirEstoque", () => {
     expect(saida).toMatchObject({
       cod_int_ajuste: "mvi-1-s",
       tipo: "SAI",
+      motivo: "OPS",
       codigo_local_estoque: 5940905787,
       quan: 21.6566,
+      valor: 12.5,
     });
+    // OP 2026/00801 (31/08/2026): a entrada ia com motivo OPS, o Omie recusava e
+    // o material ficava fora dos dois locais. O valor é unitário nas duas pernas.
     expect(entrada).toMatchObject({
       cod_int_ajuste: "mvi-1-e",
       tipo: "ENT",
+      motivo: "OPE",
       codigo_local_estoque: 12170621031,
       quan: 21.6566,
+      valor: 12.5,
     });
     expect(resultado.itens[0]).toMatchObject({
       outcome: "transferido",

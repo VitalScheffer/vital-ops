@@ -122,12 +122,11 @@ export type PendenciasLegadoInput = z.infer<typeof pendenciasLegadoSchema>;
 
 // Migração de saldo + aposentadoria do código antigo.
 //
-// `inativarNoOmie` é separado e explícito porque é ESCRITA no cadastro do ERP,
-// e escrita que a tela não pode desfazer sozinha. Aposentar aqui dentro é
-// reversível; inativar lá não é, pela tela.
+// Não existe mais "inativar no Omie" aqui: a API do Omie ignora o campo
+// `inativo` (responde sucesso e não grava, provado em 28/09/2026). Inativar é
+// pela tela do Omie; o VitalOps só confere e marca.
 export const migrarLegadoSchema = z.object({
   codigoLegado: z.string().trim().min(1).max(60),
-  inativarNoOmie: z.boolean().default(false),
   /**
    * A pessoa leu as pendências (OP aberta, requisição, pedido de compra) e
    * decidiu seguir mesmo assim. Sem isso, migrar com documento em aberto é

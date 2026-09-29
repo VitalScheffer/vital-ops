@@ -13,10 +13,12 @@
 //     `codigo_produto` (o ID INTERNO, não o código) — READ em lote. A OP
 //     identifica cada item só pelo id (`nIdProdutoMalha`); confirmado que o
 //     filtro aceita id, então uma OP de 75 itens custa 2 chamadas e não 75.
-//   • `IncluirAjusteEstoque` (estoque/ajuste/) — WRITE. O Omie NÃO tem método de
-//     transferência entre locais: transferir é uma SAÍDA na origem seguida de
-//     uma ENTRADA no destino, com o mesmo produto, quantidade e (quando há
-//     controle de lote) os mesmos lotes.
+//   • `IncluirAjusteEstoque` (estoque/ajuste/) — WRITE. Transferir aqui é uma
+//     SAÍDA na origem (motivo OPS) seguida de uma ENTRADA no destino (motivo
+//     OPE), com o mesmo produto, quantidade e (quando há controle de lote) os
+//     mesmos lotes. A doc do Omie também lista `tipo: "TRF"` com
+//     `codigo_local_estoque_destino` (a transferência numa chamada só), que
+//     ainda não foi exercitado contra a API.
 //
 // Módulo PURO (não toca banco/sessão): recebe `chamar` por parâmetro, igual ao
 // omieEstoque. Reaproveita dali produtos, saldos, lotes e FEFO.
@@ -26,7 +28,10 @@ import type { ChamarOptions, OmiePayload } from "@/lib/omie/client";
 import { semAcento } from "@/lib/texto";
 import {
   LOCAL_PADRAO,
+  MOTIVO_ENTRADA,
+  MOTIVO_SAIDA,
   alocarLotesFEFO,
+  valorUnitario,
   type AlocacaoLote,
   type ChamarFn,
   type LoteDisponivel,
@@ -546,14 +551,12 @@ export async function transferirEstoque(
     }
 
     const loteValidade = alocacaoLote?.map((a) => ({ nIdLote: Number(a.nIdLote), nQtdLote: a.quantidade }));
-    const valor = cmc > 0 ? { valor: Number((cmc * item.quantidade).toFixed(2)) } : {};
     const base = {
       id_prod: Number(produto.idProd),
       data: ctx.data,
       quan: item.quantidade,
-      motivo: "OPS",
       origem: "AJU",
-      ...valor,
+      ...valorUnitario(cmc),
       ...(loteValidade && loteValidade.length > 0 ? { lote_validade: loteValidade } : {}),
     };
 
@@ -568,6 +571,7 @@ export async function transferirEstoque(
             ...base,
             cod_int_ajuste: `${item.chave}-${SUFIXO_SAIDA}`.slice(0, 60),
             tipo: "SAI",
+            motivo: MOTIVO_SAIDA,
             obs: `Saída p/ ${item.obs}`.slice(0, 500),
             ...(origem ? { codigo_local_estoque: origem } : {}),
           },
@@ -614,6 +618,7 @@ export async function transferirEstoque(
           ...base,
           cod_int_ajuste: `${item.chave}-${SUFIXO_ENTRADA}`.slice(0, 60),
           tipo: "ENT",
+          motivo: MOTIVO_ENTRADA,
           obs: `Entrada p/ ${item.obs}`.slice(0, 500),
           ...(destino ? { codigo_local_estoque: destino } : {}),
         },
