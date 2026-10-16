@@ -1,5 +1,24 @@
 "use client";
 
+/*
+ * ╔═══════════════════════════════════════════════════════════════════════════════╗
+ * ║  ░▒▓███████████████████████████████████████████████████████████████████████▓▒░  ║
+ * ║  ░▒▓█                                                                     █▓▒░  ║
+ * ║  ░▒▓█   ██╗   ██╗██╗████████╗ █████╗ ██╗         ██████╗ ██████╗ ███████╗ █▓▒░  ║
+ * ║  ░▒▓█   ██║   ██║██║╚══██╔══╝██╔══██╗██║        ██╔═══██╗██╔══██╗██╔════╝ █▓▒░  ║
+ * ║  ░▒▓█   ██║   ██║██║   ██║   ███████║██║        ██║   ██║██████╔╝███████╗ █▓▒░  ║
+ * ║  ░▒▓█   ╚██╗ ██╔╝██║   ██║   ██╔══██║██║        ██║   ██║██╔═══╝ ╚════██║ █▓▒░  ║
+ * ║  ░▒▓█    ╚████╔╝ ██║   ██║   ██║  ██║███████╗   ╚██████╔╝██║     ███████║ █▓▒░  ║
+ * ║  ░▒▓█     ╚═══╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═════╝ ╚═╝     ╚══════╝ █▓▒░  ║
+ * ║  ░▒▓█                                                                     █▓▒░  ║
+ * ║  ░▒▓█  ─────── · ✧ ✦ ★ ✦ ✧ · ───────────────────── · ✧ ✦ ★ ✦ ✧ · ───────  █▓▒░  ║
+ * ║  ░▒▓█    ✧ ✦ ★  DESENVOLVIDO POR VITOR CAMILLO - VITAL SCHEFFER  ★ ✦ ✧    █▓▒░  ║
+ * ║  ░▒▓█  ─────── · ✧ ✦ ★ ✦ ✧ · ───────────────────── · ✧ ✦ ★ ✦ ✧ · ───────  █▓▒░  ║
+ * ║  ░▒▓█                                                                     █▓▒░  ║
+ * ║  ░▒▓███████████████████████████████████████████████████████████████████████▓▒░  ║
+ * ╚═══════════════════════════════════════════════════════════════════════════════╝
+ */
+
 import {
   ArrowLeftRight,
   ArrowRightLeft,
@@ -33,6 +52,12 @@ import { ReportDialog } from "@/components/ReportDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Tutorial } from "@/components/Tutorial";
 import { VitalLogo } from "@/components/VitalLogo";
+import {
+  ASSINATURA_CODIGO,
+  DURACAO_BANDEIRA_MS,
+  EVENTO_BANDEIRA_VENTO,
+  registrarAssinaturaCodigo,
+} from "@/lib/assinatura";
 import type { Role } from "@/lib/contracts";
 import { NEXTSTEP_URL, type NavIcon, type PublicNavItem } from "@/lib/navigation";
 import type { Notificacao } from "@/lib/notificacoes";
@@ -116,6 +141,27 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
   // Easter egg do modo brilho: conta dois cliques rápidos na logo.
   const ultimoCliqueLogo = useRef(0);
   const [burst, setBurst] = useState(0);
+  const [bandeiraVento, setBandeiraVento] = useState(false);
+
+  useEffect(() => {
+    registrarAssinaturaCodigo();
+  }, []);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    function aoDispararBandeira() {
+      setBandeiraVento(true);
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        setBandeiraVento(false);
+      }, DURACAO_BANDEIRA_MS);
+    }
+    window.addEventListener(EVENTO_BANDEIRA_VENTO, aoDispararBandeira);
+    return () => {
+      window.removeEventListener(EVENTO_BANDEIRA_VENTO, aoDispararBandeira);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (burst === 0) return;
@@ -352,6 +398,93 @@ export function AppShell({ user, nav, notificacoes, children }: AppShellProps) {
         novidades={atualizacao.novidades}
         onAdiar={atualizacao.adiarModal}
       />
+
+      {bandeiraVento ? (
+        <div
+          aria-hidden="true"
+          className="vs-wind-overlay pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden"
+        >
+          {/* Filtro SVG de ondulação física de tecido para a bandeira gigante */}
+          <svg width="0" height="0" className="absolute">
+            <defs>
+              <filter id="vs-giant-flag-wave" x="-10%" y="-15%" width="120%" height="130%">
+                <feTurbulence
+                  type="fractalNoise"
+                  baseFrequency="0.006 0.003"
+                  numOctaves="2"
+                  seed="3"
+                  result="noise"
+                >
+                  <animate
+                    attributeName="baseFrequency"
+                    values="0.006 0.003;0.009 0.005;0.005 0.002;0.006 0.003"
+                    dur="3.6s"
+                    repeatCount="indefinite"
+                  />
+                </feTurbulence>
+                <feDisplacementMap
+                  in="SourceGraphic"
+                  in2="noise"
+                  scale="26"
+                  xChannelSelector="R"
+                  yChannelSelector="G"
+                />
+              </filter>
+            </defs>
+          </svg>
+
+          {/* Rajadas de vento luminosas cruzando o fundo escuro */}
+          <span className="vs-wind-gust vs-wind-gust-1" />
+          <span className="vs-wind-gust vs-wind-gust-2" />
+          <span className="vs-wind-gust vs-wind-gust-3" />
+          <span className="vs-wind-gust vs-wind-gust-4" />
+          <span className="vs-wind-gust vs-wind-gust-5" />
+
+          {/* Bandeira GIGANTE ocupando a tela inteira — só ela tremula */}
+          <div className="vs-flag-wrapper">
+            <div className="vs-flag-pole">
+              <span className="vs-flag-orb" />
+            </div>
+
+            <div className="vs-flag-cloth">
+              <div className="vs-flag-waving-surface">
+                <span className="vs-flag-folds" />
+                <span className="vs-flag-shine" />
+
+                <div className="vs-flag-inner-border">
+                  <div className="vs-flag-content">
+                    <div className="vs-flag-emblem">
+                      <VitalLogo className="h-14 w-14 sm:h-20 sm:w-20" />
+                    </div>
+
+                    <div className="vs-flag-crown">
+                      <span>✦</span>
+                      <span>★</span>
+                      <span>VITAL OPS · PLATAFORMA OFICIAL</span>
+                      <span>★</span>
+                      <span>✦</span>
+                    </div>
+
+                    <p className="vs-flag-text">{ASSINATURA_CODIGO}</p>
+
+                    <div className="vs-flag-stars-row">
+                      <span>✧</span>
+                      <span>✦</span>
+                      <span>★</span>
+                      <span>✦</span>
+                      <span>✧</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="vs-flag-timer">
+                <span className="vs-flag-timer-bar" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
