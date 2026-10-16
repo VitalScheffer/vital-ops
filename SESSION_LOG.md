@@ -6504,3 +6504,31 @@ estorno de entrada tinha passado até hoje.
   qualquer lançamento. Depois do deploy, o "continuar" da Movimentação por OP lança a entrada no Reservado Produção.
 - Tela nova (bloco de migração pela metade, "Conferir no Omie") não foi vista no navegador nesta sessão.
 - Avaliar trocar a transferência SAI+ENT pelo `tipo: "TRF"` depois de um teste controlado.
+
+## 2026-10-16 — Publicação da master e recuperação do histórico local
+
+- A pedido de Vitor Camillo, publicado o commit existente `bc88476464723600d5353de9e2e0c361f942654f`
+  (`fix: ajustes de estabilidade na alternancia de tema e notificacoes`) em `origin/master`.
+- O Git HTTPS instalado falhava ao carregar `libcurl-4.dll`, bloqueada pelo Controle de Aplicativo do Windows.
+  Foi usado o cliente Git Dulwich, instalado em uma pasta operacional separada, com a credencial já disponível
+  no Git Credential Manager. Nenhuma política do Windows ou configuração de TLS foi alterada.
+- O clone local também não continha o objeto `4aa223616d8acec6b282323ad7b19867a6627849`.
+  Após backup de `.git`, os objetos foram recuperados de um clone completo do mesmo repositório remoto.
+  Nenhum arquivo de trabalho, conteúdo do commit ou autoria foi modificado nessa recuperação.
+- Verificado `git fsck --full --no-reflogs`: nenhum objeto ausente ou corrompido; os commits soltos anteriores
+  foram preservados. A master remota estava em `4ac7980` e recebeu `bc88476` por avanço normal, sem force.
+- A leitura da referência remota confirmou o SHA publicado. Esta sessão só recuperou o Git e publicou o
+  trabalho existente; não executou build, testes da aplicação, migrações ou ações no Omie.
+- O bloqueio da biblioteca do Git instalado permanece pendente de revisão pela administração do Windows.
+  Os scripts e o backup desta operação estão fora do repo, em
+  `C:\Users\devvi\Documents\Codex\vitalops-push-20261016`.
+
+## 2026-10-16 — Nova publicação solicitada por Vitor
+
+- O `AppShell.tsx` informado em Downloads e o arquivo do repositório têm o mesmo SHA-256.
+- Publicação do trabalho local já registrado em `e02bf2a`, incluindo os ajustes associados em `globals.css`.
+- A master local havia sido reconstruída sobre `4ac7980`, enquanto a remota estava em `f6ef901`.
+  A comparação direta confirmou que os únicos arquivos diferentes eram `AppShell.tsx` e `globals.css`.
+  Integração com estratégia `ours` preserva integralmente o conteúdo local e os dois históricos, sem force.
+- Validação desta sessão: igualdade do arquivo indicado, comparação das árvores e integridade dos objetos Git.
+  Não houve alteração adicional no código nem execução de build, testes ou migrações.

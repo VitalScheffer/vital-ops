@@ -1,6 +1,7 @@
 {
   "name": "vital-ops",
   "version": "0.1.0",
+  "author": "DESENVOLVIDO POR VITOR CAMILLO - VITAL SCHEFFER",
   "private": true,
   "scripts": {
     "dev": "next dev",
