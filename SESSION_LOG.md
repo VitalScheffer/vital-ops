@@ -6532,3 +6532,12 @@ estorno de entrada tinha passado até hoje.
   Integração com estratégia `ours` preserva integralmente o conteúdo local e os dois históricos, sem force.
 - Validação desta sessão: igualdade do arquivo indicado, comparação das árvores e integridade dos objetos Git.
   Não houve alteração adicional no código nem execução de build, testes ou migrações.
+
+## 2026-10-16 — Publicação da atualização seguinte
+
+- Vitor solicitou nova publicação da master. O trabalho já estava no commit local `9ece7d2`.
+- O `AppShell.tsx` local corresponde ao arquivo indicado em Downloads por SHA-256.
+- Comparação com a master remota `b45f873`: alterações em `AppShell.tsx`, `globals.css` e `assinatura.ts`;
+  o histórico de sessão estava preservado. Integração `ours` mantém a árvore local e ambos os históricos.
+- Publicação sem force pelo cliente Dulwich, com verificação do SHA remoto e da integridade dos objetos.
+  Nenhum código foi alterado por esta sessão; build, testes e migrações não foram executados.
