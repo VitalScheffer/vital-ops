@@ -6522,3 +6522,13 @@ estorno de entrada tinha passado até hoje.
 - O bloqueio da biblioteca do Git instalado permanece pendente de revisão pela administração do Windows.
   Os scripts e o backup desta operação estão fora do repo, em
   `C:\Users\devvi\Documents\Codex\vitalops-push-20261016`.
+
+## 2026-10-16 — Nova publicação solicitada por Vitor
+
+- O `AppShell.tsx` informado em Downloads e o arquivo do repositório têm o mesmo SHA-256.
+- Publicação do trabalho local já registrado em `e02bf2a`, incluindo os ajustes associados em `globals.css`.
+- A master local havia sido reconstruída sobre `4ac7980`, enquanto a remota estava em `f6ef901`.
+  A comparação direta confirmou que os únicos arquivos diferentes eram `AppShell.tsx` e `globals.css`.
+  Integração com estratégia `ours` preserva integralmente o conteúdo local e os dois históricos, sem force.
+- Validação desta sessão: igualdade do arquivo indicado, comparação das árvores e integridade dos objetos Git.
+  Não houve alteração adicional no código nem execução de build, testes ou migrações.
