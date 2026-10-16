@@ -4,6 +4,7 @@ import { Bell, BellOff, BellRing } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { registrarPulsoInteracao } from "@/lib/assinatura";
 import type { Notificacao } from "@/lib/notificacoes";
 import {
   ativarNotificacoesPush,
@@ -74,7 +75,10 @@ export function NotificacoesBell({ notificacoes }: { notificacoes: Notificacao[]
     >
       <button
         type="button"
-        onClick={() => setAberto((v) => !v)}
+        onClick={() => {
+          registrarPulsoInteracao();
+          setAberto((v) => !v);
+        }}
         className="relative flex items-center justify-center rounded-lg border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-card-foreground"
         aria-label={`Notificações${total > 0 ? ` (${total})` : ""}`}
         title="Notificações"

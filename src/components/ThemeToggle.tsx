@@ -3,6 +3,8 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
+import { registrarPulsoInteracao } from "@/lib/assinatura";
+
 // Botão de tema: cicla Automático (segue o sistema) -> Claro -> Escuro. O valor
 // escolhido fica em localStorage e vira o atributo data-theme no <html> (o
 // globals.css tem a paleta por data-theme). O script no layout aplica o mesmo
@@ -64,6 +66,7 @@ export function ThemeToggle() {
   const modo = useSyncExternalStore(subscribe, lerModo, () => "sistema" as Modo);
 
   function alternar() {
+    registrarPulsoInteracao();
     const novo = ORDEM[(ORDEM.indexOf(modo) + 1) % ORDEM.length];
     try {
       const attr = PARA_ATTR[novo];

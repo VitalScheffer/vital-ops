@@ -1,12 +1,34 @@
 /* eslint-disable @next/next/no-sync-scripts -- o tema precisa ser aplicado antes da hidratação; next/script cria um script interno com nonce divergente. */
+/*
+ * ╔═══════════════════════════════════════════════════════════════════════════════╗
+ * ║  ░▒▓███████████████████████████████████████████████████████████████████████▓▒░  ║
+ * ║  ░▒▓█                                                                     █▓▒░  ║
+ * ║  ░▒▓█   ██╗   ██╗██╗████████╗ █████╗ ██╗         ██████╗ ██████╗ ███████╗ █▓▒░  ║
+ * ║  ░▒▓█   ██║   ██║██║╚══██╔══╝██╔══██╗██║        ██╔═══██╗██╔══██╗██╔════╝ █▓▒░  ║
+ * ║  ░▒▓█   ██║   ██║██║   ██║   ███████║██║        ██║   ██║██████╔╝███████╗ █▓▒░  ║
+ * ║  ░▒▓█   ╚██╗ ██╔╝██║   ██║   ██╔══██║██║        ██║   ██║██╔═══╝ ╚════██║ █▓▒░  ║
+ * ║  ░▒▓█    ╚████╔╝ ██║   ██║   ██║  ██║███████╗   ╚██████╔╝██║     ███████║ █▓▒░  ║
+ * ║  ░▒▓█     ╚═══╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═════╝ ╚═╝     ╚══════╝ █▓▒░  ║
+ * ║  ░▒▓█                                                                     █▓▒░  ║
+ * ║  ░▒▓█  ─────── · ✧ ✦ ★ ✦ ✧ · ───────────────────── · ✧ ✦ ★ ✦ ✧ · ───────  █▓▒░  ║
+ * ║  ░▒▓█    ✧ ✦ ★  DESENVOLVIDO POR VITOR CAMILLO - VITAL SCHEFFER  ★ ✦ ✧    █▓▒░  ║
+ * ║  ░▒▓█  ─────── · ✧ ✦ ★ ✦ ✧ · ───────────────────── · ✧ ✦ ★ ✦ ✧ · ───────  █▓▒░  ║
+ * ║  ░▒▓█                                                                     █▓▒░  ║
+ * ║  ░▒▓███████████████████████████████████████████████████████████████████████▓▒░  ║
+ * ╚═══════════════════════════════════════════════════════════════════════════════╝
+ */
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+
+import { ASSINATURA_CODIGO } from "@/lib/assinatura";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Vital Ops — Vital Scheffer",
   description: "Plataforma interna de operações da Vital Scheffer.",
+  authors: [{ name: ASSINATURA_CODIGO }],
+  creator: ASSINATURA_CODIGO,
 };
 
 // Aplica o tema salvo (claro/escuro forçado no botão) e o modo brilho (easter
@@ -24,7 +46,12 @@ export default async function RootLayout({
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
-    <html lang="pt-BR" className="h-full antialiased" suppressHydrationWarning>
+    <html
+      lang="pt-BR"
+      className="h-full antialiased"
+      data-watermark={ASSINATURA_CODIGO}
+      suppressHydrationWarning
+    >
       <body className="min-h-full flex flex-col">
         <script nonce={nonce} src="/theme-init.js" suppressHydrationWarning />
         {children}
